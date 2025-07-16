@@ -80,6 +80,7 @@ You can quickly view how this works by running this repositories .claude setup.
 ```bash
 # 1. Start both server and client
 ./scripts/start-system.sh
+# Note: Dependencies will be automatically installed on first run
 
 # 2. Open http://localhost:5173 in your browser
 
@@ -139,7 +140,7 @@ claude-code-hooks-multi-agent-observability/
 │   └── settings.json      # Hook configuration
 │
 ├── scripts/               # Utility scripts
-│   ├── start-system.sh   # Launch server & client
+│   ├── start-system.sh   # Launch server & client (auto-installs dependencies)
 │   ├── reset-system.sh   # Stop all processes
 │   └── test-system.sh    # System validation
 │
