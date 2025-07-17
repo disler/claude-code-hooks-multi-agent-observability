@@ -62,7 +62,8 @@ def main():
         print(f"🎯 Text: {text}")
         
         # Configuration
-        voice_id = "56AoDkrOh6qfVPDXZ7Pt"
+        voice_id = os.getenv("ELEVENLABS_VOICE_ID", "pFZP5JQG7iQjIQuC4Bku")
+        print(f"🎤 Voice ID: {voice_id}")
         model_id = "eleven_turbo_v2_5"
         output_format = "mp3_44100_128"
         
