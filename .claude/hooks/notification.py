@@ -12,6 +12,7 @@ import os
 import sys
 import subprocess
 import random
+import time
 from pathlib import Path
 from utils.constants import ensure_session_log_dir
 
@@ -53,6 +54,8 @@ def get_tts_script_path():
 
 def announce_notification():
     """Announce that the agent needs user input."""
+
+
     try:
         tts_script = get_tts_script_path()
         if not tts_script:
@@ -61,19 +64,27 @@ def announce_notification():
         # Get engineer name if available
         engineer_name = os.getenv('ENGINEER_NAME', '').strip()
         
-        # Create notification message with 30% chance to include name
-        if engineer_name and random.random() < 0.3:
-            notification_message = f"{engineer_name}, your agent needs your input"
-        else:
-            notification_message = "Your agent needs your input"
+        notification_messages = ["Your agent needs your input", 
+                                 "Your agent is waiting", 
+                                 "Your agent is ready",
+                                 "Your agent is waiting for your input",  
+                                 "Your agent is awaiting your input", 
+                                 "Your agent is waiting for your response", 
+                                 "Your agent is awaiting your response", 
+                                 "Your agent has a question",]
+        # Create notification message with 50% chance to include name
+        notification_message = random.choice(notification_messages)
+        if engineer_name and random.random() < 0.5:
+            notification_message = f"{engineer_name}, " + notification_message
         
         # Call the TTS script with the notification message
-        subprocess.run([
+        response =subprocess.run([
             "uv", "run", tts_script, notification_message
         ], 
         capture_output=True,  # Suppress output
         timeout=10  # 10-second timeout
         )
+        # print(f"🔊 Playback complete! {response}")
         
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
         # Fail silently if TTS encounters issues
