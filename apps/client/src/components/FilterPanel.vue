@@ -63,6 +63,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import type { FilterOptions } from '../types';
+import { API_BASE_URL } from '../config';
 
 const props = defineProps<{
   filters: {
@@ -103,7 +104,7 @@ const clearFilters = () => {
 
 const fetchFilterOptions = async () => {
   try {
-    const response = await fetch('http://localhost:4000/events/filter-options');
+    const response = await fetch(`${API_BASE_URL}/events/filter-options`);
     if (response.ok) {
       filterOptions.value = await response.json();
     }

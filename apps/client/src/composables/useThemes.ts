@@ -1,4 +1,5 @@
 import { ref, computed, onMounted, readonly } from 'vue';
+import { API_BASE_URL } from '../config';
 import type { 
   ThemeName, 
   CustomTheme, 
@@ -535,7 +536,7 @@ export function useThemes() {
 
   // Server API functions
   const saveThemeToServer = async (theme: CustomTheme): Promise<void> => {
-    const response = await fetch('http://localhost:4000/api/themes', {
+    const response = await fetch(`${API_BASE_URL}/api/themes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(theme)
@@ -549,7 +550,7 @@ export function useThemes() {
 
   const loadThemesFromServer = async (): Promise<CustomTheme[]> => {
     try {
-      const response = await fetch('http://localhost:4000/api/themes?isPublic=true');
+      const response = await fetch(`${API_BASE_URL}/api/themes?isPublic=true`);
       if (!response.ok) return [];
       
       const result: ThemeApiResponse<CustomTheme[]> = await response.json();
