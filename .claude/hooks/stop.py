@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 from utils.constants import ensure_session_log_dir
+from utils.localization import t
 
 try:
     from dotenv import load_dotenv
@@ -26,13 +27,7 @@ except ImportError:
 
 def get_completion_messages():
     """Return list of friendly completion messages."""
-    return [
-        "Work complete!",
-        "All done!",
-        "Task finished!",
-        "Job complete!",
-        "Ready for next task!",
-    ]
+    return t("completion_messages")
 
 
 def get_tts_script_path():

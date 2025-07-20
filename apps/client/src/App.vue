@@ -6,7 +6,7 @@
         <!-- Title Section -->
         <div class="mobile:w-full mobile:text-center">
           <h1 class="text-2xl mobile:text-lg font-bold text-white drop-shadow-lg">
-            Multi-Agent Observability
+            {{ t('header.title') }}
           </h1>
         </div>
         
@@ -17,27 +17,27 @@
               <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
               <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
             </span>
-            <span class="text-base mobile:text-sm text-white font-semibold drop-shadow-md">Connected</span>
+            <span class="text-base mobile:text-sm text-white font-semibold drop-shadow-md">{{ t('header.connected') }}</span>
           </div>
           <div v-else class="flex items-center space-x-1.5">
             <span class="relative flex h-3 w-3">
               <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
             </span>
-            <span class="text-base mobile:text-sm text-white font-semibold drop-shadow-md">Disconnected</span>
+            <span class="text-base mobile:text-sm text-white font-semibold drop-shadow-md">{{ t('header.disconnected') }}</span>
           </div>
         </div>
         
         <!-- Event Count and Theme Toggle -->
         <div class="mobile:w-full mobile:justify-center flex items-center space-x-2">
           <span class="text-base mobile:text-sm text-white font-semibold drop-shadow-md bg-[var(--theme-primary-dark)] px-3 py-1.5 rounded-full border border-white/30">
-            {{ events.length }} events
+            {{ t('header.eventCount', { count: events.length }) }}
           </span>
           
           <!-- Filters Toggle Button -->
           <button
             @click="showFilters = !showFilters"
             class="p-3 mobile:p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-all duration-200 border border-white/30 hover:border-white/50 backdrop-blur-sm shadow-lg hover:shadow-xl"
-            :title="showFilters ? 'Hide filters' : 'Show filters'"
+            :title="showFilters ? t('header.hideFilters') : t('header.showFilters')"
           >
             <span class="text-2xl mobile:text-lg">📊</span>
           </button>
@@ -46,7 +46,7 @@
           <button
             @click="handleThemeManagerClick"
             class="p-3 mobile:p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-all duration-200 border border-white/30 hover:border-white/50 backdrop-blur-sm shadow-lg hover:shadow-xl"
-            title="Open theme manager"
+            :title="t('header.themeManager')"
           >
             <span class="text-2xl mobile:text-lg">🎨</span>
           </button>
@@ -97,20 +97,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useWebSocket } from './composables/useWebSocket';
 import { useThemes } from './composables/useThemes';
+import { useI18n } from './composables/useI18n';
 import EventTimeline from './components/EventTimeline.vue';
 import FilterPanel from './components/FilterPanel.vue';
 import StickScrollButton from './components/StickScrollButton.vue';
 import LivePulseChart from './components/LivePulseChart.vue';
 import ThemeManager from './components/ThemeManager.vue';
 
-// WebSocket connection
-const { events, isConnected, error } = useWebSocket('ws://localhost:4000/stream');
+// WebSocket connection - use current host for WSL2 compatibility
+const wsUrl = window.location.hostname === 'localhost' 
+  ? 'ws://localhost:4000/stream'
+  : `ws://${window.location.hostname}:4000/stream`;
+const { events, isConnected, error } = useWebSocket(wsUrl);
 
 // Theme management
 const { state: themeState } = useThemes();
+
+// i18n
+const { t, setLanguage } = useI18n();
+
+onMounted(() => {
+  setLanguage();
+});
 
 // Filters
 const filters = ref({

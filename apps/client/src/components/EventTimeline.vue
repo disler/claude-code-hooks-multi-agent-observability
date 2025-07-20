@@ -3,7 +3,7 @@
     <!-- Fixed Header -->
     <div class="px-3 py-4 mobile:py-2 bg-gradient-to-r from-[var(--theme-bg-primary)] to-[var(--theme-bg-secondary)] relative z-10" style="box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3), 0 8px 25px -5px rgba(0, 0, 0, 0.2);">
       <h2 class="text-2xl mobile:text-lg font-bold text-[var(--theme-primary)] text-center drop-shadow-sm">
-        Agent Event Stream
+        {{ t('timeline.title') }}
       </h2>
     </div>
     
@@ -32,8 +32,8 @@
       
       <div v-if="filteredEvents.length === 0" class="text-center py-8 mobile:py-6 text-[var(--theme-text-tertiary)]">
         <div class="text-4xl mobile:text-3xl mb-3">🔳</div>
-        <p class="text-lg mobile:text-base font-semibold text-[var(--theme-primary)] mb-1.5">No events to display</p>
-        <p class="text-base mobile:text-sm">Events will appear here as they are received</p>
+        <p class="text-lg mobile:text-base font-semibold text-[var(--theme-primary)] mb-1.5">{{ t('timeline.noEvents') }}</p>
+        <p class="text-base mobile:text-sm">{{ t('timeline.eventsAppear') }}</p>
       </div>
     </div>
   </div>
@@ -44,6 +44,7 @@ import { ref, computed, watch, nextTick } from 'vue';
 import type { HookEvent } from '../types';
 import EventRow from './EventRow.vue';
 import { useEventColors } from '../composables/useEventColors';
+import { useI18n } from '../composables/useI18n';
 
 const props = defineProps<{
   events: HookEvent[];
@@ -59,6 +60,7 @@ const emit = defineEmits<{
   'update:stickToBottom': [value: boolean];
 }>();
 
+const { t } = useI18n();
 const scrollContainer = ref<HTMLElement>();
 const { getGradientForSession, getColorForSession, getGradientForApp, getColorForApp, getHexColorForApp } = useEventColors();
 

@@ -1,0 +1,31 @@
+{
+  "anth_oai_completion_prompt": "Generate a short, concise, friendly completion message for when an AI coding assistant finishes a task. \n\nRequirements:\n- Keep it under 10 words\n- Make it positive and future focused\n- Use natural, conversational language\n- Focus on completion/readiness\n- Do NOT include quotes, formatting, or explanations\n- Return ONLY the completion message text\n{name_instruction}\n\n{examples}\n\nGenerate ONE completion message in {language_name}:",
+  "engineer_name_instruction": "Sometimes (about 30% of the time) include the engineer's name '{engineer_name}' in a natural way.",
+  "examples_standard": "Examples of the style: \n- Standard: \"Work complete!\", \"All done!\", \"Task finished!\", \"Ready for your next move!\"",
+  "examples_personalized": "Examples of the style: \n- Standard: \"Work complete!\", \"All done!\", \"Task finished!\", \"Ready for your next move!\"\n- Personalized: \"{engineer_name}, all set!\", \"Ready for you, {engineer_name}!\", \"Complete, {engineer_name}!\", \"{engineer_name}, we're done!\" ",
+  "error_generating_completion": "Error generating completion message",
+  "error_calling_api": "Error calling {api_name} API",
+  "usage_completion": "Usage: ./{script_name} --completion",
+  "usage_prompt": "Usage: ./{script_name} 'your prompt here' or ./{script_name} --completion",
+  "elevenlabs_default_text": "The first move is what sets everything in motion.",
+  "elevenlabs_error_api_key": "❌ Error: ELEVENLABS_API_KEY not found in environment variables",
+  "elevenlabs_api_key_prompt": "Please add your ElevenLabs API key to .env file:\nELEVENLABS_API_KEY=your_api_key_here",
+  "elevenlabs_generating": "🔊 Generating and playing...",
+  "playback_complete": "✅ Playback complete!",
+  "elevenlabs_error_package": "❌ Error: elevenlabs package not installed",
+  "uv_install_prompt": "This script uses UV to auto-install dependencies.\nMake sure UV is installed: https://docs.astral.sh/uv/",
+  "unexpected_error": "❌ Unexpected error: {e}",
+  "summary_prompt": "Generate a one-sentence summary of this Claude Code hook event payload for an engineer monitoring the system. Generate the summary in {language_name}.\n\nEvent Type: {event_type}\nPayload:\n{payload_str}\n\nRequirements:\n- ONE sentence only (no period at the end)\n- Focus on the key action or information in the payload\n- Be specific and technical\n- Keep under 15 words\n- Use present tense\n- No quotes or formatting\n- Return ONLY the summary text\n\nExamples:\n- Reads configuration file from project root\n- Executes npm install to update dependencies\n- Searches web for React documentation\n- Edits database schema to add user table\n- Agent responds with implementation plan\n\nGenerate the summary based on the payload:",
+  "needs_input": "Your agent needs your input",
+  "needs_input_named": "{engineer_name}, your agent needs your input",
+  "completion_messages": [
+    "Work complete!",
+    "All done!",
+    "Task finished!",
+    "Job complete!",
+    "Ready for next task!"
+  ],
+  "subagent_complete": "Subagent Complete",
+  "language_name_en": "English",
+  "language_name_ko": "Korean"
+}

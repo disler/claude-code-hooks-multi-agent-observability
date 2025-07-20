@@ -3,7 +3,7 @@
     <div class="flex items-center justify-between mb-3 mobile:flex-col mobile:space-y-2 mobile:items-start">
       <h3 class="text-base mobile:text-sm font-bold text-[var(--theme-primary)] drop-shadow-sm flex items-center">
         <span class="mr-1.5 text-xl mobile:text-base">📊</span>
-        Live Activity Pulse
+        {{ t('pulse.title') }}
       </h3>
       <div class="flex gap-1.5 mobile:w-full mobile:justify-center" role="tablist" aria-label="Time range selector">
         <button
@@ -49,7 +49,7 @@
       >
         <p class="text-[var(--theme-text-tertiary)] mobile:text-sm text-base font-semibold">
           <span class="mr-1.5 text-base">⏳</span>
-          Waiting for events...
+          {{ t('pulse.waiting') }}
         </p>
       </div>
     </div>
@@ -63,6 +63,7 @@ import { useChartData } from '../composables/useChartData';
 import { createChartRenderer, type ChartDimensions } from '../utils/chartRenderer';
 import { useEventEmojis } from '../composables/useEventEmojis';
 import { useEventColors } from '../composables/useEventColors';
+import { useI18n } from '../composables/useI18n';
 
 const props = defineProps<{
   events: HookEvent[];
@@ -72,6 +73,8 @@ const props = defineProps<{
     eventType: string;
   };
 }>();
+
+const { t } = useI18n();
 
 // const emit = defineEmits<{
 //   eventClick: [event: HookEvent];
@@ -295,7 +298,7 @@ const handleMouseMove = (event: MouseEvent) => {
         visible: true,
         x: event.clientX - rect.left,
         y: event.clientY - rect.top - 30,
-        text: `${point.count} events${eventTypesText ? ` (${eventTypesText})` : ''}`
+        text: eventTypesText ? t('pulse.tooltipDetail', { count: point.count, details: eventTypesText }) : t('pulse.tooltip', { count: point.count })
       };
       return;
     }

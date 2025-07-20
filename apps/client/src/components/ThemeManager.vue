@@ -17,7 +17,7 @@
         <div class="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-3xl font-semibold text-gray-900 dark:text-white">
-              🎨 Theme Manager
+              {{ t('themeManager.title') }}
             </h2>
             <button
               @click="close"
@@ -71,7 +71,7 @@
                   <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                   </svg>
-                  Current
+                  {{ t('themeManager.current') }}
                 </span>
               </div>
             </div>
@@ -80,13 +80,13 @@
           <!-- Actions -->
           <div class="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-700">
             <div class="text-sm text-gray-500 dark:text-gray-400">
-              {{ predefinedThemes.length }} themes available
+              {{ t('themeManager.numThemes', { count: predefinedThemes.length }) }}
             </div>
             <button
               @click="close"
               class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
-              Close
+              {{ t('themeManager.close') }}
             </button>
           </div>
         </div>
@@ -98,6 +98,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useThemes } from '../composables/useThemes';
+import { useI18n } from '../composables/useI18n';
 
 defineProps<{
   isOpen: boolean;
@@ -106,6 +107,8 @@ defineProps<{
 const emit = defineEmits<{
   close: [];
 }>();
+
+const { t } = useI18n();
 
 // Theme management
 const { state, predefinedThemes, setTheme } = useThemes();

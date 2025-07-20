@@ -1,0 +1,31 @@
+{
+  "anth_oai_completion_prompt": "AI 코딩 어시스턴트가 작업을 완료했을 때 사용할 짧고 간결하며 친근한 완료 메시지를 생성해 주세요.\n\n요구사항:\n- 10단어 미만으로 작성\n- 긍정적이고 미래 지향적으로 작성\n- 자연스럽고 대화적인 언어 사용\n- 완료/준비 상태에 초점\n- 따옴표, 서식, 설명 미포함\n- 완료 메시지 텍스트만 반환\n{name_instruction}\n\n{examples}\n\n완료 메시지 하나를 {language_name}으로 생성:",
+  "engineer_name_instruction": "가끔 (약 30% 확률로) 엔지니어의 이름 '{engineer_name}'을 자연스럽게 포함하세요.",
+  "examples_standard": "스타일 예시: \n- 표준: \"작업 완료!\", \"모두 끝났습니다!\", \"태스크 종료!\", \"다음 지시를 기다립니다!\"",
+  "examples_personalized": "스타일 예시: \n- 표준: \"작업 완료!\", \"모두 끝났습니다!\", \"태스크 종료!\", \"다음 지시를 기다립니다!\"\n- 개인화: \"{engineer_name}님, 준비됐습니다!\", \"준비됐어요, {engineer_name}님!\", \"완료, {engineer_name}님!\", \"{engineer_name}님, 끝났습니다!\" ",
+  "error_generating_completion": "완료 메시지 생성 오류",
+  "error_calling_api": "{api_name} API 호출 오류",
+  "usage_completion": "사용법: ./{script_name} --completion",
+  "usage_prompt": "사용법: ./{script_name} '여기에 프롬프트 입력' 또는 ./{script_name} --completion",
+  "elevenlabs_default_text": "첫 번째 움직임이 모든 것을 움직이게 합니다.",
+  "elevenlabs_error_api_key": "❌ 오류: 환경 변수에서 ELEVENLABS_API_KEY를 찾을 수 없습니다",
+  "elevenlabs_api_key_prompt": ".env 파일에 ElevenLabs API 키를 추가해 주세요:\nELEVENLABS_API_KEY=your_api_key_here",
+  "elevenlabs_generating": "🔊 생성 및 재생 중...",
+  "playback_complete": "✅ 재생 완료!",
+  "elevenlabs_error_package": "❌ 오류: elevenlabs 패키지가 설치되지 않았습니다",
+  "uv_install_prompt": "이 스크립트는 UV를 사용하여 의존성을 자동 설치합니다.\nUV가 설치되어 있는지 확인하세요: https://docs.astral.sh/uv/",
+  "unexpected_error": "❌ 예상치 못한 오류: {e}",
+  "summary_prompt": "시스템을 모니터링하는 엔지니어를 위해 이 Claude Code 훅 이벤트 페이로드의 한 문장 요약을 {language_name}으로 생성해 주세요.\n\n이벤트 유형: {event_type}\n페이로드:\n{payload_str}\n\n요구사항:\n- 한 문장으로만 작성 (끝에 마침표 없음)\n- 페이로드의 핵심적인 행동이나 정보에 초점\n- 구체적이고 기술적으로 작성\n- 15단어 미만으로 유지\n- 현재 시제 사용\n- 따옴표나 서식 미포함\n- 요약 텍스트만 반환\n\n예시:\n- 프로젝트 루트에서 설정 파일을 읽음\n- 의존성 업데이트를 위해 npm install 실행\n- React 문서 웹 검색\n- 사용자 테이블 추가를 위해 데이터베이스 스키마 수정\n- 에이전트가 구현 계획으로 응답\n\n페이로드를 기반으로 요약 생성:",
+  "needs_input": "에이전트의 응답을 기다리고 있습니다",
+  "needs_input_named": "{engineer_name}님, 에이전트의 응답을 기다리고 있습니다",
+  "completion_messages": [
+    "작업 완료!",
+    "모두 끝났습니다!",
+    "태스크가 종료되었습니다!",
+    "작업이 끝났습니다!",
+    "다음 작업을 준비합니다!"
+  ],
+  "subagent_complete": "서브에이전트 완료",
+  "language_name_en": "영어",
+  "language_name_ko": "한국어"
+}

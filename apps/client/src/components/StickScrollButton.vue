@@ -7,7 +7,7 @@
         ? 'bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-light)] text-white border-[var(--theme-primary-dark)] drop-shadow-md' 
         : 'bg-[var(--theme-bg-primary)] hover:bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] border-[var(--theme-border-primary)] hover:border-[var(--theme-primary)]'
     ]"
-    :title="stickToBottom ? 'Disable auto-scroll' : 'Enable auto-scroll'"
+    :title="stickToBottom ? t('scroll.disable') : t('scroll.enable')"
   >
     <svg
       class="w-6 h-6 mobile:w-5 mobile:h-5 drop-shadow-sm"
@@ -34,6 +34,8 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from '../composables/useI18n';
+
 defineProps<{
   stickToBottom: boolean;
 }>();
@@ -41,4 +43,6 @@ defineProps<{
 defineEmits<{
   toggle: [];
 }>();
+
+const { t } = useI18n();
 </script>

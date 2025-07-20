@@ -10,6 +10,7 @@
 import json
 from typing import Optional, Dict, Any
 from .llm.anth import prompt_llm
+from .localization import t, get_language
 
 
 def generate_event_summary(event_data: Dict[str, Any]) -> Optional[str]:
@@ -30,29 +31,8 @@ def generate_event_summary(event_data: Dict[str, Any]) -> Optional[str]:
     if len(payload_str) > 1000:
         payload_str = payload_str[:1000] + "..."
 
-    prompt = f"""Generate a one-sentence summary of this Claude Code hook event payload for an engineer monitoring the system.
-
-Event Type: {event_type}
-Payload:
-{payload_str}
-
-Requirements:
-- ONE sentence only (no period at the end)
-- Focus on the key action or information in the payload
-- Be specific and technical
-- Keep under 15 words
-- Use present tense
-- No quotes or formatting
-- Return ONLY the summary text
-
-Examples:
-- Reads configuration file from project root
-- Executes npm install to update dependencies
-- Searches web for React documentation
-- Edits database schema to add user table
-- Agent responds with implementation plan
-
-Generate the summary based on the payload:"""
+    language_name = t(f"language_name_{get_language()}")
+    prompt = t("summary_prompt", language_name=language_name, event_type=event_type, payload_str=payload_str)
 
     summary = prompt_llm(prompt)
 

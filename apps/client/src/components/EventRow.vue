@@ -104,7 +104,7 @@
           <div class="flex items-center justify-between mb-2">
             <h4 class="text-base mobile:text-sm font-bold text-[var(--theme-primary)] drop-shadow-sm flex items-center">
               <span class="mr-1.5 text-xl mobile:text-base">📦</span>
-              Payload
+              {{ t('eventRow.payload') }}
             </h4>
             <button
               @click.stop="copyPayload"
@@ -130,7 +130,7 @@
           >
             <span class="text-base mobile:text-sm">💬</span>
             <span class="text-sm mobile:text-xs font-bold drop-shadow-sm">
-              {{ isMobile ? 'Not available in mobile' : `View Chat Transcript (${event.chat.length} messages)` }}
+              {{ isMobile ? t('eventRow.notAvailableMobile') : t('eventRow.viewChat', { count: event.chat.length }) }}
             </span>
           </button>
         </div>
@@ -151,6 +151,7 @@ import { ref, computed } from 'vue';
 import type { HookEvent } from '../types';
 import { useMediaQuery } from '../composables/useMediaQuery';
 import ChatTranscriptModal from './ChatTranscriptModal.vue';
+import { useI18n } from '../composables/useI18n';
 
 const props = defineProps<{
   event: HookEvent;
@@ -161,9 +162,11 @@ const props = defineProps<{
   appHexColor: string;
 }>();
 
+const { t } = useI18n();
+
 const isExpanded = ref(false);
 const showChatModal = ref(false);
-const copyButtonText = ref('📋 Copy');
+const copyButtonText = ref(t('eventRow.copy'));
 
 // Media query for responsive design
 const { isMobile } = useMediaQuery();
@@ -218,7 +221,7 @@ const toolInfo = computed(() => {
   // Handle UserPromptSubmit events
   if (props.event.hook_event_type === 'UserPromptSubmit' && payload.prompt) {
     return {
-      tool: 'Prompt:',
+      tool: t('eventRow.prompt'),
       detail: `"${payload.prompt.slice(0, 100)}${payload.prompt.length > 100 ? '...' : ''}"`
     };
   }
@@ -252,15 +255,15 @@ const formatTime = (timestamp?: number) => {
 const copyPayload = async () => {
   try {
     await navigator.clipboard.writeText(formattedPayload.value);
-    copyButtonText.value = '✅ Copied!';
+    copyButtonText.value = t('eventRow.copied');
     setTimeout(() => {
-      copyButtonText.value = '📋 Copy';
+      copyButtonText.value = t('eventRow.copy');
     }, 2000);
   } catch (err) {
     console.error('Failed to copy:', err);
-    copyButtonText.value = '❌ Failed';
+    copyButtonText.value = t('eventRow.copyFail');
     setTimeout(() => {
-      copyButtonText.value = '📋 Copy';
+      copyButtonText.value = t('eventRow.copy');
     }, 2000);
   }
 };
