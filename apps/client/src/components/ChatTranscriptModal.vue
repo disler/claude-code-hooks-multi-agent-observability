@@ -18,7 +18,7 @@
           <div class="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6 mobile:p-3">
             <div class="flex items-center justify-between mb-4 mobile:mb-2">
               <h2 class="text-3xl mobile:text-lg font-semibold text-gray-900 dark:text-white">
-                💬 Chat Transcript
+                {{ t('chat.title') }}
               </h2>
               <button
                 @click="close"
@@ -39,7 +39,7 @@
                     v-model="searchQuery"
                     @keyup.enter="executeSearch"
                     type="text"
-                    placeholder="Search transcript..."
+                    :placeholder="t('chat.searchPlaceholder')"
                     class="w-full px-4 py-2 mobile:px-3 mobile:py-2 pl-10 mobile:pl-8 text-lg mobile:text-base border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   >
                   <svg class="absolute left-3 top-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -50,12 +50,12 @@
                   @click="executeSearch"
                   class="px-4 py-2 mobile:px-3 mobile:py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-colors text-base mobile:text-sm min-w-[44px] min-h-[44px] flex items-center justify-center"
                 >
-                  Search
+                  {{ t('chat.search') }}
                 </button>
                 <button
                   @click="copyAllMessages"
                   class="px-4 py-2 mobile:px-3 mobile:py-2 bg-gray-500 hover:bg-gray-600 text-white font-medium rounded-lg transition-colors text-base mobile:text-sm min-w-[44px] min-h-[44px] flex items-center justify-center"
-                  title="Copy all messages as JSON"
+                  :title="t('chat.copyAll')"
                 >
                   {{ copyAllButtonText }}
                 </button>
@@ -73,7 +73,7 @@
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'"
                 >
                   <span class="mr-1">{{ filter.icon }}</span>
-                  {{ filter.label }}
+                  {{ t(filter.label) }}
                 </button>
                 
                 <!-- Clear Filters -->
@@ -82,15 +82,15 @@
                   @click="clearSearch"
                   class="px-4 py-2 mobile:px-3 mobile:py-1.5 rounded-full text-sm mobile:text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50 min-h-[44px] mobile:min-h-[36px] flex items-center whitespace-nowrap"
                 >
-                  Clear All
+                  {{ t('chat.clearAll') }}
                 </button>
               </div>
               
               <!-- Results Count -->
               <div v-if="activeSearchQuery || activeFilters.length > 0" class="text-sm mobile:text-xs text-gray-500 dark:text-gray-400">
-                Showing {{ filteredChat.length }} of {{ chat.length }} messages
+                {{ t('chat.showingMessages', { filteredCount: filteredChat.length, totalCount: chat.length }) }}
                 <span v-if="activeSearchQuery" class="ml-2 font-medium mobile:block mobile:ml-0 mobile:mt-1">
-                  (searching for "{{ activeSearchQuery }}")
+                  {{ t('chat.searchingFor', { query: activeSearchQuery }) }}
                 </span>
               </div>
             </div>
@@ -108,6 +108,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import ChatTranscript from './ChatTranscript.vue';
+import { useI18n } from '../composables/useI18n';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -118,26 +119,28 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+const { t } = useI18n();
+
 const searchQuery = ref('');
 const activeSearchQuery = ref('');
 const activeFilters = ref<string[]>([]);
-const copyAllButtonText = ref('📋 Copy All');
+const copyAllButtonText = ref(t('chat.copyAll'));
 
 const filters = [
   // Message types
-  { type: 'user', label: 'User', icon: '👤' },
-  { type: 'assistant', label: 'Assistant', icon: '🤖' },
-  { type: 'system', label: 'System', icon: '⚙️' },
+  { type: 'user', label: 'chat.filters.user', icon: '👤' },
+  { type: 'assistant', label: 'chat.filters.assistant', icon: '🤖' },
+  { type: 'system', label: 'chat.filters.system', icon: '⚙️' },
   
   // Tool actions
-  { type: 'tool_use', label: 'Tool Use', icon: '🔧' },
-  { type: 'tool_result', label: 'Tool Result', icon: '✅' },
+  { type: 'tool_use', label: 'chat.filters.toolUse', icon: '🔧' },
+  { type: 'tool_result', label: 'chat.filters.toolResult', icon: '✅' },
   
   // Specific tools
-  { type: 'Read', label: 'Read', icon: '📄' },
-  { type: 'Write', label: 'Write', icon: '✍️' },
-  { type: 'Edit', label: 'Edit', icon: '✏️' },
-  { type: 'Glob', label: 'Glob', icon: '🔎' },
+  { type: 'Read', label: 'chat.filters.read', icon: '📄' },
+  { type: 'Write', label: 'chat.filters.write', icon: '✍️' },
+  { type: 'Edit', label: 'chat.filters.edit', icon: '✏️' },
+  { type: 'Glob', label: 'chat.filters.glob', icon: '🔎' },
 ];
 
 const toggleFilter = (type: string) => {
@@ -169,15 +172,15 @@ const copyAllMessages = async () => {
     const jsonPayload = JSON.stringify(props.chat, null, 2);
     await navigator.clipboard.writeText(jsonPayload);
     
-    copyAllButtonText.value = '✅ Copied!';
+    copyAllButtonText.value = t('chat.copiedAll');
     setTimeout(() => {
-      copyAllButtonText.value = '📋 Copy All';
+      copyAllButtonText.value = t('chat.copyAll');
     }, 2000);
   } catch (err) {
     console.error('Failed to copy all messages:', err);
-    copyAllButtonText.value = '❌ Failed';
+    copyAllButtonText.value = t('chat.copyAllFail');
     setTimeout(() => {
-      copyAllButtonText.value = '📋 Copy All';
+      copyAllButtonText.value = t('chat.copyAll');
     }, 2000);
   }
 };

@@ -67,14 +67,20 @@ for i in {1..10}; do
     sleep 1
 done
 
+# Get WSL2 IP for display
+WSL_IP=$(hostname -I | awk '{print $1}')
+
 # Display status
 echo -e "\n${BLUE}============================================${NC}"
 echo -e "${GREEN}✅ Multi-Agent Observability System Started${NC}"
 echo -e "${BLUE}============================================${NC}"
 echo
-echo -e "🖥️  Client URL: ${GREEN}http://localhost:5173${NC}"
+echo -e "🖥️  Client URL (localhost): ${GREEN}http://localhost:5173${NC}"
+echo -e "🖥️  Client URL (WSL2 IP): ${GREEN}http://${WSL_IP}:5173${NC}"
 echo -e "🔌 Server API: ${GREEN}http://localhost:4000${NC}"
 echo -e "📡 WebSocket: ${GREEN}ws://localhost:4000/stream${NC}"
+echo
+echo -e "${YELLOW}💡 WSL2 사용자: Windows에서 http://${WSL_IP}:5173 으로 접속하세요${NC}"
 echo
 echo -e "📝 Process IDs:"
 echo -e "   Server PID: ${YELLOW}$SERVER_PID${NC}"

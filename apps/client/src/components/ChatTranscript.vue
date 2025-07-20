@@ -7,7 +7,7 @@
         <div class="flex items-start justify-between">
           <div class="flex items-start space-x-3 flex-1">
             <span class="text-lg font-semibold px-3 py-1 rounded-full flex-shrink-0 bg-blue-500 text-white">
-              User
+              {{ t('chat.user') }}
             </span>
             <div class="flex-1">
               <!-- Handle string content -->
@@ -26,7 +26,7 @@
                   <!-- Tool result -->
                   <div v-else-if="content.type === 'tool_result'" 
                        class="bg-gray-100 dark:bg-gray-900 p-2 rounded">
-                    <span class="text-sm font-mono text-gray-600 dark:text-gray-400">Tool Result:</span>
+                    <span class="text-sm font-mono text-gray-600 dark:text-gray-400">{{ t('chat.toolResult') }}</span>
                     <pre class="text-sm text-gray-700 dark:text-gray-300 mt-1">{{ content.content }}</pre>
                   </div>
                 </div>
@@ -44,13 +44,13 @@
               @click="toggleDetails(index)"
               class="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
             >
-              {{ isDetailsExpanded(index) ? 'Hide' : 'Show' }} Details
+              {{ isDetailsExpanded(index) ? t('chat.hideDetails') : t('chat.showDetails') }}
             </button>
             <!-- Copy Button -->
             <button
               @click="copyMessage(index, item.type || item.role)"
               class="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors flex items-center"
-              :title="'Copy message'"
+              :title="t('chat.copyMessage')"
             >
               {{ getCopyButtonText(index) }}
             </button>
@@ -68,7 +68,7 @@
         <div class="flex items-start justify-between">
           <div class="flex items-start space-x-3 flex-1">
             <span class="text-lg font-semibold px-3 py-1 rounded-full flex-shrink-0 bg-gray-500 text-white">
-              Assistant
+              {{ t('chat.assistant') }}
             </span>
             <div class="flex-1">
               <!-- Handle content array -->
@@ -92,7 +92,7 @@
               </div>
               <!-- Usage info -->
               <div v-if="item.message.usage" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                Tokens: {{ item.message.usage.input_tokens }} in / {{ item.message.usage.output_tokens }} out
+                {{ t('chat.tokens', { input: item.message.usage.input_tokens, output: item.message.usage.output_tokens }) }}
               </div>
               <!-- Timestamp -->
               <div v-if="item.timestamp" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -107,13 +107,13 @@
               @click="toggleDetails(index)"
               class="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
             >
-              {{ isDetailsExpanded(index) ? 'Hide' : 'Show' }} Details
+              {{ isDetailsExpanded(index) ? t('chat.hideDetails') : t('chat.showDetails') }}
             </button>
             <!-- Copy Button -->
             <button
               @click="copyMessage(index, item.type || item.role)"
               class="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors flex items-center"
-              :title="'Copy message'"
+              :title="t('chat.copyMessage')"
             >
               {{ getCopyButtonText(index) }}
             </button>
@@ -131,7 +131,7 @@
         <div class="flex items-start justify-between">
           <div class="flex items-start space-x-3 flex-1">
             <span class="text-lg font-semibold px-3 py-1 rounded-full flex-shrink-0 bg-amber-600 text-white">
-              System
+              {{ t('chat.system') }}
             </span>
             <div class="flex-1">
               <p class="text-lg text-gray-800 dark:text-gray-100 font-medium">
@@ -139,7 +139,7 @@
               </p>
               <!-- Tool use ID if present -->
               <div v-if="item.toolUseID" class="mt-1 text-xs text-gray-500 dark:text-gray-400 font-mono">
-                Tool ID: {{ item.toolUseID }}
+                {{ t('chat.toolId') }} {{ item.toolUseID }}
               </div>
               <!-- Timestamp -->
               <div v-if="item.timestamp" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -154,13 +154,13 @@
               @click="toggleDetails(index)"
               class="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
             >
-              {{ isDetailsExpanded(index) ? 'Hide' : 'Show' }} Details
+              {{ isDetailsExpanded(index) ? t('chat.hideDetails') : t('chat.showDetails') }}
             </button>
             <!-- Copy Button -->
             <button
               @click="copyMessage(index, item.type || item.role)"
               class="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors flex items-center"
-              :title="'Copy message'"
+              :title="t('chat.copyMessage')"
             >
               {{ getCopyButtonText(index) }}
             </button>
@@ -180,7 +180,7 @@
           <div class="flex items-start space-x-3 flex-1">
             <span class="text-lg font-semibold px-3 py-1 rounded-full flex-shrink-0"
                   :class="item.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-500 text-white'">
-              {{ item.role === 'user' ? 'User' : 'Assistant' }}
+              {{ item.role === 'user' ? t('chat.user') : t('chat.assistant') }}
             </span>
             <div class="flex-1">
               <p class="text-lg text-gray-800 dark:text-gray-100 whitespace-pre-wrap font-medium">
@@ -195,13 +195,13 @@
               @click="toggleDetails(index)"
               class="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
             >
-              {{ isDetailsExpanded(index) ? 'Hide' : 'Show' }} Details
+              {{ isDetailsExpanded(index) ? t('chat.hideDetails') : t('chat.showDetails') }}
             </button>
             <!-- Copy Button -->
             <button
               @click="copyMessage(index, item.type || item.role)"
               class="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors flex items-center"
-              :title="'Copy message'"
+              :title="t('chat.copyMessage')"
             >
               {{ getCopyButtonText(index) }}
             </button>
@@ -218,10 +218,13 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from '../composables/useI18n';
 
 const props = defineProps<{
   chat: any[];
 }>();
+
+const { t } = useI18n();
 
 // Track which items have details expanded
 const expandedDetails = ref<Set<number>>(new Set());

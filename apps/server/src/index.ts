@@ -20,6 +20,7 @@ const wsClients = new Set<any>();
 // Create Bun server with HTTP and WebSocket support
 const server = Bun.serve({
   port: 4000,
+  hostname: '0.0.0.0', // Bind to all interfaces for WSL2 compatibility
   
   async fetch(req: Request) {
     const url = new URL(req.url);
@@ -88,6 +89,14 @@ const server = Bun.serve({
       const limit = parseInt(url.searchParams.get('limit') || '100');
       const events = getRecentEvents(limit);
       return new Response(JSON.stringify(events), {
+        headers: { ...headers, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // GET /api/language - Get current language setting
+    if (url.pathname === '/api/language' && req.method === 'GET') {
+      const lang = process.env.LANGUAGE || 'en';
+      return new Response(JSON.stringify({ language: lang.replace(/\"/g, '') }), {
         headers: { ...headers, 'Content-Type': 'application/json' }
       });
     }
@@ -309,6 +318,9 @@ const server = Bun.serve({
   }
 });
 
+const serverIP = '172.24.252.163'; // WSL2 IP
 console.log(`🚀 Server running on http://localhost:${server.port}`);
+console.log(`🚀 Server (WSL2) running on http://${serverIP}:${server.port}`);
 console.log(`📊 WebSocket endpoint: ws://localhost:${server.port}/stream`);
+console.log(`📊 WebSocket (WSL2) endpoint: ws://${serverIP}:${server.port}/stream`);
 console.log(`📮 POST events to: http://localhost:${server.port}/events`);

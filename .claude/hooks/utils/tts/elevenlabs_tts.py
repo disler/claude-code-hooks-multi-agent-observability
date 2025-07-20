@@ -11,6 +11,7 @@ import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
+from ..localization import t, get_language
 
 def main():
     """
@@ -21,7 +22,7 @@ def main():
     
     Usage:
     - ./eleven_turbo_tts.py                    # Uses default text
-    - ./eleven_turbo_tts.py "Your custom text" # Uses provided text
+    - ./eleven_turbo_tts.py \"Your custom text\" # Uses provided text
     
     Features:
     - Fast generation (optimized for real-time use)
@@ -36,9 +37,8 @@ def main():
     # Get API key from environment
     api_key = os.getenv('ELEVENLABS_API_KEY')
     if not api_key:
-        print("❌ Error: ELEVENLABS_API_KEY not found in environment variables")
-        print("Please add your ElevenLabs API key to .env file:")
-        print("ELEVENLABS_API_KEY=your_api_key_here")
+        print(t("elevenlabs_error_api_key"))
+        print(t("elevenlabs_api_key_prompt"))
         sys.exit(1)
     
     try:
@@ -55,34 +55,37 @@ def main():
         if len(sys.argv) > 1:
             text = " ".join(sys.argv[1:])  # Join all arguments as text
         else:
-            text = "The first move is what sets everything in motion."
+            text = t("elevenlabs_default_text")
         
         print(f"🎯 Text: {text}")
-        print("🔊 Generating and playing...")
+        print(t("elevenlabs_generating"))
         
         try:
+            lang = get_language().upper()
+            default_voice_id = os.getenv("ELEVENLABS_VOICE_ID_EN", "WejK3H1m7MI9CHnIjW9K")
+            voice_id = os.getenv(f"ELEVENLABS_VOICE_ID_{lang}", default_voice_id)
+
             # Generate and play audio directly
             audio = elevenlabs.text_to_speech.convert(
                 text=text,
-                voice_id="WejK3H1m7MI9CHnIjW9K",  # Specified voice
+                voice_id=voice_id,  # Specified voice
                 model_id="eleven_turbo_v2_5",
                 output_format="mp3_44100_128",
             )
             
             play(audio)
-            print("✅ Playback complete!")
+            print(t("playback_complete"))
             
         except Exception as e:
-            print(f"❌ Error: {e}")
+            print(t("unexpected_error", e=e))
         
         
     except ImportError:
-        print("❌ Error: elevenlabs package not installed")
-        print("This script uses UV to auto-install dependencies.")
-        print("Make sure UV is installed: https://docs.astral.sh/uv/")
+        print(t("elevenlabs_error_package"))
+        print(t("uv_install_prompt"))
         sys.exit(1)
     except Exception as e:
-        print(f"❌ Unexpected error: {e}")
+        print(t("unexpected_error", e=e))
         sys.exit(1)
 
 if __name__ == "__main__":

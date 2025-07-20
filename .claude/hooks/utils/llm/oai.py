@@ -10,7 +10,7 @@
 import os
 import sys
 from dotenv import load_dotenv
-
+from ..localization import t, get_language
 
 def prompt_llm(prompt_text):
     """
@@ -54,30 +54,16 @@ def generate_completion_message():
         str: A natural language completion message, or None if error
     """
     engineer_name = os.getenv("ENGINEER_NAME", "").strip()
+    language_name = t(f"language_name_{get_language()}")
 
     if engineer_name:
-        name_instruction = f"Sometimes (about 30% of the time) include the engineer's name '{engineer_name}' in a natural way."
-        examples = f"""Examples of the style: 
-- Standard: "Work complete!", "All done!", "Task finished!", "Ready for your next move!"
-- Personalized: "{engineer_name}, all set!", "Ready for you, {engineer_name}!", "Complete, {engineer_name}!", "{engineer_name}, we're done!" """
+        name_instruction = t("engineer_name_instruction", engineer_name=engineer_name)
+        examples = t("examples_personalized", engineer_name=engineer_name)
     else:
         name_instruction = ""
-        examples = """Examples of the style: "Work complete!", "All done!", "Task finished!", "Ready for your next move!" """
+        examples = t("examples_standard")
 
-    prompt = f"""Generate a short, friendly completion message for when an AI coding assistant finishes a task. 
-
-Requirements:
-- Keep it under 10 words
-- Make it positive and future focused
-- Use natural, conversational language
-- Focus on completion/readiness
-- Do NOT include quotes, formatting, or explanations
-- Return ONLY the completion message text
-{name_instruction}
-
-{examples}
-
-Generate ONE completion message:"""
+    prompt = t("anth_oai_completion_prompt", name_instruction=name_instruction, examples=examples, language_name=language_name)
 
     response = prompt_llm(prompt)
 
@@ -98,16 +84,17 @@ def main():
             if message:
                 print(message)
             else:
-                print("Error generating completion message")
+                print(t("error_generating_completion"))
         else:
             prompt_text = " ".join(sys.argv[1:])
             response = prompt_llm(prompt_text)
             if response:
                 print(response)
             else:
-                print("Error calling OpenAI API")
+                print(t("error_calling_api", api_name="OpenAI"))
     else:
-        print("Usage: ./oai.py 'your prompt here' or ./oai.py --completion")
+        script_name = os.path.basename(__file__)
+        print(t("usage_prompt", script_name=script_name))
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 from utils.constants import ensure_session_log_dir
+from utils.localization import t
 
 try:
     from dotenv import load_dotenv
@@ -59,7 +60,7 @@ def announce_subagent_completion():
             return  # No TTS scripts available
         
         # Use fixed message for subagent completion
-        completion_message = "Subagent Complete"
+        completion_message = t("subagent_complete")
         
         # Call the TTS script with the completion message
         subprocess.run([

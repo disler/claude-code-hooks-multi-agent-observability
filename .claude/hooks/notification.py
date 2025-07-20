@@ -14,6 +14,7 @@ import subprocess
 import random
 from pathlib import Path
 from utils.constants import ensure_session_log_dir
+from utils.localization import t
 
 try:
     from dotenv import load_dotenv
@@ -63,9 +64,9 @@ def announce_notification():
         
         # Create notification message with 30% chance to include name
         if engineer_name and random.random() < 0.3:
-            notification_message = f"{engineer_name}, your agent needs your input"
+            notification_message = t("needs_input_named", engineer_name=engineer_name)
         else:
-            notification_message = "Your agent needs your input"
+            notification_message = t("needs_input")
         
         # Call the TTS script with the notification message
         subprocess.run([
