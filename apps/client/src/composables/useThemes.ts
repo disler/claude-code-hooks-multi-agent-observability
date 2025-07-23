@@ -54,12 +54,12 @@ const PREDEFINED_THEMES: Record<ThemeName, PredefinedTheme> = {
     displayName: 'Dark',
     description: 'Dark theme with reduced eye strain',
     cssClass: 'theme-dark',
-    preview: { primary: '#111827', secondary: '#1f2937', accent: '#60a5fa' },
+    preview: { primary: '#111827', secondary: '#1f2937', accent: '#374151' },
     colors: {
-      primary: '#60a5fa',
-      primaryHover: '#3b82f6',
-      primaryLight: '#1e3a8a',
-      primaryDark: '#1d4ed8',
+      primary: '#374151',
+      primaryHover: '#4b5563',
+      primaryLight: '#6b7280',
+      primaryDark: '#1f2937',
       bgPrimary: '#111827',
       bgSecondary: '#1f2937',
       bgTertiary: '#374151',
@@ -74,12 +74,12 @@ const PREDEFINED_THEMES: Record<ThemeName, PredefinedTheme> = {
       accentSuccess: '#34d399',
       accentWarning: '#fbbf24',
       accentError: '#f87171',
-      accentInfo: '#60a5fa',
+      accentInfo: '#6b7280',
       shadow: 'rgba(0, 0, 0, 0.5)',
       shadowLg: 'rgba(0, 0, 0, 0.75)',
       hoverBg: 'rgba(255, 255, 255, 0.05)',
       activeBg: 'rgba(255, 255, 255, 0.1)',
-      focusRing: '#60a5fa'
+      focusRing: '#6b7280'
     }
   },
   modern: {

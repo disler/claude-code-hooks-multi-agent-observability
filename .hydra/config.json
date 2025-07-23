@@ -1,0 +1,47 @@
+{
+  "project_name": "claude-code-hooks-multi-agent-observability",
+  "description": "Hydra multi-agent project",
+  "version": "1.0.0",
+  "project_type": "web-application",
+  "context_dir": "context",
+  "playbooks_dir": "playbooks",
+  "hooks": {
+    "pre_search": true,
+    "agent_briefing": true,
+    "custom_hooks": []
+  },
+  "agent_limits": {
+    "max_concurrent": 5,
+    "timeout_minutes": 30
+  },
+  "paths": {
+    "project_root": "/opt/claude-code-hooks-multi-agent-observability",
+    "hydra_root": "/opt/claude-code-hooks-multi-agent-observability/.hydra",
+    "context": "/opt/claude-code-hooks-multi-agent-observability/.hydra/context",
+    "playbooks": "/opt/claude-code-hooks-multi-agent-observability/.hydra/playbooks",
+    "logs": "/opt/claude-code-hooks-multi-agent-observability/.hydra/logs",
+    "tmp": "/opt/claude-code-hooks-multi-agent-observability/.hydra/tmp"
+  },
+  "environment": {
+    "working_directory": "/opt/claude-code-hooks-multi-agent-observability",
+    "platform": "Linux",
+    "shell": "/usr/bin/zsh"
+  },
+  "tools": {
+    "enabled": [
+      "file_operations",
+      "bash",
+      "web_access",
+      "version_control",
+      "ide_integration"
+    ],
+    "restricted": []
+  },
+  "settings": {
+    "auto_context_injection": true,
+    "performance_monitoring": true,
+    "error_reporting": true,
+    "debug_mode": false,
+    "local_hydra": true
+  }
+}

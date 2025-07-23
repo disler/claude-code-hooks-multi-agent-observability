@@ -1,22 +1,23 @@
 <template>
   <div class="flex-1 mobile:h-[50vh] overflow-hidden flex flex-col">
-    <!-- Fixed Header -->
-    <div class="px-3 py-4 mobile:py-2 bg-gradient-to-r from-[var(--theme-bg-primary)] to-[var(--theme-bg-secondary)] relative z-10" style="box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3), 0 8px 25px -5px rgba(0, 0, 0, 0.2);">
-      <h2 class="text-2xl mobile:text-lg font-bold text-[var(--theme-primary)] text-center drop-shadow-sm">
-        Agent Event Stream
-      </h2>
+    <!-- Event Stream Header -->
+    <div class="px-3 py-2.5 mobile:py-2 bg-gradient-to-r from-[var(--theme-bg-primary)] to-[var(--theme-bg-secondary)] shadow-lg">
+      <h3 class="text-sm mobile:text-xs font-bold text-[var(--theme-primary)] drop-shadow-sm flex items-center">
+        <span class="mr-1 text-base mobile:text-sm">📋</span>
+        Event Stream
+      </h3>
     </div>
     
-    <!-- Scrollable Event List -->
+    <!-- Scrollable Event List - Compact -->
     <div 
       ref="scrollContainer"
-      class="flex-1 overflow-y-auto px-3 py-3 mobile:px-2 mobile:py-1.5 relative"
+      class="flex-1 overflow-y-auto px-2.5 py-2 mobile:px-2 mobile:py-1 relative"
       @scroll="handleScroll"
     >
       <TransitionGroup
         name="event"
         tag="div"
-        class="space-y-2 mobile:space-y-1.5"
+        class="space-y-1.5 mobile:space-y-1"
       >
         <EventRow
           v-for="event in filteredEvents"
@@ -30,10 +31,10 @@
         />
       </TransitionGroup>
       
-      <div v-if="filteredEvents.length === 0" class="text-center py-8 mobile:py-6 text-[var(--theme-text-tertiary)]">
-        <div class="text-4xl mobile:text-3xl mb-3">🔳</div>
-        <p class="text-lg mobile:text-base font-semibold text-[var(--theme-primary)] mb-1.5">No events to display</p>
-        <p class="text-base mobile:text-sm">Events will appear here as they are received</p>
+      <div v-if="filteredEvents.length === 0" class="text-center py-6 mobile:py-4 text-[var(--theme-text-tertiary)]">
+        <div class="text-3xl mobile:text-2xl mb-2">🔳</div>
+        <p class="text-base mobile:text-sm font-semibold text-[var(--theme-primary)] mb-1">No events to display</p>
+        <p class="text-sm mobile:text-xs">Events will appear here as they are received</p>
       </div>
     </div>
   </div>
