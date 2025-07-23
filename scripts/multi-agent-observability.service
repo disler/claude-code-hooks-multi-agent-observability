@@ -1,0 +1,28 @@
+[Unit]
+Description=Multi-Agent Observability System
+After=network.target
+
+[Service]
+Type=simple
+User=zdenek
+WorkingDirectory=/opt/claude-code-hooks-multi-agent-observability
+ExecStart=/opt/claude-code-hooks-multi-agent-observability/scripts/start-system-service-simple.sh
+ExecStop=/opt/claude-code-hooks-multi-agent-observability/scripts/stop-system-service.sh
+Restart=always
+RestartSec=10
+# PIDFile=/run/multi-agent-observability.pid
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/zdenek/.bun/bin
+
+# Security
+NoNewPrivileges=yes
+ProtectSystem=false
+ProtectHome=false
+ReadWritePaths=/opt/claude-code-hooks-multi-agent-observability
+ReadWritePaths=/run
+ReadWritePaths=/tmp
+
+[Install]
+WantedBy=multi-user.target
