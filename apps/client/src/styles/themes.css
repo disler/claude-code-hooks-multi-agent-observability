@@ -48,10 +48,10 @@
 /* Dark theme */
 .theme-dark {
   /* Primary colors */
-  --theme-primary: #60a5fa;
-  --theme-primary-hover: #3b82f6;
-  --theme-primary-light: #1e3a8a;
-  --theme-primary-dark: #1d4ed8;
+  --theme-primary: #374151;
+  --theme-primary-hover: #4b5563;
+  --theme-primary-light: #6b7280;
+  --theme-primary-dark: #1f2937;
   
   /* Background colors */
   --theme-bg-primary: #111827;
@@ -74,7 +74,7 @@
   --theme-accent-success: #34d399;
   --theme-accent-warning: #fbbf24;
   --theme-accent-error: #f87171;
-  --theme-accent-info: #60a5fa;
+  --theme-accent-info: #6b7280;
   
   /* Shadow colors */
   --theme-shadow: rgba(0, 0, 0, 0.5);
@@ -83,7 +83,7 @@
   /* Interactive states */
   --theme-hover-bg: rgba(255, 255, 255, 0.05);
   --theme-active-bg: rgba(255, 255, 255, 0.1);
-  --theme-focus-ring: #60a5fa;
+  --theme-focus-ring: #6b7280;
 }
 
 /* Modern theme - Sleek blues and grays */

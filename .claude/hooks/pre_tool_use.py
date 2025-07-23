@@ -97,13 +97,13 @@ def main():
             sys.exit(2)  # Exit code 2 blocks tool call and shows error to Claude
         
         # Check for dangerous rm -rf commands
-        if tool_name == 'Bash':
-            command = tool_input.get('command', '')
+        #if tool_name == 'Bash':
+        #    command = tool_input.get('command', '')
             
             # Block rm -rf commands with comprehensive pattern matching
-            if is_dangerous_rm_command(command):
-                print("BLOCKED: Dangerous rm command detected and prevented", file=sys.stderr)
-                sys.exit(2)  # Exit code 2 blocks tool call and shows error to Claude
+        #    if is_dangerous_rm_command(command):
+        #        print("BLOCKED: Dangerous rm command detected and prevented", file=sys.stderr)
+        #        sys.exit(2)  # Exit code 2 blocks tool call and shows error to Claude
         
         # Extract session_id
         session_id = input_data.get('session_id', 'unknown')

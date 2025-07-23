@@ -1,7 +1,7 @@
 <template>
   <button
     @click="$emit('toggle')"
-    class="fixed bottom-6 right-6 mobile:bottom-4 mobile:right-4 p-4 mobile:p-3 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 min-w-[44px] min-h-[44px] flex items-center justify-center border-2 transform hover:scale-110"
+    class="fixed bottom-4 right-4 mobile:bottom-3 mobile:right-3 p-3 mobile:p-2.5 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 min-w-[40px] min-h-[40px] flex items-center justify-center border-2 transform hover:scale-110"
     :class="[
       stickToBottom 
         ? 'bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-light)] text-white border-[var(--theme-primary-dark)] drop-shadow-md' 
@@ -10,7 +10,7 @@
     :title="stickToBottom ? 'Disable auto-scroll' : 'Enable auto-scroll'"
   >
     <svg
-      class="w-6 h-6 mobile:w-5 mobile:h-5 drop-shadow-sm"
+      class="w-5 h-5 mobile:w-4 mobile:h-4 drop-shadow-sm"
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"

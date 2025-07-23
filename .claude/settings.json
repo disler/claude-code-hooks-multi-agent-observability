@@ -2,45 +2,70 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "",
+        "matcher": "Grep|Glob|mcp__context7__*",
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/pre_tool_use.py"
+            "command": "/opt/hydra/core/hooks/pre-search.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/hydra/core/hooks/inject-agent-briefing.sh",
+            "args": ["${tool.description}", "${tool.prompt}", "--project", "claude-code-hooks-multi-agent-observability"]
           },
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type PreToolUse --summarize"
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/pre_tool_use.py"
+          }
+        ]
+      },
+      {
+       "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/pre_tool_use.py"
+          },
+          {
+            "type": "command",
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/send_event.py --source-app claude-code-hooks-multi-agent-observability --event-type PreToolUse --summarize"
           }
         ]
       }
     ],
     "PostToolUse": [
-      {
-        "matcher": "",
+        {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/post_tool_use.py"
+            "command": "/opt/hydra/core/hooks/post-doc-update.sh"
           },
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type PostToolUse --summarize"
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/post_tool_use.py"
+          },
+          {
+            "type": "command",
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/send_event.py --source-app claude-code-hooks-multi-agent-observability --event-type PostToolUse --summarize"
           }
         ]
-      }
-    ],
-    "Notification": [
+      },
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/notification.py --notify "
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/post_tool_use.py"
           },
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type Notification --summarize"
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/send_event.py --source-app claude-code-hooks-multi-agent-observability --event-type PostToolUse --summarize"
           }
         ]
       }
@@ -51,11 +76,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/stop.py --chat"
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/stop.py --chat"
           },
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type Stop --add-chat"
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/send_event.py --source-app claude-code-hooks-multi-agent-observability --event-type Stop --add-chat"
           }
         ]
       }
@@ -66,11 +91,40 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/subagent_stop.py"
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/subagent_stop.py"
           },
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type SubagentStop"
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/send_event.py --source-app claude-code-hooks-multi-agent-observability --event-type SubagentStop"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/notification.py --notify"
+          },
+          {
+            "type": "command",
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/send_event.py --source-app claude-code-hooks-multi-agent-observability --event-type Notification --summarize"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/user_prompt_submit.py --log-only"
+          },
+          {
+            "type": "command",
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/send_event.py --source-app claude-code-hooks-multi-agent-observability --event-type UserPromptSubmit --summarize"
           }
         ]
       }
@@ -81,21 +135,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type PreCompact"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run .claude/hooks/user_prompt_submit.py --log-only"
-          },
-          {
-            "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type UserPromptSubmit --summarize"
+            "command": "/usr/local/bin/uv run /opt/claude-code-hooks-multi-agent-observability/.claude/hooks/send_event.py --source-app claude-code-hooks-multi-agent-observability --event-type PreCompact"
           }
         ]
       }

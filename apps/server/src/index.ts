@@ -17,16 +17,22 @@ initDatabase();
 // Store WebSocket clients
 const wsClients = new Set<any>();
 
+// Configuration from environment variables
+const SERVER_HOST = process.env.SERVER_HOST || 'localhost';
+const SERVER_PORT = parseInt(process.env.SERVER_PORT || '4000');
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+
 // Create Bun server with HTTP and WebSocket support
 const server = Bun.serve({
-  port: 4000,
+  hostname: SERVER_HOST,
+  port: SERVER_PORT,
   
   async fetch(req: Request) {
     const url = new URL(req.url);
     
     // Handle CORS
     const headers = {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': CORS_ORIGIN,
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     };
@@ -309,6 +315,8 @@ const server = Bun.serve({
   }
 });
 
-console.log(`🚀 Server running on http://localhost:${server.port}`);
-console.log(`📊 WebSocket endpoint: ws://localhost:${server.port}/stream`);
-console.log(`📮 POST events to: http://localhost:${server.port}/events`);
+const displayHost = SERVER_HOST === '0.0.0.0' ? 'localhost' : SERVER_HOST;
+console.log(`🚀 Server running on http://${displayHost}:${server.port}`);
+console.log(`   Listening on: ${SERVER_HOST}:${server.port}`);
+console.log(`📊 WebSocket endpoint: ws://${displayHost}:${server.port}/stream`);
+console.log(`📮 POST events to: http://${displayHost}:${server.port}/events`);

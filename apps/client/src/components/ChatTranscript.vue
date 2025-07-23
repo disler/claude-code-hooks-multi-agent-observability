@@ -284,7 +284,7 @@ const getCopyButtonText = (index: number) => {
   return copyButtonStates.value.get(index) || '📋';
 };
 
-const copyMessage = async (index: number, type: string) => {
+const copyMessage = async (index: number, _type: string) => {
   const item = chatItems.value[index];
   
   try {

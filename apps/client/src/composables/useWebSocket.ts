@@ -1,5 +1,6 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import type { HookEvent, WebSocketMessage } from '../types';
+import { MAX_EVENTS_TO_DISPLAY } from '../config';
 
 export function useWebSocket(url: string) {
   const events = ref<HookEvent[]>([]);
@@ -9,8 +10,8 @@ export function useWebSocket(url: string) {
   let ws: WebSocket | null = null;
   let reconnectTimeout: number | null = null;
   
-  // Get max events from environment variable or use default
-  const maxEvents = parseInt(import.meta.env.VITE_MAX_EVENTS_TO_DISPLAY || '100');
+  // Get max events from configuration
+  const maxEvents = MAX_EVENTS_TO_DISPLAY;
   
   const connect = () => {
     try {

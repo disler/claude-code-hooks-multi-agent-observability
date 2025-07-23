@@ -335,12 +335,48 @@ Copy `.env.sample` to `.env` in the project root and fill in your API keys:
 - `OPENAI_API_KEY` – OpenAI API key (optional)
 - `ELEVEN_API_KEY` – ElevenLabs API key (optional)
 
+**Server** (`.env` file in `apps/server/.env`):
+- `SERVER_HOST=localhost` – Network interface to bind to (default: localhost)
+  - Use `localhost` for local access only
+  - Use `0.0.0.0` to listen on all network interfaces
+  - Use specific IP address (e.g., `192.168.1.100`) for specific interface
+- `SERVER_PORT=4000` – Port for HTTP/WebSocket server (default: 4000)
+- `CORS_ORIGIN=*` – CORS origin configuration (default: * for all origins)
+
 **Client** (`.env` file in `apps/client/.env`):
+- `VITE_SERVER_HOST=localhost` – Server host to connect to (default: localhost)
+- `VITE_SERVER_PORT=4000` – Server port to connect to (default: 4000)
 - `VITE_MAX_EVENTS_TO_DISPLAY=100` – Maximum events to show (removes oldest when exceeded)
+
+### Network Configuration
+
+The observability server now supports flexible network binding:
+
+1. **Local-only access** (default):
+   ```bash
+   # In apps/server/.env
+   SERVER_HOST=localhost
+   SERVER_PORT=4000
+   ```
+
+2. **Network-wide access**:
+   ```bash
+   # In apps/server/.env
+   SERVER_HOST=0.0.0.0
+   SERVER_PORT=4000
+   ```
+
+3. **Custom configuration**:
+   ```bash
+   # Start with environment variables
+   SERVER_HOST=0.0.0.0 SERVER_PORT=8080 ./scripts/start-system.sh
+   ```
+
+When the server binds to `0.0.0.0`, the start script will display both local and network access URLs.
 
 ### Server Ports
 
-- Server: `4000` (HTTP/WebSocket)
+- Server: `4000` (HTTP/WebSocket) - configurable via `SERVER_PORT`
 - Client: `5173` (Vite dev server)
 
 ## 🛡️ Security Features
