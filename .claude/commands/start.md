@@ -1,6 +1,8 @@
+# Usage
+
 Run this command in the background using nohup:
 
-```
+```bash
 nohup sh scripts/start-system.sh > /dev/null 2>&1 &
 ```
 

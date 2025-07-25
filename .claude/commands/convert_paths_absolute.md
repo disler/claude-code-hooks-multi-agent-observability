@@ -1,13 +1,13 @@
----
-allowed-tools: Read,Bash,Edit,Write
-description: Converts relative paths in .claude/settings.json command scripts to absolute paths
----
+______________________________________________________________________
+
+## allowed-tools: Read,Bash,Edit,Write description: Converts relative paths in .claude/settings.json command scripts to absolute paths
 
 # convert_paths_absolute
 
 This command converts all relative paths in .claude/settings.json command scripts to absolute paths using the current working directory. It helps ensure that command scripts work correctly regardless of where they are executed from.
 
 ## Instructions
+
 - Get the current working directory using pwd
 - Read the .claude/settings.json file
 - Parse the JSON content to find all command scripts
