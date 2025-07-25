@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run --script
+#!/usr/bin/env -S pixi run python
 # /// script
 # requires-python = ">=3.8"
 # dependencies = [

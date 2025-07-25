@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run --script
+#!/usr/bin/env -S pixi run python
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
@@ -13,7 +13,6 @@ import sys
 import random
 import subprocess
 from pathlib import Path
-from datetime import datetime
 from utils.constants import ensure_session_log_dir
 
 try:
@@ -82,7 +81,7 @@ def get_llm_completion_message():
         if anth_script.exists():
             try:
                 result = subprocess.run(
-                    ["uv", "run", str(anth_script), "--completion"],
+                    ["pixi", "run", str(anth_script), "--completion"],
                     capture_output=True,
                     text=True,
                     timeout=10,
@@ -98,7 +97,7 @@ def get_llm_completion_message():
         if oai_script.exists():
             try:
                 result = subprocess.run(
-                    ["uv", "run", str(oai_script), "--completion"],
+                    ["pixi", "run", str(oai_script), "--completion"],
                     capture_output=True,
                     text=True,
                     timeout=10,
@@ -125,7 +124,7 @@ def announce_completion():
 
         # Call the TTS script with the completion message
         subprocess.run(
-            ["uv", "run", tts_script, completion_message],
+            ["pixi", "run", tts_script, completion_message],
             capture_output=True,  # Suppress output
             timeout=10,  # 10-second timeout
         )
@@ -152,7 +151,7 @@ def main():
 
         # Extract required fields
         session_id = input_data.get("session_id", "")
-        stop_hook_active = input_data.get("stop_hook_active", False)
+        input_data.get("stop_hook_active", False)
 
         # Ensure session log directory exists
         log_dir = ensure_session_log_dir(session_id)
@@ -178,6 +177,9 @@ def main():
         # Handle --chat switch
         if args.chat and "transcript_path" in input_data:
             transcript_path = input_data["transcript_path"]
+            # Convert relative paths to absolute paths
+            if not os.path.isabs(transcript_path):
+                transcript_path = os.path.abspath(transcript_path)
             if os.path.exists(transcript_path):
                 # Read .jsonl file and convert to JSON array
                 chat_data = []
