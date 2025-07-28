@@ -6,7 +6,6 @@
 import json
 import sys
 import re
-from pathlib import Path
 from utils.constants import ensure_session_log_dir
 
 def is_dangerous_rm_command(command):

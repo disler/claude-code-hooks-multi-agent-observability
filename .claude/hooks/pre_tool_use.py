@@ -575,7 +575,7 @@ def check_file_creation_thresholds(tool_name, tool_input):
                         config.get('commit_message_prefix', 'Auto-commit: New file created - ')
                     )
                     
-                    print(f"AUTO-COMMIT: Staging changes for commit", file=sys.stderr)
+                    print("AUTO-COMMIT: Staging changes for commit", file=sys.stderr)
                     subprocess.run(['git', 'add', '.'], cwd=os.getcwd(), capture_output=True)
                     
                     print(f"AUTO-COMMIT: Creating commit: {meaningful_commit_msg}", file=sys.stderr)
@@ -773,7 +773,7 @@ def perform_chunked_edit(file_path, old_string, new_string, config):
     new_lines = new_string.splitlines(keepends=True)
     
     # Generate unified diff
-    diff = list(difflib.unified_diff(old_lines, new_lines, lineterm=''))
+    list(difflib.unified_diff(old_lines, new_lines, lineterm=''))
     
     max_lines = min(config.get('max_lines_added', 25), config.get('max_lines_removed', 25))
     print(f"DEBUG: Max lines per chunk: {max_lines}", file=sys.stderr)
@@ -814,7 +814,7 @@ def perform_chunked_edit(file_path, old_string, new_string, config):
     
     # If we're removing more than adding, process removals first
     if len(old_chunks) > len(new_chunks):
-        print(f"DEBUG: Removing content mode (more old chunks than new)", file=sys.stderr)
+        print("DEBUG: Removing content mode (more old chunks than new)", file=sys.stderr)
         # Remove chunks from the end to the beginning
         for i in range(len(old_chunks) - 1, -1, -1):
             try:
@@ -837,7 +837,7 @@ def perform_chunked_edit(file_path, old_string, new_string, config):
                     # Write the change
                     with open(file_path, 'w', encoding='utf-8') as f:
                         f.write(new_content)
-                    print(f"DEBUG: File written successfully", file=sys.stderr)
+                    print("DEBUG: File written successfully", file=sys.stderr)
                     
                     # Commit this chunk
                     result = subprocess.run(['git', 'add', file_path], capture_output=True, text=True)
@@ -858,7 +858,7 @@ def perform_chunked_edit(file_path, old_string, new_string, config):
                         
                     print(f"CHUNKED EDIT: Committed chunk {i+1}/{len(old_chunks)} - {meaningful_msg}", file=sys.stderr)
                 else:
-                    print(f"WARNING: Chunk not found in current content", file=sys.stderr)
+                    print("WARNING: Chunk not found in current content", file=sys.stderr)
                 
             except Exception as e:
                 print(f"ERROR: Failed to process chunk {i+1}: {e}", file=sys.stderr)
@@ -866,7 +866,7 @@ def perform_chunked_edit(file_path, old_string, new_string, config):
                 return False
     
     else:
-        print(f"DEBUG: Adding content mode (more new chunks than old)", file=sys.stderr)
+        print("DEBUG: Adding content mode (more new chunks than old)", file=sys.stderr)
         # Adding more than removing - do a direct chunked replacement
         # Start by replacing with empty content, then add chunks
         try:
@@ -895,7 +895,7 @@ def perform_chunked_edit(file_path, old_string, new_string, config):
                 print(f"ERROR: git commit failed: {result.stderr}", file=sys.stderr)
                 return False
             
-            print(f"DEBUG: Removed old content", file=sys.stderr)
+            print("DEBUG: Removed old content", file=sys.stderr)
             
             # Now add new content in chunks
             insertion_point = current_content.index(old_string)
@@ -936,7 +936,7 @@ def perform_chunked_edit(file_path, old_string, new_string, config):
             traceback.print_exc(file=sys.stderr)
             return False
     
-    print(f"DEBUG: Chunked edit completed successfully", file=sys.stderr)
+    print("DEBUG: Chunked edit completed successfully", file=sys.stderr)
     return True
 
 def check_edit_thresholds(tool_name, tool_input):

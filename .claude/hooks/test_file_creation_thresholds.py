@@ -11,7 +11,6 @@ import json
 import sys
 import os
 import tempfile
-import subprocess
 from pathlib import Path
 
 # Add the hooks directory to Python path for imports
@@ -40,7 +39,7 @@ def test_load_configuration():
     for key in required_keys:
         assert key in config, f"Missing required configuration key: {key}"
     
-    print(f"✓ Configuration loaded successfully")
+    print("✓ Configuration loaded successfully")
     print(f"  Max lines: {config['max_new_file_lines']}")
     print(f"  Max files per session: {config['max_files_per_session']}")
     print(f"  Enabled: {config['enabled']}")
