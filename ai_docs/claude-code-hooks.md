@@ -70,6 +70,7 @@ For events like `UserPromptSubmit`, `Notification`, `Stop`, and `SubagentStop` t
 Runs after Claude creates tool parameters and before processing the tool call.
 
 **Common matchers:**
+
 - `Task` - Agent tasks
 - `Bash` - Shell commands
 - `Glob` - File pattern matching
@@ -90,7 +91,7 @@ Recognizes the same matcher values as PreToolUse.
 Runs when Claude Code sends notifications. Notifications are sent when:
 
 1. Claude needs your permission to use a tool. Example: "Claude needs your permission to use Bash"
-2. The prompt input has been idle for at least 60 seconds. "Claude is waiting for your input"
+1. The prompt input has been idle for at least 60 seconds. "Claude is waiting for your input"
 
 ### UserPromptSubmit
 
@@ -109,6 +110,7 @@ Runs when a Claude Code subagent (Task tool call) has finished responding.
 Runs before Claude Code is about to run a compact operation.
 
 **Matchers:**
+
 - `manual` - Invoked from `/compact`
 - `auto` - Invoked from auto-compact (due to full context window)
 
@@ -486,19 +488,19 @@ Always review and understand any hook commands before adding them to your config
 Here are some key practices for writing more secure hooks:
 
 1. **Validate and sanitize inputs** - Never trust input data blindly
-2. **Always quote shell variables** - Use `"$VAR"` not `$VAR`
-3. **Block path traversal** - Check for `..` in file paths
-4. **Use absolute paths** - Specify full paths for scripts
-5. **Skip sensitive files** - Avoid `.env`, `.git/`, keys, etc.
+1. **Always quote shell variables** - Use `"$VAR"` not `$VAR`
+1. **Block path traversal** - Check for `..` in file paths
+1. **Use absolute paths** - Specify full paths for scripts
+1. **Skip sensitive files** - Avoid `.env`, `.git/`, keys, etc.
 
 ### Configuration Safety
 
 Direct edits to hooks in settings files don't take effect immediately. Claude Code:
 
 1. Captures a snapshot of hooks at startup
-2. Uses this snapshot throughout the session
-3. Warns if hooks are modified externally
-4. Requires review in `/hooks` menu for changes to apply
+1. Uses this snapshot throughout the session
+1. Warns if hooks are modified externally
+1. Requires review in `/hooks` menu for changes to apply
 
 This prevents malicious hook modifications from affecting your current session.
 
@@ -520,10 +522,10 @@ This prevents malicious hook modifications from affecting your current session.
 If your hooks aren't working:
 
 1. **Check configuration** - Run `/hooks` to see if your hook is registered
-2. **Verify syntax** - Ensure your JSON settings are valid
-3. **Test commands** - Run hook commands manually first
-4. **Check permissions** - Make sure scripts are executable
-5. **Review logs** - Use `claude --debug` to see hook execution details
+1. **Verify syntax** - Ensure your JSON settings are valid
+1. **Test commands** - Run hook commands manually first
+1. **Check permissions** - Make sure scripts are executable
+1. **Review logs** - Use `claude --debug` to see hook execution details
 
 Common issues:
 
@@ -536,11 +538,11 @@ Common issues:
 For complex hook issues:
 
 1. **Inspect hook execution** - Use `claude --debug` to see detailed hook execution
-2. **Validate JSON schemas** - Test hook input/output with external tools
-3. **Check environment variables** - Verify Claude Code's environment is correct
-4. **Test edge cases** - Try hooks with unusual file paths or inputs
-5. **Monitor system resources** - Check for resource exhaustion during hook execution
-6. **Use structured logging** - Implement logging in your hook scripts
+1. **Validate JSON schemas** - Test hook input/output with external tools
+1. **Check environment variables** - Verify Claude Code's environment is correct
+1. **Test edge cases** - Try hooks with unusual file paths or inputs
+1. **Monitor system resources** - Check for resource exhaustion during hook execution
+1. **Use structured logging** - Implement logging in your hook scripts
 
 ### Debug Output Example
 

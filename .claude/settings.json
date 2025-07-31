@@ -6,11 +6,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/pre_tool_use.py"
+            "command": "pixi run pre-tool-hook"
           },
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type PreToolUse --summarize"
+            "command": "pixi run /home/uge/mfc-project/.claude/hooks/send_event.py --source-app mfc-project --event-type PreToolUse --summarize"
           }
         ]
       }
@@ -21,11 +21,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/post_tool_use.py"
+            "command": "pixi run post-tool-hook"
           },
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type PostToolUse --summarize"
+            "command": "pixi run /home/uge/mfc-project/.claude/hooks/send_event.py --source-app mfc-project --event-type PostToolUse --summarize"
           }
         ]
       }
@@ -36,11 +36,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/notification.py --notify "
+            "command": "pixi run /home/uge/mfc-project/.claude/hooks/notification.py --notify "
           },
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type Notification --summarize"
+            "command": "pixi run /home/uge/mfc-project/.claude/hooks/send_event.py --source-app mfc-project --event-type Notification --summarize"
           }
         ]
       }
@@ -51,11 +51,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/stop.py --chat"
+            "command": "pixi run /home/uge/mfc-project/.claude/hooks/stop.py --chat"
           },
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type Stop --add-chat"
+            "command": "pixi run /home/uge/mfc-project/.claude/hooks/send_event.py --source-app mfc-project --event-type Stop --add-chat"
           }
         ]
       }
@@ -66,11 +66,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/subagent_stop.py"
+            "command": "pixi run /home/uge/mfc-project/.claude/hooks/subagent_stop.py"
           },
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type SubagentStop"
+            "command": "pixi run /home/uge/mfc-project/.claude/hooks/send_event.py --source-app mfc-project --event-type SubagentStop"
           }
         ]
       }
@@ -81,7 +81,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type PreCompact"
+            "command": "pixi run /home/uge/mfc-project/.claude/hooks/send_event.py --source-app mfc-project --event-type PreCompact"
           }
         ]
       }
@@ -91,14 +91,45 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/user_prompt_submit.py --log-only"
+            "command": "pixi run /home/uge/mfc-project/.claude/hooks/user_prompt_submit.py --log-only"
           },
           {
             "type": "command",
-            "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type UserPromptSubmit --summarize"
+            "command": "pixi run /home/uge/mfc-project/.claude/hooks/send_event.py --source-app mfc-project --event-type UserPromptSubmit --summarize"
           }
         ]
       }
+    ]
+  },
+  "edit_thresholds": {
+    "max_lines_added": 25,
+    "max_lines_removed": 25,
+    "max_total_changes": 50,
+    "enabled": true,
+    "auto_commit": true,
+    "commit_message_prefix": "Auto-commit: Large file changes detected - "
+  },
+  "file_creation_thresholds": {
+    "max_new_file_lines": 20,
+    "max_files_per_session": 5,
+    "enabled": true,
+    "auto_commit": true,
+    "commit_message_prefix": "Auto-commit: New file created - ",
+    "exclude_patterns": [
+      "*.tmp",
+      "*.log",
+      "*.cache",
+      ".DS_Store",
+      "Thumbs.db"
+    ],
+    "include_patterns": [
+      "*.py",
+      "*.md",
+      "*.yaml",
+      "*.yml",
+      "*.json",
+      "*.toml",
+      "*.txt"
     ]
   }
 }

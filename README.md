@@ -4,7 +4,7 @@ Real-time monitoring and visualization for Claude Code agents through comprehens
 
 ## 🎯 Overview
 
-This system provides complete observability into Claude Code agent behavior by capturing, storing, and visualizing Claude Code [Hook events](https://docs.anthropic.com/en/docs/claude-code/hooks) in real-time. It enables monitoring of multiple concurrent agents with session tracking, event filtering, and live updates. 
+This system provides complete observability into Claude Code agent behavior by capturing, storing, and visualizing Claude Code [Hook events](https://docs.anthropic.com/en/docs/claude-code/hooks) in real-time. It enables monitoring of multiple concurrent agents with session tracking, event filtering, and live updates.
 
 <img src="images/app.png" alt="Multi-Agent Observability Dashboard" style="max-width: 800px; width: 100%;">
 
@@ -34,14 +34,15 @@ To setup observability in your repo,we need to copy the .claude directory to you
 To integrate the observability hooks into your projects:
 
 1. **Copy the entire `.claude` directory to your project root:**
+
    ```bash
    cp -R .claude /path/to/your/project/
    ```
 
-2. **Update the `settings.json` configuration:**
-   
+1. **Update the `settings.json` configuration:**
+
    Open `.claude/settings.json` in your project and modify the `source-app` parameter to identify your project:
-   
+
    ```json
    {
      "hooks": {
@@ -87,10 +88,11 @@ To integrate the observability hooks into your projects:
      }
    }
    ```
-   
+
    Replace `YOUR_PROJECT_NAME` with a unique identifier for your project (e.g., `my-api-server`, `react-app`, etc.).
 
-3. **Ensure the observability server is running:**
+1. **Ensure the observability server is running:**
+
    ```bash
    # From the observability project directory (this codebase)
    ./scripts/start-system.sh
@@ -181,11 +183,13 @@ claude-code-hooks-multi-agent-observability/
 The hook system intercepts Claude Code lifecycle events:
 
 - **`send_event.py`**: Core script that sends event data to the observability server
+
   - Supports `--add-chat` flag for including conversation history
   - Validates server connectivity before sending
   - Handles all event types with proper error handling
 
 - **Event-specific hooks**: Each implements validation and data extraction
+
   - `pre_tool_use.py`: Blocks dangerous commands, validates tool usage
   - `post_tool_use.py`: Captures execution results and outputs
   - `notification.py`: Tracks user interaction points
@@ -214,12 +218,14 @@ Bun-powered TypeScript server with real-time capabilities:
 Vue 3 application with real-time visualization:
 
 - **Visual Design**:
+
   - Dual-color system: App colors (left border) + Session colors (second border)
   - Gradient indicators for visual distinction
   - Dark/light theme support
   - Responsive layout with smooth animations
 
 - **Features**:
+
   - Real-time WebSocket updates
   - Multi-criteria filtering (app, session, event type)
   - Live pulse chart with session-colored bars and event type indicators
@@ -229,6 +235,7 @@ Vue 3 application with real-time visualization:
   - Event limiting (configurable via `VITE_MAX_EVENTS_TO_DISPLAY`)
 
 - **Live Pulse Chart**:
+
   - Canvas-based real-time visualization
   - Session-specific colors for each bar
   - Event type emojis displayed on bars
@@ -238,30 +245,31 @@ Vue 3 application with real-time visualization:
 ## 🔄 Data Flow
 
 1. **Event Generation**: Claude Code executes an action (tool use, notification, etc.)
-2. **Hook Activation**: Corresponding hook script runs based on `settings.json` configuration
-3. **Data Collection**: Hook script gathers context (tool name, inputs, outputs, session ID)
-4. **Transmission**: `send_event.py` sends JSON payload to server via HTTP POST
-5. **Server Processing**:
+1. **Hook Activation**: Corresponding hook script runs based on `settings.json` configuration
+1. **Data Collection**: Hook script gathers context (tool name, inputs, outputs, session ID)
+1. **Transmission**: `send_event.py` sends JSON payload to server via HTTP POST
+1. **Server Processing**:
    - Validates event structure
    - Stores in SQLite with timestamp
    - Broadcasts to WebSocket clients
-6. **Client Update**: Vue app receives event and updates timeline in real-time
+1. **Client Update**: Vue app receives event and updates timeline in real-time
 
 ## 🎨 Event Types & Visualization
 
-| Event Type   | Emoji | Purpose               | Color Coding  | Special Display |
+| Event Type | Emoji | Purpose | Color Coding | Special Display |
 | ------------ | ----- | --------------------- | ------------- | --------------- |
-| PreToolUse   | 🔧     | Before tool execution | Session-based | Tool name & details |
-| PostToolUse  | ✅     | After tool completion | Session-based | Tool name & results |
-| Notification | 🔔     | User interactions     | Session-based | Notification message |
-| Stop         | 🛑     | Response completion   | Session-based | Summary & chat transcript |
-| SubagentStop | 👥     | Subagent finished     | Session-based | Subagent details |
-| PreCompact   | 📦     | Context compaction    | Session-based | Compaction details |
+| PreToolUse | 🔧 | Before tool execution | Session-based | Tool name & details |
+| PostToolUse | ✅ | After tool completion | Session-based | Tool name & results |
+| Notification | 🔔 | User interactions | Session-based | Notification message |
+| Stop | 🛑 | Response completion | Session-based | Summary & chat transcript |
+| SubagentStop | 👥 | Subagent finished | Session-based | Subagent details |
+| PreCompact | 📦 | Context compaction | Session-based | Compaction details |
 | UserPromptSubmit | 💬 | User prompt submission | Session-based | Prompt: _"user message"_ (italic) |
 
 ### UserPromptSubmit Event (v1.0.54+)
 
 The `UserPromptSubmit` hook captures every user prompt before Claude processes it. In the UI:
+
 - Displays as `Prompt: "user's message"` in italic text
 - Shows the actual prompt content inline (truncated to 100 chars)
 - Summary appears on the right side when AI summarization is enabled
@@ -272,11 +280,13 @@ The `UserPromptSubmit` hook captures every user prompt before Claude processes i
 ### For New Projects
 
 1. Copy the event sender:
+
    ```bash
    cp .claude/hooks/send_event.py YOUR_PROJECT/.claude/hooks/
    ```
 
-2. Add to your `.claude/settings.json`:
+1. Add to your `.claude/settings.json`:
+
    ```json
    {
      "hooks": {
@@ -294,6 +304,7 @@ The `UserPromptSubmit` hook captures every user prompt before Claude processes i
 ### For This Project
 
 Already integrated! Hooks run both validation and observability:
+
 ```json
 {
   "type": "command",
@@ -329,6 +340,7 @@ curl -X POST http://localhost:4000/events \
 Copy `.env.sample` to `.env` in the project root and fill in your API keys:
 
 **Application Root** (`.env` file):
+
 - `ANTHROPIC_API_KEY` – Anthropic Claude API key (required)
 - `ENGINEER_NAME` – Your name (for logging/identification)
 - `GEMINI_API_KEY` – Google Gemini API key (optional)
@@ -336,6 +348,7 @@ Copy `.env.sample` to `.env` in the project root and fill in your API keys:
 - `ELEVEN_API_KEY` – ElevenLabs API key (optional)
 
 **Client** (`.env` file in `apps/client/.env`):
+
 - `VITE_MAX_EVENTS_TO_DISPLAY=100` – Maximum events to show (removes oldest when exceeded)
 
 ### Server Ports
@@ -371,6 +384,7 @@ If your hook scripts aren't executing properly, it might be due to relative path
 ```
 
 This command will:
+
 - Find all relative paths in your hook command scripts
 - Convert them to absolute paths based on your current working directory
 - Create a backup of your original settings.json
@@ -379,6 +393,7 @@ This command will:
 This ensures your hooks work correctly regardless of where Claude Code is executed from.
 
 ## Master AI Coding
+
 > And prepare for Agentic Engineering
 
 Learn to code with AI with foundational [Principles of AI Coding](https://agenticengineer.com/principled-ai-coding?y=cchookobvs)

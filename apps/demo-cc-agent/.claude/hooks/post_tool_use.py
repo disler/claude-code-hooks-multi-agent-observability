@@ -4,9 +4,7 @@
 # ///
 
 import json
-import os
 import sys
-from pathlib import Path
 from utils.constants import ensure_session_log_dir
 
 def main():

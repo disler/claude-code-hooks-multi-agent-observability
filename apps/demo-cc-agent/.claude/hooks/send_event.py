@@ -105,7 +105,7 @@ def main():
         # Continue even if summary generation fails
     
     # Send to server
-    success = send_event_to_server(event_data, args.server_url)
+    send_event_to_server(event_data, args.server_url)
     
     # Always exit with 0 to not block Claude Code operations
     sys.exit(0)
