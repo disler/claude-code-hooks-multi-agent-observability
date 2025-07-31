@@ -53,23 +53,29 @@ The file creation thresholds are configured in `.claude/settings.json` under the
 ## How It Works
 
 ### 1. File Creation Detection
+
 - Monitors `Write` tool usage for new file creation
 - Determines if a file is new by checking if it exists before the write operation
 - Only tracks files that match the include/exclude pattern rules
 
 ### 2. Threshold Checking
+
 The hook checks two thresholds:
+
 - **File Size Threshold**: If a new file exceeds `max_new_file_lines`
 - **Session File Count**: If the number of files created in the current session exceeds `max_files_per_session`
 
 ### 3. Auto-commit Behavior
+
 When thresholds are exceeded:
+
 1. The hook logs the file creation event
-2. Stages all current changes (`git add .`)
-3. Creates a commit with a descriptive message
-4. Includes file name and line count in the commit message
+1. Stages all current changes (`git add .`)
+1. Creates a commit with a descriptive message
+1. Includes file name and line count in the commit message
 
 ### 4. Session Tracking
+
 - File creation events are logged to `logs/current/file_creations.log`
 - Each entry includes timestamp and file path
 - Session data persists across tool calls
@@ -77,11 +83,13 @@ When thresholds are exceeded:
 ## File Pattern Matching
 
 ### Include Patterns
+
 - If `include_patterns` is empty, all files are included (except those matching exclude patterns)
 - If `include_patterns` has values, only files matching these patterns are tracked
 - Uses shell-style wildcards (e.g., `*.py`, `config.*`)
 
 ### Exclude Patterns
+
 - Files matching exclude patterns are never tracked
 - Exclude patterns take precedence over include patterns
 - Useful for ignoring temporary files, logs, caches, etc.
@@ -89,6 +97,7 @@ When thresholds are exceeded:
 ## Example Workflows
 
 ### Scenario 1: Large File Creation
+
 ```
 User creates: comprehensive_analysis.py (150 lines)
 Threshold: max_new_file_lines = 100
@@ -97,6 +106,7 @@ Commit: "Auto-commit: New file created - comprehensive_analysis.py (150 lines)"
 ```
 
 ### Scenario 2: Multiple File Creation
+
 ```
 Session files created: 
 1. config.yaml
@@ -112,6 +122,7 @@ Commit: "Auto-commit: New file created - main.py (25 lines)"
 ```
 
 ### Scenario 3: Excluded File
+
 ```
 User creates: debug.log (200 lines)
 Pattern: "*.log" in exclude_patterns
@@ -121,24 +132,28 @@ Result: File ignored, no auto-commit
 ## Benefits
 
 1. **Organized Git History**: Automatic commits prevent large accumulations of uncommitted files
-2. **Threshold Management**: Prevents sessions from creating too many files without commits
-3. **Selective Tracking**: Include/exclude patterns allow fine-tuned control
-4. **Session Awareness**: Tracks file creation across the entire Claude session
-5. **Non-blocking**: File creation is never blocked, only managed through commits
+1. **Threshold Management**: Prevents sessions from creating too many files without commits
+1. **Selective Tracking**: Include/exclude patterns allow fine-tuned control
+1. **Session Awareness**: Tracks file creation across the entire Claude session
+1. **Non-blocking**: File creation is never blocked, only managed through commits
 
 ## Monitoring and Logs
 
 ### File Creation Log
+
 Location: `logs/current/file_creations.log`
 
 Format:
+
 ```
 2025-07-25T10:30:15.123456: /path/to/new/file1.py
 2025-07-25T10:35:22.789012: /path/to/new/file2.md
 ```
 
 ### Hook Output
+
 The hook provides detailed output to stderr:
+
 ```
 NEW FILE CREATION THRESHOLD EXCEEDED:
   File: /home/user/project/large_file.py
@@ -153,7 +168,9 @@ AUTO-COMMIT: Commit completed successfully
 ## Customization
 
 ### Adjusting Thresholds
+
 Edit `.claude/settings.json` to modify thresholds:
+
 ```json
 {
   "file_creation_thresholds": {
@@ -164,7 +181,9 @@ Edit `.claude/settings.json` to modify thresholds:
 ```
 
 ### Custom File Patterns
+
 Add your own patterns:
+
 ```json
 {
   "file_creation_thresholds": {
@@ -183,7 +202,9 @@ Add your own patterns:
 ```
 
 ### Disabling Auto-commit
+
 To track but not auto-commit:
+
 ```json
 {
   "file_creation_thresholds": {
@@ -196,6 +217,7 @@ To track but not auto-commit:
 ## Integration with Edit Thresholds
 
 The file creation hook works alongside the existing edit threshold hook:
+
 - Edit thresholds monitor changes to existing files
 - File creation thresholds monitor new file creation
 - Both can trigger auto-commits independently
@@ -204,29 +226,33 @@ The file creation hook works alongside the existing edit threshold hook:
 ## Best Practices
 
 1. **Set Reasonable Thresholds**: Balance between too frequent and too infrequent commits
-2. **Use Appropriate Patterns**: Include only files you want to track in git
-3. **Monitor Session Logs**: Check `file_creations.log` to understand file creation patterns
-4. **Coordinate with Team**: Ensure consistent settings across team members
-5. **Regular Review**: Periodically review and adjust thresholds based on usage patterns
+1. **Use Appropriate Patterns**: Include only files you want to track in git
+1. **Monitor Session Logs**: Check `file_creations.log` to understand file creation patterns
+1. **Coordinate with Team**: Ensure consistent settings across team members
+1. **Regular Review**: Periodically review and adjust thresholds based on usage patterns
 
 ## Troubleshooting
 
 ### Hook Not Triggering
+
 - Check `enabled: true` in configuration
 - Verify file matches include patterns and doesn't match exclude patterns
 - Ensure file is truly new (doesn't exist before Write operation)
 
 ### Auto-commit Failing
+
 - Check git repository status and permissions
 - Verify working directory is a git repository
 - Check for git configuration issues
 
 ### Pattern Matching Issues
+
 - Test patterns using shell wildcards
 - Remember exclude patterns take precedence
 - Check file names match exactly (case-sensitive on Unix systems)
 
 ### Session Tracking Problems
+
 - Verify `logs/current/` directory is writable
 - Check for permissions issues
 - Clear old session logs if needed
