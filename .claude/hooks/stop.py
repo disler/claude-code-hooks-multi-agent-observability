@@ -113,7 +113,7 @@ def get_llm_completion_message():
     return random.choice(messages)
 
 
-def announce_completion():
+def announce_completion(source_app):
     """Announce completion using the best available TTS service."""
     try:
         tts_script = get_tts_script_path()
@@ -122,7 +122,7 @@ def announce_completion():
 
         # Get completion message (LLM-generated or fallback)
         completion_message = get_llm_completion_message()
-
+        completion_message = f"{completion_message} for {source_app}"
         # Call the TTS script with the completion message
         subprocess.run(
             ["uv", "run", tts_script, completion_message],
@@ -145,6 +145,10 @@ def main():
         parser.add_argument(
             "--chat", action="store_true", help="Copy transcript to chat.json"
         )
+        parser.add_argument(
+            "--source-app", default="Claude", help="Source application name"
+        )
+
         args = parser.parse_args()
 
         # Read JSON input from stdin
@@ -199,7 +203,7 @@ def main():
                     pass  # Fail silently
 
         # Announce completion via TTS
-        announce_completion()
+        announce_completion(args.source_app)
 
         sys.exit(0)
 

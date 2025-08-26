@@ -51,7 +51,7 @@ def get_tts_script_path():
     return None
 
 
-def announce_notification():
+def announce_notification(source_app):
     """Announce that the agent needs user input."""
     try:
         tts_script = get_tts_script_path()
@@ -63,10 +63,10 @@ def announce_notification():
         
         # Create notification message with 30% chance to include name
         if engineer_name and random.random() < 0.3:
-            notification_message = f"{engineer_name}, your agent needs your input"
+            notification_message = f"{engineer_name}, {source_app} needs your input"
         else:
-            notification_message = "Your agent needs your input"
-        
+            notification_message = f"{source_app} needs your input"
+
         # Call the TTS script with the notification message
         subprocess.run([
             "uv", "run", tts_script, notification_message
@@ -87,7 +87,12 @@ def main():
     try:
         # Parse command line arguments
         parser = argparse.ArgumentParser()
-        parser.add_argument('--notify', action='store_true', help='Enable TTS notifications')
+        parser.add_argument(
+            "--notify", action="store_true", help="Enable TTS notifications"
+        )
+        parser.add_argument(
+            "--source-app", default="Claude", help="Source application name"
+        )
         args = parser.parse_args()
         
         # Read JSON input from stdin
@@ -119,9 +124,12 @@ def main():
         
         # Announce notification via TTS only if --notify flag is set
         # Skip TTS for the generic "Claude is waiting for your input" message
-        if args.notify and input_data.get('message') != 'Claude is waiting for your input':
-            announce_notification()
-        
+        if (
+            args.notify
+            and input_data.get("message") != "Claude is waiting for your input"
+        ):
+            announce_notification(args.source_app)
+
         sys.exit(0)
         
     except json.JSONDecodeError:

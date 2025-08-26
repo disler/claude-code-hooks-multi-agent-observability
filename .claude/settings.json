@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ~/.claude/hooks/notification.py --notify "
+            "command": "uv run ~/.claude/hooks/notification.py --source-app $(basename $CLAUDE_PROJECT_DIR) --notify"
           },
           {
             "type": "command",
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ~/.claude/hooks/stop.py --chat"
+            "command": "uv run ~/.claude/hooks/stop.py --source-app $(basename $CLAUDE_PROJECT_DIR) --chat"
           },
           {
             "type": "command",
@@ -66,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ~/.claude/hooks/subagent_stop.py"
+            "command": "uv run ~/.claude/hooks/subagent_stop.py --source-app $(basename $CLAUDE_PROJECT_DIR)"
           },
           {
             "type": "command",
