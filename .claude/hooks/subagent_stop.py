@@ -51,7 +51,7 @@ def get_tts_script_path():
     return None
 
 
-def announce_subagent_completion():
+def announce_subagent_completion(source_app):
     """Announce subagent completion using the best available TTS service."""
     try:
         tts_script = get_tts_script_path()
@@ -59,8 +59,8 @@ def announce_subagent_completion():
             return  # No TTS scripts available
         
         # Use fixed message for subagent completion
-        completion_message = "Subagent Complete"
-        
+        completion_message = f"Subagent Complete for {source_app}."
+
         # Call the TTS script with the completion message
         subprocess.run([
             "uv", "run", tts_script, completion_message
@@ -81,9 +81,14 @@ def main():
     try:
         # Parse command line arguments
         parser = argparse.ArgumentParser()
-        parser.add_argument('--chat', action='store_true', help='Copy transcript to chat.json')
+        parser.add_argument(
+            "--chat", action="store_true", help="Copy transcript to chat.json"
+        )
+        parser.add_argument(
+            "--source-app", default="Claude", help="Source application name"
+        )
         args = parser.parse_args()
-        
+
         # Read JSON input from stdin
         input_data = json.load(sys.stdin)
 
@@ -136,7 +141,7 @@ def main():
                     pass  # Fail silently
 
         # Announce subagent completion via TTS
-        announce_subagent_completion()
+        announce_subagent_completion(args.source_app)
 
         sys.exit(0)
 
