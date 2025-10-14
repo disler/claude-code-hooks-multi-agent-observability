@@ -9,6 +9,7 @@
 
 import os
 import sys
+import hashlib
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -28,6 +29,7 @@ def main():
     - High-quality voice synthesis
     - Stable production model
     - Cost-effective for high-volume usage
+    - Audio caching to avoid re-generation
     """
     
     # Load environment variables
@@ -58,22 +60,60 @@ def main():
             text = "The first move is what sets everything in motion."
         
         print(f"🎯 Text: {text}")
-        print("🔊 Generating and playing...")
         
-        try:
-            # Generate and play audio directly
-            audio = elevenlabs.text_to_speech.convert(
-                text=text,
-                voice_id="WejK3H1m7MI9CHnIjW9K",  # Specified voice
-                model_id="eleven_turbo_v2_5",
-                output_format="mp3_44100_128",
-            )
+        # Configuration
+        voice_id = os.getenv("ELEVENLABS_VOICE_ID", "pFZP5JQG7iQjIQuC4Bku")
+        print(f"🎤 Voice ID: {voice_id}")
+        model_id = "eleven_turbo_v2_5"
+        output_format = "mp3_44100_128"
+        
+        # Create cache directory relative to script location
+        cache_dir = Path("~/.claude/tts_cache").expanduser()
+        cache_dir.mkdir(exist_ok=True)
+        
+        # Create filename based on inputs
+        input_string = f"{text}_{voice_id}_{model_id}_{output_format}"
+        filename_hash = hashlib.md5(input_string.encode()).hexdigest()
+        cache_file = cache_dir / f"{filename_hash}.mp3"
+        
+        # Check if cached file exists
+        if cache_file.exists():
+            print(f"📁 Found cached audio: {cache_file}")
+            print("🔊 Playing cached audio...")
             
+            # Read and play cached audio
+            with open(cache_file, "rb") as f:
+                audio = f.read()
             play(audio)
             print("✅ Playback complete!")
             
-        except Exception as e:
-            print(f"❌ Error: {e}")
+        else:
+            print("🔄 Generating new audio...")
+            
+            try:
+                # Generate and play audio directly
+                audio_generator = elevenlabs.text_to_speech.convert(
+                    text=text,
+                    voice_id=voice_id,
+                    model_id=model_id,
+                    output_format=output_format,
+                )
+
+                # Convert generator to bytes
+                audio = b"".join(audio_generator)
+
+                # Save audio to cache
+                with open(cache_file, "wb") as f:
+                    f.write(audio)
+                print(f"💾 Saved to cache: {cache_file}")
+                
+                # Play audio
+                print("🔊 Playing generated audio...")
+                play(audio)
+                print("✅ Playback complete!")
+                
+            except Exception as e:
+                print(f"❌ Error: {e}")
         
         
     except ImportError:
