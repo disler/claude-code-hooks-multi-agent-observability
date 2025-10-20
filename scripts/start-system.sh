@@ -38,6 +38,13 @@ fi
 # Start server
 echo -e "\n${GREEN}Starting server on port 4000...${NC}"
 cd "$PROJECT_ROOT/apps/server"
+
+# Check and install server dependencies if needed
+if [ ! -d "node_modules" ]; then
+    echo -e "${YELLOW}Installing server dependencies...${NC}"
+    bun install
+fi
+
 bun run dev &
 SERVER_PID=$!
 
@@ -54,6 +61,13 @@ done
 # Start client
 echo -e "\n${GREEN}Starting client on port 5173...${NC}"
 cd "$PROJECT_ROOT/apps/client"
+
+# Check and install client dependencies if needed
+if [ ! -d "node_modules" ]; then
+    echo -e "${YELLOW}Installing client dependencies...${NC}"
+    bun install
+fi
+
 bun run dev &
 CLIENT_PID=$!
 
