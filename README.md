@@ -27,6 +27,77 @@ Before getting started, ensure you have the following installed:
 - **OpenAI API Key** (optional) - For multi-model support with just-prompt MCP tool
 - **ElevenLabs API Key** (optional) - For audio features
 
+### System Requirements
+
+Before installation, ensure these system packages are installed:
+
+#### Ubuntu/Debian
+```bash
+sudo apt-get update
+sudo apt-get install -y unzip curl git
+```
+
+#### macOS
+```bash
+# unzip is usually pre-installed
+# Install others via Homebrew
+brew install curl git
+```
+
+#### Windows (WSL2)
+```bash
+sudo apt-get update
+sudo apt-get install -y unzip curl git
+```
+
+**Why these are needed**:
+- `unzip`: Required by Bun installer to extract binaries
+- `curl`: Used to download installers and test endpoints
+- `git`: Required for cloning the repository
+
+### Install Bun
+
+Choose ONE of these methods:
+
+#### Method 1: npm (Recommended if you have Node.js)
+
+```bash
+npm install -g bun
+bun --version  # Verify installation
+```
+
+**Advantages**:
+- Works on all platforms
+- Uses npm's security infrastructure
+- No additional system dependencies
+- Fastest installation
+
+#### Method 2: Official Installer (Inspect first)
+
+```bash
+# Step 1: Download installer
+curl -fsSL https://bun.sh/install -o /tmp/bun-install.sh
+
+# Step 2: IMPORTANT - Inspect the script
+less /tmp/bun-install.sh
+# Review it to ensure:
+#  - Only downloads from bun.sh or github.com/oven-sh
+#  - Installs to ~/.bun/ (user directory)
+#  - No suspicious commands
+
+# Step 3: If safe, install
+bash /tmp/bun-install.sh
+
+# Step 4: Clean up
+rm /tmp/bun-install.sh
+
+# Step 5: Add to PATH (if needed)
+echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**Note**: The official installer requires `unzip` to be installed first (see System Requirements above).
+
 ### Configure .claude Directory
 
 To setup observability in your repo,we need to copy the .claude directory to your project root.
@@ -116,6 +187,52 @@ Run git ls-files to understand the codebase.
 # 5. Copy the .claude folder to other projects you want to emit events from.
 cp -R .claude <directory of your codebase you want to emit events from>
 ```
+
+## ✅ Verify Deployment
+
+After starting the system, verify everything is working:
+
+### 1. Check Server Health
+
+```bash
+curl http://localhost:4000/health
+# Expected output: Multi-Agent Observability Server
+```
+
+### 2. Send Test Event
+
+```bash
+curl -X POST http://localhost:4000/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_app": "deployment-test",
+    "session_id": "test-session-001",
+    "hook_event_type": "PreToolUse",
+    "payload": {
+      "tool_name": "HealthCheck",
+      "tool_input": {"command": "test"}
+    }
+  }'
+
+# Expected output: JSON with "id" and "timestamp" fields
+# Example: {"source_app":"deployment-test",...,"id":1,"timestamp":1234567890}
+```
+
+### 3. Check Dashboard
+
+1. Open http://localhost:5173 in your browser
+2. Look for the test event in the timeline
+3. Verify it shows:
+   - Source app: "deployment-test"
+   - Event type: PreToolUse
+   - Tool name: HealthCheck
+   - Timestamp
+
+### 4. Verify WebSocket Connection
+
+In the dashboard, look for "Connected" status in the top right corner (green indicator).
+
+If you see these working, your deployment is successful! ✅
 
 ## 📁 Project Structure
 
@@ -331,14 +448,38 @@ curl -X POST http://localhost:4000/events \
 
 ### Environment Variables
 
-Copy `.env.sample` to `.env` in the project root and fill in your API keys:
+The project includes a comprehensive `.env.sample` template with security warnings and detailed documentation.
 
-**Application Root** (`.env` file):
-- `ANTHROPIC_API_KEY` – Anthropic Claude API key (required)
-- `ENGINEER_NAME` – Your name (for logging/identification)
-- `GEMINI_API_KEY` – Google Gemini API key (optional)
-- `OPENAI_API_KEY` – OpenAI API key (optional)
-- `ELEVEN_API_KEY` – ElevenLabs API key (optional)
+**Setup**:
+```bash
+# Copy the hardened template
+cp .env.sample .env
+
+# Edit with your values
+nano .env  # or vim, code, etc.
+```
+
+**Minimal Configuration** (for local development):
+```bash
+ENGINEER_NAME=YourName  # Your name for logging
+```
+
+**Optional API Keys** (for AI features):
+```bash
+ANTHROPIC_API_KEY=sk-ant-...  # For AI summaries (optional)
+OPENAI_API_KEY=sk-...         # For multi-model support (optional)
+ELEVENLABS_API_KEY=...        # For voice features (optional)
+GEMINI_API_KEY=...            # For Gemini integration (optional)
+```
+
+**⚠️ Security Requirements**:
+1. NEVER commit `.env` to git (it's in `.gitignore`)
+2. Use SEPARATE keys for dev/staging/production
+3. Use LEAST-PRIVILEGE permissions (minimum required)
+4. Rotate keys every 30-90 days
+5. For production: Use a secrets manager (AWS Secrets Manager, Vault)
+
+See `.env.sample` for detailed documentation and `SECURITY.md` for complete security guidelines.
 
 **Client** (`.env` file in `apps/client/.env`):
 - `VITE_MAX_EVENTS_TO_DISPLAY=100` – Maximum events to show (removes oldest when exceeded)
@@ -348,12 +489,31 @@ Copy `.env.sample` to `.env` in the project root and fill in your API keys:
 - Server: `4000` (HTTP/WebSocket)
 - Client: `5173` (Vite dev server)
 
-## 🛡️ Security Features
+## 🛡️ Security
 
+This system handles sensitive development data. Follow security best practices:
+
+### Built-in Protections
 - Blocks dangerous commands (`rm -rf`, etc.)
 - Prevents access to sensitive files (`.env`, private keys)
 - Validates all inputs before execution
-- No external dependencies for core functionality
+- Local-only network binding by default
+
+### Required Security Practices
+- NEVER commit `.env` files to version control
+- Use separate API keys for each environment
+- Apply least-privilege permissions to API keys
+- Rotate keys regularly (30-90 days)
+- Use secrets managers in production
+
+**📖 For complete security guidelines, see [SECURITY.md](SECURITY.md)**
+
+This includes:
+- Secrets management best practices
+- Safe installation procedures
+- Runtime security configuration
+- Incident response procedures
+- Security checklists for deployment
 
 ## 📊 Technical Stack
 
@@ -363,6 +523,82 @@ Copy `.env.sample` to `.env` in the project root and fill in your API keys:
 - **Communication**: HTTP REST, WebSocket
 
 ## 🔧 Troubleshooting
+
+### Bun Installation Fails
+
+**Symptoms**:
+```bash
+curl -fsSL https://bun.sh/install | bash
+# Error: unzip is required to install bun
+```
+
+**Cause**: The `unzip` system package is not installed.
+
+**Solutions**:
+
+**Option 1**: Install unzip first
+```bash
+# Ubuntu/Debian/WSL
+sudo apt-get install -y unzip
+
+# macOS
+brew install unzip
+```
+
+**Option 2**: Use npm method instead (recommended)
+```bash
+npm install -g bun
+```
+
+---
+
+### Server Won't Start
+
+**Symptoms**:
+- `bun: command not found`
+- Server fails to start after installation
+
+**Solution**:
+```bash
+# Add Bun to PATH
+export PATH="$HOME/.bun/bin:$PATH"
+
+# Make permanent
+echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Verify
+bun --version
+```
+
+---
+
+### Dashboard Shows "Waiting for events..."
+
+**Possible causes**:
+
+1. **Hooks not configured** - Check `.claude/settings.json` exists in your project
+2. **Server not running** - Verify with `curl http://localhost:4000/health`
+3. **Wrong source-app** - Events sent with different `source-app` name
+4. **Fresh session needed** - Hooks only activate on new Claude Code sessions
+
+**Debugging**:
+```bash
+# 1. Test server directly
+curl -X POST http://localhost:4000/events \
+  -H "Content-Type: application/json" \
+  -d '{"source_app":"test","session_id":"123","hook_event_type":"PreToolUse","payload":{}}'
+
+# 2. Check server logs for incoming events
+# (Look for POST requests in server console)
+
+# 3. Verify hooks configuration
+cat .claude/settings.json
+
+# 4. For hook activation: End Claude Code session and start fresh
+```
+
+---
 
 ### Hook Scripts Not Working
 
