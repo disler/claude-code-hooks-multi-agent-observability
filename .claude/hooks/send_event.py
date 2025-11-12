@@ -22,6 +22,16 @@ from datetime import datetime
 from utils.summarizer import generate_event_summary
 from utils.model_extractor import get_model_from_transcript
 
+def is_server_reachable(server_url):
+    """Check if the observability server is reachable."""
+    try:
+        base_url = server_url.rsplit('/', 1)[0]
+        req = urllib.request.Request(base_url, method='HEAD')
+        urllib.request.urlopen(req, timeout=1)
+        return True
+    except:
+        return False
+
 def send_event_to_server(event_data, server_url='http://localhost:4000/events'):
     """Send event data to the observability server."""
     try:
@@ -34,7 +44,7 @@ def send_event_to_server(event_data, server_url='http://localhost:4000/events'):
                 'User-Agent': 'Claude-Code-Hook/1.0'
             }
         )
-        
+
         # Send the request
         with urllib.request.urlopen(req, timeout=5) as response:
             if response.status == 200:
@@ -42,7 +52,7 @@ def send_event_to_server(event_data, server_url='http://localhost:4000/events'):
             else:
                 print(f"Server returned status: {response.status}", file=sys.stderr)
                 return False
-                
+
     except urllib.error.URLError as e:
         print(f"Failed to send event: {e}", file=sys.stderr)
         return False
@@ -106,12 +116,14 @@ def main():
             except Exception as e:
                 print(f"Failed to read transcript: {e}", file=sys.stderr)
     
-    # Generate summary if requested
+    # Generate summary if requested and server is reachable
+    # Don't waste API quota if server is down
     if args.summarize:
-        summary = generate_event_summary(event_data)
-        if summary:
-            event_data['summary'] = summary
-        # Continue even if summary generation fails
+        if is_server_reachable(args.server_url):
+            summary = generate_event_summary(event_data)
+            if summary:
+                event_data['summary'] = summary
+            # Continue even if summary generation fails
     
     # Send to server
     success = send_event_to_server(event_data, args.server_url)
