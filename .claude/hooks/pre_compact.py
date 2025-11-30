@@ -108,9 +108,16 @@ def main():
             
             if backup_path:
                 message += f"\nTranscript backed up to: {backup_path}"
-            
+
             print(message)
-        
+
+        # Execute plugins
+        try:
+            from plugin_manager import execute_plugins
+            execute_plugins("PreCompact", input_data)
+        except ImportError:
+            pass
+
         # Success - compaction will proceed
         sys.exit(0)
         

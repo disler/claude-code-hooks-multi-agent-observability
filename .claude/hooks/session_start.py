@@ -197,7 +197,14 @@ def main():
                     )
             except Exception:
                 pass
-        
+
+        # Execute plugins
+        try:
+            from plugin_manager import execute_plugins
+            execute_plugins("SessionStart", input_data)
+        except ImportError:
+            pass
+
         # Success
         sys.exit(0)
         

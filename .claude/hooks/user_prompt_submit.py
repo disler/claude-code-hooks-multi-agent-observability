@@ -185,6 +185,13 @@ def main():
         # You can print additional context that will be added to the prompt
         # Example: print(f"Current time: {datetime.now()}")
 
+        # Execute plugins
+        try:
+            from plugin_manager import execute_plugins
+            execute_plugins("UserPromptSubmit", input_data)
+        except ImportError:
+            pass
+
         # Success - prompt will be processed
         sys.exit(0)
 

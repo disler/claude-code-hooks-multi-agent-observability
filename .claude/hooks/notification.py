@@ -121,7 +121,14 @@ def main():
         # Skip TTS for the generic "Claude is waiting for your input" message
         if args.notify and input_data.get('message') != 'Claude is waiting for your input':
             announce_notification()
-        
+
+        # Execute plugins
+        try:
+            from plugin_manager import execute_plugins
+            execute_plugins("Notification", input_data)
+        except ImportError:
+            pass
+
         sys.exit(0)
         
     except json.JSONDecodeError:

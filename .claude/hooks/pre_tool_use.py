@@ -208,7 +208,14 @@ def main():
         # Write back to file with formatting
         with open(log_path, 'w') as f:
             json.dump(log_data, f, indent=2)
-        
+
+        # Execute plugins
+        try:
+            from plugin_manager import execute_plugins
+            execute_plugins("PreToolUse", input_data)
+        except ImportError:
+            pass
+
         sys.exit(0)
         
     except json.JSONDecodeError:

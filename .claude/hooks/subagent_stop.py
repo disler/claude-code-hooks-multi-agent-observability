@@ -144,6 +144,13 @@ def main():
             # Announce subagent completion via TTS
             announce_subagent_completion()
 
+        # Execute plugins
+        try:
+            from plugin_manager import execute_plugins
+            execute_plugins("SubagentStop", input_data)
+        except ImportError:
+            pass
+
         sys.exit(0)
 
     except json.JSONDecodeError:
