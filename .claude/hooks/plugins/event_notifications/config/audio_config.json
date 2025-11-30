@@ -1,0 +1,123 @@
+{
+  "enabled": true,
+  "tts_provider": "say",
+  "verbosity_level": "detailed",
+  "global_volume": 0.3,
+
+  "profiles": {
+    "default": {
+      "description": "Minimal notifications - only critical events",
+      "audio_enabled_hooks": ["Stop", "Notification", "PreCompact"],
+      "notification_enabled_hooks": ["Stop", "Notification"],
+      "sound_enabled_hooks": ["Stop", "Notification"]
+    },
+    "verbose": {
+      "description": "All events with audio",
+      "audio_enabled_hooks": ["PostToolUse", "Stop", "SubagentStop", "Notification", "SessionStart", "SessionEnd"],
+      "notification_enabled_hooks": ["Stop", "Notification"],
+      "sound_enabled_hooks": ["Stop", "SubagentStop", "Notification"]
+    },
+    "silent": {
+      "description": "OS notifications only, no audio",
+      "audio_enabled_hooks": [],
+      "notification_enabled_hooks": ["Stop", "Notification"],
+      "sound_enabled_hooks": []
+    },
+    "quiet": {
+      "description": "Sounds only, no TTS",
+      "audio_enabled_hooks": [],
+      "notification_enabled_hooks": [],
+      "sound_enabled_hooks": ["Stop", "Notification", "PreCompact"]
+    }
+  },
+
+  "active_profile": "default",
+
+  "say_settings": {
+    "voice": "Samantha",
+    "rate": 200,
+    "volume": 0.3
+  },
+
+  "elevenlabs_settings": {
+    "voice": "Dan",
+    "model": "eleven_turbo_v2_5"
+  },
+
+  "openai_settings": {
+    "voice": "alloy",
+    "model": "tts-1"
+  },
+
+  "pyttsx3_settings": {
+    "rate": 200,
+    "volume": 0.3
+  },
+
+  "hooks": {
+    "PreToolUse": {
+      "template_category": "progress",
+      "sound_effect": "Tink",
+      "volume": 0.2,
+      "os_notification": false
+    },
+    "PostToolUse": {
+      "template_category": "tool_usage",
+      "sound_effect": null,
+      "volume": null,
+      "os_notification": false
+    },
+    "Stop": {
+      "template_category": "task_completion",
+      "sound_effect": "Hero",
+      "volume": 0.5,
+      "os_notification": {
+        "enabled": true,
+        "title": "Task Complete",
+        "message": "{source_app} finished",
+        "type": "banner"
+      }
+    },
+    "SubagentStop": {
+      "template_category": "task_completion",
+      "sound_effect": "Glass",
+      "volume": 0.3,
+      "os_notification": false
+    },
+    "Notification": {
+      "template_category": "feedback_needed",
+      "sound_effect": "Purr",
+      "volume": 0.6,
+      "os_notification": {
+        "enabled": true,
+        "title": "Response Needed",
+        "message": "{source_app} needs your input",
+        "type": "banner"
+      }
+    },
+    "SessionStart": {
+      "template_category": "session_events",
+      "sound_effect": null,
+      "volume": null,
+      "os_notification": false
+    },
+    "SessionEnd": {
+      "template_category": "session_events",
+      "sound_effect": null,
+      "volume": null,
+      "os_notification": false
+    },
+    "PreCompact": {
+      "template_category": "context_management",
+      "sound_effect": "Submarine",
+      "volume": 0.4,
+      "os_notification": false
+    },
+    "UserPromptSubmit": {
+      "template_category": "user_interaction",
+      "sound_effect": null,
+      "volume": null,
+      "os_notification": false
+    }
+  }
+}

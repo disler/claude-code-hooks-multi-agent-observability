@@ -1,0 +1,29 @@
+{
+  "name": "event_notifications",
+  "version": "1.0.0",
+  "description": "Event notifications for hooks via audio announcements (TTS) and OS notifications",
+  "author": "mondo@nodegarden.net",
+  "enabled": true,
+  "priority": 50,
+  "hooks": [
+    "SessionStart",
+    "SessionEnd",
+    "PreToolUse",
+    "PostToolUse",
+    "Stop",
+    "SubagentStop",
+    "Notification",
+    "PreCompact",
+    "UserPromptSubmit"
+  ],
+  "entry_point": "src.plugin:handle_hook",
+  "config_file": "config/audio_config.json",
+  "dependencies": {
+    "python": ">=3.8",
+    "optional_packages": [
+      "elevenlabs",
+      "openai",
+      "pyttsx3"
+    ]
+  }
+}

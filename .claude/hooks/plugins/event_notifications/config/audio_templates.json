@@ -1,0 +1,44 @@
+{
+  "categories": {
+    "tool_usage": {
+      "minimal": "{tool_name}",
+      "normal": "{tool_name} completed",
+      "detailed": "{source_app} completed {tool_name}"
+    },
+    "task_completion": {
+      "minimal": "Done",
+      "normal": "Task complete",
+      "detailed": "{source_app} finished"
+    },
+    "feedback_needed": {
+      "minimal": "Response needed",
+      "normal": "User response needed",
+      "detailed": "{source_app} needs response"
+    },
+    "progress": {
+      "minimal": "",
+      "normal": "{tool_name} started",
+      "detailed": "{source_app} started {tool_name}"
+    },
+    "session_events": {
+      "minimal": "Session {event}",
+      "normal": "{source_app} session {event}",
+      "detailed": "{source_app} session {event}"
+    },
+    "issues": {
+      "minimal": "Issue detected",
+      "normal": "Issue in {tool_name}",
+      "detailed": "{source_app} encountered issue in {tool_name}"
+    },
+    "context_management": {
+      "minimal": "Context updated",
+      "normal": "Context compacting",
+      "detailed": "{source_app} compacting context"
+    },
+    "user_interaction": {
+      "minimal": "User prompt",
+      "normal": "User submitted prompt",
+      "detailed": "{source_app} received user prompt"
+    }
+  }
+}

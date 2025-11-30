@@ -197,7 +197,18 @@ def main():
                     )
             except Exception:
                 pass
-        
+
+        # Execute plugins
+        try:
+            from plugin_manager import execute_plugins
+            from utils.source_app import get_source_app
+
+            # Add source_app to input_data for plugins
+            input_data['source_app'] = get_source_app()
+            execute_plugins("SessionStart", input_data)
+        except ImportError:
+            pass
+
         # Success
         sys.exit(0)
         
