@@ -1,0 +1,32 @@
+{
+  "enabled": true,
+  "hooks": {
+    "SessionStart": {
+      "enabled": true
+    },
+    "SessionEnd": {
+      "enabled": true
+    },
+    "PreToolUse": {
+      "enabled": false
+    },
+    "PostToolUse": {
+      "enabled": true
+    },
+    "Stop": {
+      "enabled": true
+    },
+    "SubagentStop": {
+      "enabled": true
+    },
+    "Notification": {
+      "enabled": true
+    },
+    "PreCompact": {
+      "enabled": false
+    },
+    "UserPromptSubmit": {
+      "enabled": false
+    }
+  }
+}

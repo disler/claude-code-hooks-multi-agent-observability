@@ -1,0 +1,26 @@
+{
+  "name": "my_plugin",
+  "version": "1.0.0",
+  "description": "Brief description of what this plugin does",
+  "author": "Your Name <you@example.com>",
+  "enabled": false,
+  "priority": 50,
+  "hooks": [
+    "SessionStart",
+    "SessionEnd",
+    "PreToolUse",
+    "PostToolUse",
+    "Stop",
+    "SubagentStop",
+    "Notification",
+    "PreCompact",
+    "UserPromptSubmit"
+  ],
+  "entry_point": "src.plugin:handle_hook",
+  "config_file": "config/config.json",
+  "dependencies": {
+    "python": ">=3.8",
+    "packages": [],
+    "optional_packages": []
+  }
+}

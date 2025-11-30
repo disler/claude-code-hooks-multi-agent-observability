@@ -1,0 +1,5 @@
+{
+  "source_app": "my-app-name",
+  "description": "Optional configuration for Claude Code hooks. Copy this file to config.json and customize.",
+  "note": "source_app is used to identify this application in hook events. Falls back to project directory name if not set."
+}
