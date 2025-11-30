@@ -20,7 +20,8 @@ Plugin Metadata (plugin.json):
   "description": "My awesome plugin",
   "enabled": true,
   "hooks": ["PostToolUse", "Stop"],
-  "entry_point": "src.plugin:handle_hook"
+  "entry_point": "src.plugin:handle_hook",
+  "min_manager_version": "1.0.0"  # Optional
 }
 
 Usage in hooks:
@@ -34,6 +35,172 @@ import json
 import importlib.util
 import sys
 import os
+import logging
+
+# Version of this plugin manager
+__version__ = "1.0.0"
+
+# Configure logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)  # Default to WARNING, can be configured
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter('[PluginManager] %(levelname)s: %(message)s'))
+    logger.addHandler(handler)
+
+
+def _is_version_compatible(required: str, current: str) -> bool:
+    """
+    Check if current version meets the minimum required version.
+
+    Args:
+        required: Minimum required version (e.g., "1.0.0")
+        current: Current version (e.g., "1.2.0")
+
+    Returns:
+        True if current >= required
+
+    Note:
+        Uses simple tuple comparison. Supports semantic versioning (major.minor.patch)
+    """
+    try:
+        req_parts = tuple(int(x) for x in required.split('.'))
+        cur_parts = tuple(int(x) for x in current.split('.'))
+        return cur_parts >= req_parts
+    except (ValueError, AttributeError):
+        # If version parsing fails, assume compatible
+        logger.warning(f"Could not parse versions: required={required}, current={current}")
+        return True
+
+
+# Plugin metadata schema
+PLUGIN_METADATA_SCHEMA = {
+    "type": "object",
+    "required": ["name", "version", "entry_point"],
+    "properties": {
+        "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "description": "Plugin name (lowercase, alphanumeric, underscores)"
+        },
+        "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "description": "Plugin version (semantic versioning)"
+        },
+        "description": {
+            "type": "string",
+            "description": "Brief description of plugin functionality"
+        },
+        "author": {
+            "type": "string",
+            "description": "Plugin author name and/or email"
+        },
+        "enabled": {
+            "type": "boolean",
+            "description": "Whether plugin is enabled",
+            "default": True
+        },
+        "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Execution priority (lower = higher priority)",
+            "default": 50
+        },
+        "hooks": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "SessionStart", "SessionEnd", "PreToolUse", "PostToolUse",
+                    "Stop", "SubagentStop", "Notification", "PreCompact", "UserPromptSubmit"
+                ]
+            },
+            "description": "List of hooks this plugin handles (empty = all hooks)"
+        },
+        "entry_point": {
+            "type": "string",
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_.]*:[a-zA-Z_][a-zA-Z0-9_]*$",
+            "description": "Entry point in format 'module.path:function_name'"
+        },
+        "config_file": {
+            "type": "string",
+            "description": "Path to plugin configuration file (relative to plugin dir)"
+        },
+        "min_manager_version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "description": "Minimum required plugin manager version"
+        },
+        "dependencies": {
+            "type": "object",
+            "properties": {
+                "python": {
+                    "type": "string",
+                    "description": "Python version requirement"
+                },
+                "packages": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Required Python packages"
+                },
+                "optional_packages": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional Python packages"
+                }
+            }
+        }
+    }
+}
+
+
+def _validate_metadata(metadata: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+    """
+    Validate plugin metadata against schema.
+
+    Args:
+        metadata: Plugin metadata dictionary
+
+    Returns:
+        Tuple of (is_valid, error_message)
+
+    Note:
+        Uses simple validation. For strict validation, requires jsonschema package.
+    """
+    # Basic validation (always runs)
+    required_fields = ['name', 'version', 'entry_point']
+    missing = [f for f in required_fields if f not in metadata]
+    if missing:
+        return False, f"Missing required fields: {missing}"
+
+    # Validate name format
+    name = metadata.get('name', '')
+    if not isinstance(name, str) or not name.replace('_', '').isalnum():
+        return False, f"Invalid plugin name: {name} (must be lowercase alphanumeric with underscores)"
+
+    # Validate version format
+    version = metadata.get('version', '')
+    if not isinstance(version, str) or len(version.split('.')) != 3:
+        return False, f"Invalid version: {version} (must be semantic version like 1.0.0)"
+
+    # Validate entry point format
+    entry_point = metadata.get('entry_point', '')
+    if not isinstance(entry_point, str) or ':' not in entry_point:
+        return False, f"Invalid entry_point: {entry_point} (must be 'module:function')"
+
+    # Try advanced validation with jsonschema if available
+    try:
+        from jsonschema import validate, ValidationError
+        validate(instance=metadata, schema=PLUGIN_METADATA_SCHEMA)
+    except ImportError:
+        # jsonschema not available, basic validation is enough
+        pass
+    except Exception as e:
+        return False, f"Schema validation failed: {e}"
+
+    return True, None
 
 
 class Plugin:
@@ -78,7 +245,7 @@ class Plugin:
             self.handler(hook_type, input_data)
         except Exception as e:
             # Never let plugin errors crash the hook
-            print(f"Plugin '{self.name}' error: {e}", file=sys.stderr)
+            logger.error(f"Plugin '{self.name}' error in {hook_type}: {e}")
 
 
 class PluginManager:
@@ -118,10 +285,10 @@ class PluginManager:
                 plugin = self._load_plugin(plugin_dir, metadata_file)
                 if plugin:
                     self.plugins[plugin.name] = plugin
+                    logger.debug(f"Loaded plugin '{plugin.name}' v{plugin.version}")
             except Exception as e:
                 # Silently skip broken plugins
-                print(f"Warning: Failed to load plugin '{plugin_dir.name}': {e}",
-                      file=sys.stderr)
+                logger.warning(f"Failed to load plugin '{plugin_dir.name}': {e}")
 
     def _load_plugin(self, plugin_dir: Path, metadata_file: Path) -> Optional[Plugin]:
         """
@@ -138,18 +305,25 @@ class PluginManager:
         with open(metadata_file, 'r') as f:
             metadata = json.load(f)
 
-        # Validate required fields
-        required_fields = ['name', 'version', 'entry_point']
-        if not all(field in metadata for field in required_fields):
-            print(f"Warning: Plugin '{plugin_dir.name}' missing required metadata fields",
-                  file=sys.stderr)
+        # Validate metadata against schema
+        is_valid, error_msg = _validate_metadata(metadata)
+        if not is_valid:
+            logger.warning(f"Plugin '{plugin_dir.name}' has invalid metadata: {error_msg}")
+            return None
+
+        # Check version compatibility
+        min_version = metadata.get('min_manager_version')
+        if min_version and not _is_version_compatible(min_version, __version__):
+            logger.warning(
+                f"Plugin '{metadata['name']}' requires manager v{min_version}, "
+                f"but current version is {__version__}. Skipping."
+            )
             return None
 
         # Parse entry point (format: "module.path:function_name")
         entry_point = metadata['entry_point']
         if ':' not in entry_point:
-            print(f"Warning: Plugin '{metadata['name']}' has invalid entry_point format",
-                  file=sys.stderr)
+            logger.warning(f"Plugin '{metadata['name']}' has invalid entry_point format (expected 'module:function')")
             return None
 
         module_path, handler_name = entry_point.split(':', 1)
@@ -157,8 +331,7 @@ class PluginManager:
         # Build path to module file
         module_file = plugin_dir / f"{module_path.replace('.', '/')}.py"
         if not module_file.exists():
-            print(f"Warning: Plugin '{metadata['name']}' entry point not found: {module_file}",
-                  file=sys.stderr)
+            logger.warning(f"Plugin '{metadata['name']}' entry point not found: {module_file}")
             return None
 
         # Import plugin module
@@ -182,8 +355,7 @@ class PluginManager:
         # Get handler function
         handler = getattr(module, handler_name, None)
         if not callable(handler):
-            print(f"Warning: Plugin '{metadata['name']}' handler '{handler_name}' not found or not callable",
-                  file=sys.stderr)
+            logger.warning(f"Plugin '{metadata['name']}' handler '{handler_name}' not found or not callable")
             return None
 
         return Plugin(metadata['name'], metadata, handler)
@@ -217,6 +389,22 @@ class PluginManager:
         """Get a specific plugin by name"""
         return self.plugins.get(name)
 
+    def reload_plugins(self) -> None:
+        """
+        Reload all plugins from disk.
+
+        Useful for development when plugins are being modified.
+        Clears all loaded plugins and rediscovers them.
+
+        Warning:
+            This may cause issues if plugins maintain state.
+            Use only during development/testing.
+        """
+        logger.info("Reloading all plugins...")
+        self.plugins.clear()
+        self._discover_plugins()
+        logger.info(f"Reloaded {len(self.plugins)} plugin(s)")
+
 
 # Singleton instance
 _manager: Optional[PluginManager] = None
@@ -248,7 +436,7 @@ def execute_plugins(hook_type: str, input_data: Dict[str, Any]) -> None:
         manager.execute_hook(hook_type, input_data)
     except Exception as e:
         # Never crash the hook
-        print(f"Plugin manager error: {e}", file=sys.stderr)
+        logger.error(f"Plugin manager error: {e}")
 
 
 # CLI for testing/debugging
@@ -258,8 +446,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Plugin Manager CLI")
     parser.add_argument("--list", action="store_true", help="List all discovered plugins")
     parser.add_argument("--test", metavar="HOOK_TYPE", help="Test plugins for a specific hook type")
+    parser.add_argument("--reload", action="store_true", help="Reload all plugins from disk")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging (DEBUG level)")
 
     args = parser.parse_args()
+
+    # Set logging level if verbose
+    if args.verbose:
+        logger.setLevel(logging.DEBUG)
 
     manager = get_manager()
 
@@ -274,6 +468,16 @@ if __name__ == "__main__":
             else:
                 print(f"  Hooks: all")
             print()
+
+    elif args.reload:
+        print("Reloading plugins...")
+        print("-" * 60)
+        manager.reload_plugins()
+        print("\nReloaded Plugins:")
+        for plugin in manager.get_plugins():
+            status = "✓ enabled" if plugin.enabled else "✗ disabled"
+            print(f"  {plugin.name} v{plugin.version} ({status})")
+        print(f"\nTotal: {len(manager.get_plugins())} plugin(s)")
 
     elif args.test:
         hook_type = args.test
