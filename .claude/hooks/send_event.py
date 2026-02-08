@@ -10,6 +10,11 @@
 """
 Multi-Agent Observability Hook Script
 Sends Claude Code hook events to the observability server.
+
+Supported event types (12 total):
+  SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse,
+  PostToolUseFailure, PermissionRequest, Notification, SubagentStart,
+  SubagentStop, Stop, PreCompact
 """
 
 import json
@@ -84,6 +89,59 @@ def main():
         'timestamp': int(datetime.now().timestamp() * 1000),
         'model_name': model_name
     }
+
+    # Forward event-specific fields as top-level properties for easier querying.
+    # These fields are only present for certain event types.
+
+    # tool_name: PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest
+    if 'tool_name' in input_data:
+        event_data['tool_name'] = input_data['tool_name']
+
+    # tool_use_id: PreToolUse, PostToolUse, PostToolUseFailure
+    if 'tool_use_id' in input_data:
+        event_data['tool_use_id'] = input_data['tool_use_id']
+
+    # error, is_interrupt: PostToolUseFailure
+    if 'error' in input_data:
+        event_data['error'] = input_data['error']
+    if 'is_interrupt' in input_data:
+        event_data['is_interrupt'] = input_data['is_interrupt']
+
+    # permission_suggestions: PermissionRequest
+    if 'permission_suggestions' in input_data:
+        event_data['permission_suggestions'] = input_data['permission_suggestions']
+
+    # agent_id: SubagentStart, SubagentStop
+    if 'agent_id' in input_data:
+        event_data['agent_id'] = input_data['agent_id']
+
+    # agent_type: SessionStart, SubagentStart, SubagentStop
+    if 'agent_type' in input_data:
+        event_data['agent_type'] = input_data['agent_type']
+
+    # agent_transcript_path: SubagentStop
+    if 'agent_transcript_path' in input_data:
+        event_data['agent_transcript_path'] = input_data['agent_transcript_path']
+
+    # stop_hook_active: Stop, SubagentStop
+    if 'stop_hook_active' in input_data:
+        event_data['stop_hook_active'] = input_data['stop_hook_active']
+
+    # notification_type: Notification
+    if 'notification_type' in input_data:
+        event_data['notification_type'] = input_data['notification_type']
+
+    # custom_instructions: PreCompact
+    if 'custom_instructions' in input_data:
+        event_data['custom_instructions'] = input_data['custom_instructions']
+
+    # source: SessionStart
+    if 'source' in input_data:
+        event_data['source'] = input_data['source']
+
+    # reason: SessionEnd
+    if 'reason' in input_data:
+        event_data['reason'] = input_data['reason']
     
     # Handle --add-chat option
     if args.add_chat and 'transcript_path' in input_data:

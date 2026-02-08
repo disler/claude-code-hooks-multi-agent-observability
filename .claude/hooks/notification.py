@@ -92,14 +92,17 @@ def main():
         
         # Read JSON input from stdin
         input_data = json.loads(sys.stdin.read())
-        
-        # Extract session_id
+
+        # Extract fields
         session_id = input_data.get('session_id', 'unknown')
-        
+        notification_type = input_data.get('notification_type', '')
+        message = input_data.get('message', '')
+        title = input_data.get('title', '')
+
         # Ensure session log directory exists
         log_dir = ensure_session_log_dir(session_id)
         log_file = log_dir / 'notification.json'
-        
+
         # Read existing log data or initialize empty list
         if log_file.exists():
             with open(log_file, 'r') as f:
@@ -109,18 +112,34 @@ def main():
                     log_data = []
         else:
             log_data = []
-        
-        # Append new data
-        log_data.append(input_data)
-        
+
+        # Build log entry with notification_type
+        log_entry = {
+            "session_id": session_id,
+            "hook_event_name": input_data.get("hook_event_name", "Notification"),
+            "notification_type": notification_type,
+            "message": message,
+            "title": title,
+        }
+        log_data.append(log_entry)
+
         # Write back to file with formatting
         with open(log_file, 'w') as f:
             json.dump(log_data, f, indent=2)
-        
+
         # Announce notification via TTS only if --notify flag is set
-        # Skip TTS for the generic "Claude is waiting for your input" message
-        if args.notify and input_data.get('message') != 'Claude is waiting for your input':
-            announce_notification()
+        # Use notification_type for conditional TTS behavior:
+        # - permission_prompt: always announce (needs user attention)
+        # - idle_prompt: skip generic idle messages
+        # - auth_success, elicitation_dialog: skip TTS
+        if args.notify:
+            if notification_type == 'permission_prompt':
+                announce_notification()
+            elif notification_type == 'idle_prompt' and message != 'Claude is waiting for your input':
+                announce_notification()
+            elif not notification_type and message != 'Claude is waiting for your input':
+                # Legacy fallback: announce if no notification_type and not generic idle
+                announce_notification()
         
         sys.exit(0)
         

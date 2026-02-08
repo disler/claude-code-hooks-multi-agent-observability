@@ -20,13 +20,13 @@ except ImportError:
     pass  # dotenv is optional
 
 
-def log_pre_compact(input_data):
+def log_pre_compact(input_data, custom_instructions):
     """Log pre-compact event to logs directory."""
     # Ensure logs directory exists
     log_dir = Path("logs")
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / 'pre_compact.json'
-    
+
     # Read existing log data or initialize empty list
     if log_file.exists():
         with open(log_file, 'r') as f:
@@ -36,35 +36,49 @@ def log_pre_compact(input_data):
                 log_data = []
     else:
         log_data = []
-    
-    # Append the entire input data
-    log_data.append(input_data)
-    
+
+    # Build log entry with custom_instructions
+    log_entry = {
+        "session_id": input_data.get("session_id", "unknown"),
+        "hook_event_name": input_data.get("hook_event_name", "PreCompact"),
+        "trigger": input_data.get("trigger", "unknown"),
+        "custom_instructions": custom_instructions,
+    }
+    log_data.append(log_entry)
+
     # Write back to file with formatting
     with open(log_file, 'w') as f:
         json.dump(log_data, f, indent=2)
 
 
-def backup_transcript(transcript_path, trigger):
+def backup_transcript(transcript_path, trigger, custom_instructions=""):
     """Create a backup of the transcript before compaction."""
     try:
         if not os.path.exists(transcript_path):
             return
-        
+
         # Create backup directory
         backup_dir = Path("logs") / "transcript_backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate backup filename with timestamp and trigger type
+
+        # Generate backup filename with timestamp, trigger type, and custom_instructions
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         session_name = Path(transcript_path).stem
-        backup_name = f"{session_name}_pre_compact_{trigger}_{timestamp}.jsonl"
+        # Include sanitized custom_instructions in filename if present
+        suffix = ""
+        if custom_instructions:
+            # Sanitize for filename: take first 30 chars, replace non-alphanum with underscore
+            import re
+            sanitized = re.sub(r'[^a-zA-Z0-9]', '_', custom_instructions[:30]).strip('_')
+            if sanitized:
+                suffix = f"_{sanitized}"
+        backup_name = f"{session_name}_pre_compact_{trigger}{suffix}_{timestamp}.jsonl"
         backup_path = backup_dir / backup_name
-        
+
         # Copy transcript to backup
         import shutil
         shutil.copy2(transcript_path, backup_path)
-        
+
         return str(backup_path)
     except Exception:
         return None
@@ -89,13 +103,13 @@ def main():
         trigger = input_data.get('trigger', 'unknown')  # "manual" or "auto"
         custom_instructions = input_data.get('custom_instructions', '')
         
-        # Log the pre-compact event
-        log_pre_compact(input_data)
-        
-        # Create backup if requested
+        # Log the pre-compact event with custom_instructions
+        log_pre_compact(input_data, custom_instructions)
+
+        # Create backup if requested (pass custom_instructions for naming)
         backup_path = None
         if args.backup and transcript_path:
-            backup_path = backup_transcript(transcript_path, trigger)
+            backup_path = backup_transcript(transcript_path, trigger, custom_instructions)
         
         # Provide feedback based on trigger type
         if args.verbose:

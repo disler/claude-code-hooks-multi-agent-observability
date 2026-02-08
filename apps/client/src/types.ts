@@ -58,6 +58,7 @@ export interface ChartDataPoint {
   timestamp: number;
   count: number;
   eventTypes: Record<string, number>; // event type -> count
+  toolEvents?: Record<string, number>; // "EventType:ToolName" -> count (e.g., "PreToolUse:Bash" -> 3)
   sessions: Record<string, number>; // session id -> count
 }
 
