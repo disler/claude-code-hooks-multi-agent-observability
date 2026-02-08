@@ -481,27 +481,6 @@ This is what separates engineers from vibe coders: understanding what's happenin
 - **Hooks**: Python 3.11+, Astral uv, TTS (ElevenLabs or OpenAI), LLMs (Claude or OpenAI)
 - **Communication**: HTTP REST, WebSocket
 
-## 🔧 Troubleshooting
-
-### Hook Scripts Not Working
-
-If your hook scripts aren't executing properly, it might be due to relative paths in your `.claude/settings.json`. Claude Code documentation recommends using absolute paths for command scripts.
-
-**Solution**: Use the custom Claude Code slash command to automatically convert all relative paths to absolute paths:
-
-```bash
-# In Claude Code, simply run:
-/convert_paths_absolute
-```
-
-This command will:
-- Find all relative paths in your hook command scripts
-- Convert them to absolute paths based on your current working directory
-- Create a backup of your original settings.json
-- Show you exactly what changes were made
-
-This ensures your hooks work correctly regardless of where Claude Code is executed from.
-
 ## Master AI **Agentic Coding**
 > And prepare for the future of software engineering
 
