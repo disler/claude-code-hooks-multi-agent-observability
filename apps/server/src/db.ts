@@ -292,9 +292,9 @@ export function getThemes(query: ThemeSearchQuery = {}): Theme[] {
     params.push(searchTerm, searchTerm, searchTerm);
   }
   
-  // Add sorting
+  // Add sorting (validated against allowlists to prevent SQL injection)
   const sortBy = query.sortBy || 'created';
-  const sortOrder = query.sortOrder || 'desc';
+  const sortOrder = query.sortOrder?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
   const sortColumn = {
     name: 'name',
     created: 'createdAt',
@@ -302,8 +302,8 @@ export function getThemes(query: ThemeSearchQuery = {}): Theme[] {
     downloads: 'downloadCount',
     rating: 'rating'
   }[sortBy] || 'createdAt';
-  
-  sql += ` ORDER BY ${sortColumn} ${sortOrder.toUpperCase()}`;
+
+  sql += ` ORDER BY ${sortColumn} ${sortOrder}`;
   
   // Add pagination
   if (query.limit) {
