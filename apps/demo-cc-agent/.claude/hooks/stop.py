@@ -14,7 +14,7 @@ import random
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from utils.constants import ensure_session_log_dir
+from utils.constants import ensure_session_log_dir, validate_transcript_path
 
 try:
     from dotenv import load_dotenv
@@ -178,7 +178,7 @@ def main():
         # Handle --chat switch
         if args.chat and "transcript_path" in input_data:
             transcript_path = input_data["transcript_path"]
-            if os.path.exists(transcript_path):
+            if validate_transcript_path(transcript_path) and os.path.exists(transcript_path):
                 # Read .jsonl file and convert to JSON array
                 chat_data = []
                 try:

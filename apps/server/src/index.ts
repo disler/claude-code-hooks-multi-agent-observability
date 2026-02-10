@@ -17,11 +17,29 @@ initDatabase();
 // Store WebSocket clients
 const wsClients = new Set<any>();
 
+// Validate that a WebSocket URL points to localhost only (prevent SSRF)
+function isAllowedWebSocketUrl(wsUrl: string): boolean {
+  try {
+    const parsed = new URL(wsUrl);
+    const allowedHosts = ['localhost', '127.0.0.1', '::1'];
+    return (
+      (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') &&
+      allowedHosts.includes(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 // Helper function to send response to agent via WebSocket
 async function sendResponseToAgent(
   wsUrl: string,
   response: HumanInTheLoopResponse
 ): Promise<void> {
+  if (!isAllowedWebSocketUrl(wsUrl)) {
+    console.error(`[HITL] Blocked non-localhost WebSocket URL: ${wsUrl}`);
+    throw new Error('WebSocket URL must point to localhost');
+  }
   console.log(`[HITL] Connecting to agent WebSocket: ${wsUrl}`);
 
   return new Promise((resolve, reject) => {
@@ -101,16 +119,24 @@ async function sendResponseToAgent(
   });
 }
 
+// Allowed CORS origins (configurable via env, defaults to localhost dev server)
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:4000')
+  .split(',')
+  .map(o => o.trim());
+
 // Create Bun server with HTTP and WebSocket support
 const server = Bun.serve({
+  hostname: process.env.SERVER_HOST || '127.0.0.1',
   port: parseInt(process.env.SERVER_PORT || '4000'),
-  
+
   async fetch(req: Request) {
     const url = new URL(req.url);
-    
-    // Handle CORS
+    const origin = req.headers.get('Origin') || '';
+    const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+
+    // Handle CORS — restrict to known origins
     const headers = {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': allowedOrigin,
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     };
@@ -367,7 +393,7 @@ const server = Bun.serve({
         headers: { 
           ...headers, 
           'Content-Type': 'application/json',
-          'Content-Disposition': `attachment; filename="${result.data.theme.name}.json"`
+          'Content-Disposition': `attachment; filename="${result.data.theme.name.replace(/[^a-z0-9_-]/g, '')}.json"`
         }
       });
     }
