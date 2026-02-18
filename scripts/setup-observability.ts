@@ -560,7 +560,7 @@ async function mergePackageJsonScripts(): Promise<void> {
     "obs:start":
       "cd .observability/server && bun run src/index.ts & cd .observability/client && bun run dev &",
     "obs:stop":
-      "pkill -f '.observability/server' 2>/dev/null; pkill -f '.observability/client' 2>/dev/null",
+      "lsof -ti :4000 | xargs kill -9 2>/dev/null; lsof -ti :5173 | xargs kill -9 2>/dev/null; echo 'Stopped observability services'",
     "obs:status":
       "curl -sf http://localhost:4000/health && echo 'Server: UP' || echo 'Server: DOWN'",
   };
@@ -611,8 +611,8 @@ case "$1" in
     echo "Dashboard: http://localhost:5173 | Server: http://localhost:4000"
     ;;
   stop)
-    pkill -f '.observability/server' 2>/dev/null
-    pkill -f '.observability/client' 2>/dev/null
+    lsof -ti :4000 | xargs kill -9 2>/dev/null
+    lsof -ti :5173 | xargs kill -9 2>/dev/null
     echo "Stopped observability services"
     ;;
   status)

@@ -97,7 +97,7 @@ describe("JS/TS project setup (package.json)", () => {
       await readFile(join(tempDir, "package.json"), "utf-8")
     );
     expect(pkg.scripts["obs:stop"]).toBeDefined();
-    expect(pkg.scripts["obs:stop"]).toContain("pkill");
+    expect(pkg.scripts["obs:stop"]).toContain("kill");
   });
 
   test("package.json has obs:status script after setup", async () => {
@@ -198,7 +198,7 @@ describe("Python project setup (requirements.txt, no package.json)", () => {
       "utf-8"
     );
     expect(content).toContain("stop)");
-    expect(content).toContain("pkill");
+    expect(content).toContain("kill");
   });
 
   test(".observability/obs.sh contains status command", async () => {

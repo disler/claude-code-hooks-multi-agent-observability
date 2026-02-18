@@ -104,9 +104,14 @@ async function sendResponseToAgent(
   });
 }
 
-// Create Bun server with HTTP and WebSocket support
-const server = Bun.serve({
-  port: parseInt(process.env.SERVER_PORT || '4000'),
+// Try to start on desired port, fall back to next available ports
+const desiredPort = parseInt(process.env.SERVER_PORT || '4000');
+let actualPort = desiredPort;
+
+function tryServe(port: number): ReturnType<typeof Bun.serve> | null {
+  try {
+    return Bun.serve({
+      port,
   
   async fetch(req: Request) {
     const url = new URL(req.url);
@@ -633,7 +638,7 @@ const server = Bun.serve({
 
     // WebSocket upgrade
     if (url.pathname === '/stream') {
-      const success = server.upgrade(req);
+      const success = server!.upgrade(req);
       if (success) {
         return undefined;
       }
@@ -671,7 +676,31 @@ const server = Bun.serve({
     }
   }
 });
+  } catch (e: unknown) {
+    if (e && typeof e === 'object' && 'code' in e && (e as {code: string}).code === 'EADDRINUSE') {
+      return null; // Port in use, caller will retry
+    }
+    throw e;
+  }
+}
 
-console.log(`🚀 Server running on http://localhost:${server.port}`);
-console.log(`📊 WebSocket endpoint: ws://localhost:${server.port}/stream`);
-console.log(`📮 POST events to: http://localhost:${server.port}/events`);
+// Try up to 10 ports starting from desired
+// eslint-disable-next-line prefer-const
+let server: ReturnType<typeof Bun.serve> | null = null; // referenced inside fetch for ws upgrade
+for (let p = desiredPort; p < desiredPort + 10; p++) {
+  server = tryServe(p);
+  if (server) {
+    actualPort = p;
+    break;
+  }
+  console.log(`Port ${p} in use, trying ${p + 1}...`);
+}
+
+if (!server) {
+  console.error(`Could not find an available port in range ${desiredPort}-${desiredPort + 9}`);
+  process.exit(1);
+}
+
+console.log(`🚀 Server running on http://localhost:${actualPort}`);
+console.log(`📊 WebSocket endpoint: ws://localhost:${actualPort}/stream`);
+console.log(`📮 POST events to: http://localhost:${actualPort}/events`);
