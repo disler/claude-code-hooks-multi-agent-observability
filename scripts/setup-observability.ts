@@ -545,7 +545,7 @@ async function mergePackageJsonScripts(): Promise<void> {
   const pkgPath = join(targetDir, "package.json");
 
   if (!(await exists(pkgPath))) {
-    summary.errors.push("package.json not found — cannot add obs:* scripts");
+    // Caller should have checked — this is a safety fallback
     return;
   }
 
@@ -774,21 +774,33 @@ async function main(): Promise<void> {
   console.log("[7/9] Copying observability skill...");
   await copySkill();
 
-  // Step 10
-  if (lang === "ts") {
+  // Step 10 — add startup commands
+  // For TS projects WITH a package.json: add scripts to package.json
+  // For TS projects WITHOUT a package.json OR Python projects: create obs.sh
+  const hasPkgJson = await exists(join(targetDir, "package.json"));
+  let effectiveLang = lang;
+
+  if (lang === "ts" && hasPkgJson) {
     console.log("[8/9] Adding obs:* scripts to package.json...");
     await mergePackageJsonScripts();
   } else {
-    console.log("[8/9] Creating .observability/obs.sh script...");
+    if (lang === "ts" && !hasPkgJson) {
+      console.log(
+        "[8/9] No package.json found — creating obs.sh instead..."
+      );
+      effectiveLang = "py"; // obs.sh is language-agnostic
+    } else {
+      console.log("[8/9] Creating .observability/obs.sh script...");
+    }
     await createObsShellScript();
   }
 
   // Step 11
   console.log("[9/9] Updating CLAUDE.md...");
-  await updateClaudeMd(lang);
+  await updateClaudeMd(effectiveLang);
 
   // Step 12
-  printSummary(lang);
+  printSummary(effectiveLang);
 }
 
 main().catch((err) => {
