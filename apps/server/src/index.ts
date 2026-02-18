@@ -238,7 +238,42 @@ function tryServe(port: number): ReturnType<typeof Bun.serve> | null {
     }
 
     // Theme API endpoints
-    
+    // NOTE: Specific routes MUST be checked before generic startsWith routes
+    // to avoid /api/themes/stats being handled by /api/themes/:id
+
+    // GET /api/themes/stats - Get theme statistics (MUST be before :id route)
+    if (url.pathname === '/api/themes/stats' && req.method === 'GET') {
+      const result = await getThemeStats();
+      return new Response(JSON.stringify(result), {
+        headers: { ...headers, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // POST /api/themes/import - Import a theme (MUST be before generic POST)
+    if (url.pathname === '/api/themes/import' && req.method === 'POST') {
+      try {
+        const importData = await req.json();
+        const authorId = url.searchParams.get('authorId');
+
+        const result = await importTheme(importData, authorId || undefined);
+
+        const status = result.success ? 201 : 400;
+        return new Response(JSON.stringify(result), {
+          status,
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error importing theme:', error);
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Invalid import data'
+        }), {
+          status: 400,
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // POST /api/themes - Create a new theme
     if (url.pathname === '/api/themes' && req.method === 'POST') {
       try {
@@ -280,6 +315,28 @@ function tryServe(port: number): ReturnType<typeof Bun.serve> | null {
       });
     }
     
+    // GET /api/themes/:id/export - Export a theme (MUST be before generic :id route)
+    if (url.pathname.match(/^\/api\/themes\/[^\/]+\/export$/) && req.method === 'GET') {
+      const id = url.pathname.split('/')[3];
+
+      const result = await exportThemeById(id);
+      if (!result.success) {
+        const status = result.error?.includes('not found') ? 404 : 400;
+        return new Response(JSON.stringify(result), {
+          status,
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+
+      return new Response(JSON.stringify(result.data), {
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+          'Content-Disposition': `attachment; filename="${result.data.theme.name}.json"`
+        }
+      });
+    }
+
     // GET /api/themes/:id - Get a specific theme
     if (url.pathname.startsWith('/api/themes/') && req.method === 'GET') {
       const id = url.pathname.split('/')[3];
@@ -358,60 +415,9 @@ function tryServe(port: number): ReturnType<typeof Bun.serve> | null {
       });
     }
     
-    // GET /api/themes/:id/export - Export a theme
-    if (url.pathname.match(/^\/api\/themes\/[^\/]+\/export$/) && req.method === 'GET') {
-      const id = url.pathname.split('/')[3];
-      
-      const result = await exportThemeById(id);
-      if (!result.success) {
-        const status = result.error?.includes('not found') ? 404 : 400;
-        return new Response(JSON.stringify(result), {
-          status,
-          headers: { ...headers, 'Content-Type': 'application/json' }
-        });
-      }
-      
-      return new Response(JSON.stringify(result.data), {
-        headers: { 
-          ...headers, 
-          'Content-Type': 'application/json',
-          'Content-Disposition': `attachment; filename="${result.data.theme.name}.json"`
-        }
-      });
-    }
-    
-    // POST /api/themes/import - Import a theme
-    if (url.pathname === '/api/themes/import' && req.method === 'POST') {
-      try {
-        const importData = await req.json();
-        const authorId = url.searchParams.get('authorId');
-        
-        const result = await importTheme(importData, authorId || undefined);
-        
-        const status = result.success ? 201 : 400;
-        return new Response(JSON.stringify(result), {
-          status,
-          headers: { ...headers, 'Content-Type': 'application/json' }
-        });
-      } catch (error) {
-        console.error('Error importing theme:', error);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: 'Invalid import data' 
-        }), {
-          status: 400,
-          headers: { ...headers, 'Content-Type': 'application/json' }
-        });
-      }
-    }
-    
-    // GET /api/themes/stats - Get theme statistics
-    if (url.pathname === '/api/themes/stats' && req.method === 'GET') {
-      const result = await getThemeStats();
-      return new Response(JSON.stringify(result), {
-        headers: { ...headers, 'Content-Type': 'application/json' }
-      });
-    }
+    // NOTE: /api/themes/import, /api/themes/stats, and /api/themes/:id/export
+    // routes are all placed ABOVE the generic startsWith('/api/themes/') routes
+    // to prevent shadowing by the generic :id handler.
     
     // GET /health - Health check
     if (url.pathname === '/health' && req.method === 'GET') {

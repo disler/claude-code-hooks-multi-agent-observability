@@ -15,6 +15,11 @@ const EXPECTED_TS_HOOKS = [
   "notification.ts",
   "user_prompt_submit.ts",
   "stop.ts",
+  "subagent_start.ts",
+  "subagent_stop.ts",
+  "pre_compact.ts",
+  "session_start.ts",
+  "session_end.ts",
 ];
 
 describe("TypeScript hook files", () => {

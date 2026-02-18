@@ -297,9 +297,12 @@ export function getThemes(query: ThemeSearchQuery = {}): Theme[] {
     params.push(searchTerm, searchTerm, searchTerm);
   }
   
-  // Add sorting
+  // Add sorting (validate to prevent SQL injection)
   const sortBy = query.sortBy || 'created';
-  const sortOrder = query.sortOrder || 'desc';
+  const validSortOrders = ['asc', 'desc'] as const;
+  const sortOrder = validSortOrders.includes(
+    (query.sortOrder || 'desc').toLowerCase() as typeof validSortOrders[number]
+  ) ? (query.sortOrder || 'desc').toUpperCase() : 'DESC';
   const sortColumn = {
     name: 'name',
     created: 'createdAt',
@@ -307,8 +310,8 @@ export function getThemes(query: ThemeSearchQuery = {}): Theme[] {
     downloads: 'downloadCount',
     rating: 'rating'
   }[sortBy] || 'createdAt';
-  
-  sql += ` ORDER BY ${sortColumn} ${sortOrder.toUpperCase()}`;
+
+  sql += ` ORDER BY ${sortColumn} ${sortOrder}`;
   
   // Add pagination
   if (query.limit) {

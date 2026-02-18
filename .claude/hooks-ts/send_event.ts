@@ -62,7 +62,7 @@ async function main() {
 
   if (!sourceApp || !eventType) {
     console.error("--source-app and --event-type are required");
-    process.exit(1);
+    process.exit(0);
   }
 
   let inputData: Record<string, unknown>;
@@ -70,7 +70,7 @@ async function main() {
     inputData = JSON.parse(await Bun.stdin.text());
   } catch (e) {
     console.error(`Failed to parse JSON input: ${e}`);
-    process.exit(1);
+    process.exit(0);
   }
 
   // Extract model name from transcript (with caching)

@@ -2,7 +2,7 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { resolve } from "node:path";
 
 const PROJECT_ROOT = resolve(import.meta.dir, "../..");
-const TEST_PORT = 4099;
+const TEST_PORT = 4097;
 const BASE_URL = `http://localhost:${TEST_PORT}`;
 
 let serverProc: ReturnType<typeof Bun.spawn> | null = null;

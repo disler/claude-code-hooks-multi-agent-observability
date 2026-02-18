@@ -276,7 +276,7 @@ function buildHookEntry(
   eventType: string,
   lang: Language,
   app: string
-): { matcher: string; hooks: { type: string; command: string }[] } {
+): { matcher: string | null; hooks: { type: string; command: string }[] } {
   const prefix =
     lang === "ts"
       ? "bun $CLAUDE_PROJECT_DIR/.claude/hooks/"
@@ -330,8 +330,9 @@ function buildHookEntry(
     "SubagentStart",
   ];
 
+  const hasMatcher = matcherEvents.includes(eventType);
   return {
-    matcher: matcherEvents.includes(eventType) ? "" : undefined as unknown as string,
+    matcher: hasMatcher ? "" : null,
     hooks: [
       { type: "command", command: specificCmd },
       { type: "command", command: sendEventCmd },
@@ -380,11 +381,11 @@ async function mergeSettings(lang: Language): Promise<void> {
     }
 
     const entry = buildHookEntry(eventType, lang, sourceApp);
-    // Clean up undefined matcher
+    // Only include matcher key when it has a value (not null)
     const cleanEntry: Record<string, unknown> = {
       hooks: entry.hooks,
     };
-    if (entry.matcher !== (undefined as unknown as string)) {
+    if (entry.matcher !== null) {
       cleanEntry.matcher = entry.matcher;
     }
 
@@ -558,11 +559,11 @@ async function mergePackageJsonScripts(): Promise<void> {
 
   const obsScripts: Record<string, string> = {
     "obs:start":
-      "cd .observability/server && bun run src/index.ts & cd .observability/client && bun run dev &",
+      `cd .observability/server && SERVER_PORT=${port} bun run src/index.ts & cd .observability/client && bun run dev &`,
     "obs:stop":
-      "lsof -ti :4000 | xargs kill -9 2>/dev/null; lsof -ti :5173 | xargs kill -9 2>/dev/null; echo 'Stopped observability services'",
+      `lsof -ti :${port} | xargs kill 2>/dev/null; lsof -ti :5173 | xargs kill 2>/dev/null; echo 'Stopped observability services'`,
     "obs:status":
-      "curl -sf http://localhost:4000/health && echo 'Server: UP' || echo 'Server: DOWN'",
+      `curl -sf http://localhost:${port}/health && echo 'Server: UP' || echo 'Server: DOWN'`,
   };
 
   let added = 0;
@@ -604,19 +605,20 @@ async function createObsShellScript(): Promise<void> {
 
   const scriptContent = `#!/usr/bin/env bash
 # Observability management script
+OBS_PORT=${port}
 case "$1" in
   start)
-    cd "$(dirname "$0")/server" && bun run src/index.ts &
+    cd "$(dirname "$0")/server" && SERVER_PORT=$OBS_PORT bun run src/index.ts &
     cd "$(dirname "$0")/client" && bun run dev &
-    echo "Dashboard: http://localhost:5173 | Server: http://localhost:4000"
+    echo "Dashboard: http://localhost:5173 | Server: http://localhost:$OBS_PORT"
     ;;
   stop)
-    lsof -ti :4000 | xargs kill -9 2>/dev/null
-    lsof -ti :5173 | xargs kill -9 2>/dev/null
+    lsof -ti :$OBS_PORT | xargs kill 2>/dev/null
+    lsof -ti :5173 | xargs kill 2>/dev/null
     echo "Stopped observability services"
     ;;
   status)
-    curl -sf http://localhost:4000/health && echo "Server: UP" || echo "Server: DOWN"
+    curl -sf http://localhost:$OBS_PORT/health && echo "Server: UP" || echo "Server: DOWN"
     curl -sf http://localhost:5173 > /dev/null 2>&1 && echo "Client: UP" || echo "Client: DOWN"
     ;;
   *)
