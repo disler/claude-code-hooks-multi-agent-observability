@@ -125,96 +125,10 @@
       </div>
     </div>
 
-    <!-- Special card: SubagentStart -->
-    <div
-      v-if="!event.humanInTheLoop && isSubagentStart && subagentStartInfo"
-      class="special-event-card subagent-start-card"
-      @click="toggleExpanded"
-    >
-      <div class="special-card-indicator" style="background-color: #8B5CF6;"></div>
-      <div class="special-card-content">
-        <div class="special-card-row">
-          <span class="special-card-icon">&#x1F7E2;</span>
-          <span class="special-card-label">Spawned</span>
-          <span class="special-card-app" :style="{ ...appBgStyle, ...appBorderStyle }">{{ subagentStartInfo.appName }}</span>
-          <AgentTypeBadge :agent-type="subagentStartInfo.agentType" />
-          <span v-if="subagentStartInfo.model" class="special-card-model">({{ formatModelName(subagentStartInfo.model) }})</span>
-          <span class="special-card-time">{{ formatTime(event.timestamp) }}</span>
-        </div>
-      </div>
-      <div v-if="isExpanded" class="mt-2 pt-2 border-t border-[var(--theme-border-primary)] bg-[var(--theme-bg-primary)] rounded-b-lg p-3">
-        <pre class="text-sm text-[var(--theme-text-primary)] bg-[var(--theme-bg-tertiary)] p-3 rounded-lg overflow-x-auto max-h-64 overflow-y-auto font-mono border border-[var(--theme-border-primary)]">{{ formattedPayload }}</pre>
-      </div>
-    </div>
-
-    <!-- Special card: SubagentStop -->
-    <div
-      v-if="!event.humanInTheLoop && isSubagentStop && subagentStopInfo"
-      class="special-event-card subagent-stop-card"
-      @click="toggleExpanded"
-    >
-      <div class="special-card-indicator" style="background-color: #6366F1;"></div>
-      <div class="special-card-content">
-        <div class="special-card-row">
-          <span class="special-card-icon">&#x1F6D1;</span>
-          <span class="special-card-label">Completed</span>
-          <span class="special-card-app" :style="{ ...appBgStyle, ...appBorderStyle }">{{ subagentStopInfo.appName }}</span>
-          <AgentTypeBadge :agent-type="subagentStopInfo.agentType" />
-          <span v-if="subagentStopInfo.duration" class="special-card-duration">({{ subagentStopInfo.duration }})</span>
-          <span class="special-card-time">{{ formatTime(event.timestamp) }}</span>
-        </div>
-      </div>
-      <div v-if="isExpanded" class="mt-2 pt-2 border-t border-[var(--theme-border-primary)] bg-[var(--theme-bg-primary)] rounded-b-lg p-3">
-        <pre class="text-sm text-[var(--theme-text-primary)] bg-[var(--theme-bg-tertiary)] p-3 rounded-lg overflow-x-auto max-h-64 overflow-y-auto font-mono border border-[var(--theme-border-primary)]">{{ formattedPayload }}</pre>
-      </div>
-    </div>
-
-    <!-- Special card: SendMessage -->
-    <div
-      v-if="!event.humanInTheLoop && isSendMessage && sendMessageInfo"
-      class="special-event-card send-message-card"
-      @click="toggleExpanded"
-    >
-      <div class="special-card-indicator" style="background-color: #3B82F6;"></div>
-      <div class="special-card-content">
-        <div class="special-card-row">
-          <span class="special-card-icon">&#x1F4AC;</span>
-          <span class="special-card-app" :style="{ ...appBgStyle, ...appBorderStyle }">{{ event.source_app }}</span>
-          <span class="send-message-arrow">&#x2192;</span>
-          <span class="send-message-recipient">{{ sendMessageInfo.recipient }}</span>
-          <span v-if="sendMessageInfo.summary" class="send-message-summary">{{ sendMessageInfo.summary }}</span>
-          <span class="special-card-time">{{ formatTime(event.timestamp) }}</span>
-        </div>
-      </div>
-      <div v-if="isExpanded" class="mt-2 pt-2 border-t border-[var(--theme-border-primary)] bg-[var(--theme-bg-primary)] rounded-b-lg p-3">
-        <pre class="text-sm text-[var(--theme-text-primary)] bg-[var(--theme-bg-tertiary)] p-3 rounded-lg overflow-x-auto max-h-64 overflow-y-auto font-mono border border-[var(--theme-border-primary)]">{{ formattedPayload }}</pre>
-      </div>
-    </div>
-
-    <!-- Special card: TeamCreate -->
-    <div
-      v-if="!event.humanInTheLoop && isTeamCreate && teamCreateInfo"
-      class="special-event-card team-create-card"
-      @click="toggleExpanded"
-    >
-      <div class="special-card-indicator" style="background-color: #F59E0B;"></div>
-      <div class="special-card-content">
-        <div class="special-card-row">
-          <span class="special-card-icon">&#x1F465;</span>
-          <span class="special-card-label">Team created</span>
-          <span class="team-create-name">'{{ teamCreateInfo.teamName }}'</span>
-          <span class="special-card-time">{{ formatTime(event.timestamp) }}</span>
-        </div>
-      </div>
-      <div v-if="isExpanded" class="mt-2 pt-2 border-t border-[var(--theme-border-primary)] bg-[var(--theme-bg-primary)] rounded-b-lg p-3">
-        <pre class="text-sm text-[var(--theme-text-primary)] bg-[var(--theme-bg-tertiary)] p-3 rounded-lg overflow-x-auto max-h-64 overflow-y-auto font-mono border border-[var(--theme-border-primary)]">{{ formattedPayload }}</pre>
-      </div>
-    </div>
-
-    <!-- Original Event Row Content (skip if HITL with humanInTheLoop or special event) -->
+    <!-- Original Event Row Content (skip if HITL with humanInTheLoop) -->
     <!-- STUDIO LAYOUT -->
     <div
-      v-if="!event.humanInTheLoop && !isSubagentStart && !isSubagentStop && !isSendMessage && !isTeamCreate && isStudio"
+      v-if="!event.humanInTheLoop && isStudio"
       class="studio-event-card"
       :class="{ 'ring-1 ring-[var(--theme-primary)] border-[var(--theme-primary)]': isExpanded }"
       @click="toggleExpanded"
@@ -254,7 +168,7 @@
 
     <!-- DEFAULT LAYOUT -->
     <div
-      v-if="!event.humanInTheLoop && !isSubagentStart && !isSubagentStop && !isSendMessage && !isTeamCreate && !isStudio"
+      v-if="!event.humanInTheLoop && !isStudio"
       class="group relative p-4 mobile:p-2 rounded-[10px] transition-all duration-200 cursor-pointer border border-[var(--theme-border-primary)] hover:border-[var(--theme-border-secondary)] hover:shadow-sm bg-[var(--theme-bg-secondary)]"
       :class="{ 'ring-1 ring-[var(--theme-primary)] border-[var(--theme-primary)]': isExpanded }"
       @click="toggleExpanded"
@@ -417,7 +331,6 @@ import { useMediaQuery } from '../composables/useMediaQuery';
 import { useEventEmojis } from '../composables/useEventEmojis';
 import { useThemes } from '../composables/useThemes';
 import ChatTranscriptModal from './ChatTranscriptModal.vue';
-import AgentTypeBadge from './AgentTypeBadge.vue';
 import { API_BASE_URL } from '../config';
 
 const { getEmojiForToolName } = useEventEmojis();
@@ -628,65 +541,6 @@ const toolInfo = computed(() => {
   return null;
 });
 
-// Special event detection
-const isSubagentStart = computed(() => props.event.hook_event_type === 'SubagentStart');
-const isSubagentStop = computed(() => props.event.hook_event_type === 'SubagentStop');
-
-const subagentStartInfo = computed(() => {
-  if (!isSubagentStart.value) return null;
-  const payload = props.event.payload;
-  return {
-    agentType: payload.subagent_type || payload.agent_type || 'unknown',
-    model: payload.model || props.event.model_name || null,
-    appName: props.event.source_app,
-  };
-});
-
-const subagentStopInfo = computed(() => {
-  if (!isSubagentStop.value) return null;
-  const payload = props.event.payload;
-  const duration = payload.duration_ms || payload.duration || null;
-  return {
-    agentType: payload.subagent_type || payload.agent_type || 'unknown',
-    appName: props.event.source_app,
-    duration: duration ? formatDuration(duration) : null,
-  };
-});
-
-// SendMessage detection (PreToolUse where tool_name is "SendMessage")
-const isSendMessage = computed(() => {
-  return props.event.hook_event_type === 'PreToolUse' && props.event.payload?.tool_name === 'SendMessage';
-});
-
-const sendMessageInfo = computed(() => {
-  if (!isSendMessage.value) return null;
-  const input = props.event.payload?.tool_input || {};
-  return {
-    recipient: input.recipient || 'unknown',
-    summary: input.summary || input.content?.slice(0, 80) || '',
-    type: input.type || 'message',
-  };
-});
-
-// TeamCreate detection (PreToolUse where tool_name is "TeamCreate")
-const isTeamCreate = computed(() => {
-  return props.event.hook_event_type === 'PreToolUse' && props.event.payload?.tool_name === 'TeamCreate';
-});
-
-const teamCreateInfo = computed(() => {
-  if (!isTeamCreate.value) return null;
-  const input = props.event.payload?.tool_input || {};
-  return {
-    teamName: input.team_name || 'unnamed',
-  };
-});
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${(ms / 60000).toFixed(1)}m`;
-}
-
 const formatTime = (timestamp?: number) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
@@ -870,107 +724,5 @@ const submitChoice = async (choice: string) => {
 
 .animate-pulse-slow {
   animation: pulse-slow 2s ease-in-out infinite;
-}
-
-/* Special event cards */
-.special-event-card {
-  position: relative;
-  padding: 10px 14px 10px 18px;
-  border-radius: 10px;
-  border: 1px solid var(--theme-border-primary);
-  background: var(--theme-bg-secondary);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.special-event-card:hover {
-  border-color: var(--theme-border-secondary);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-}
-
-.special-card-indicator {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  border-radius: 10px 0 0 10px;
-}
-
-.special-card-content {
-  margin-left: 4px;
-}
-
-.special-card-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.special-card-icon {
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
-.special-card-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--theme-text-primary);
-}
-
-.special-card-app {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 1px 8px;
-  border-radius: 9999px;
-  border: 1px solid;
-  color: var(--theme-text-primary);
-}
-
-.special-card-model,
-.special-card-duration {
-  font-size: 12px;
-  color: var(--theme-text-tertiary);
-  font-weight: 500;
-}
-
-.special-card-time {
-  font-size: 11px;
-  color: var(--theme-text-tertiary);
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-.send-message-arrow {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--theme-primary);
-}
-
-.send-message-recipient {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--theme-text-primary);
-  background: var(--theme-bg-tertiary);
-  padding: 1px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--theme-border-primary);
-}
-
-.send-message-summary {
-  font-size: 12px;
-  color: var(--theme-text-secondary);
-  font-style: italic;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 300px;
-}
-
-.team-create-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--theme-primary);
 }
 </style>

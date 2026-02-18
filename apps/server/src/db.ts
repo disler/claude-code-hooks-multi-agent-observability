@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import type { HookEvent, FilterOptions, Theme, ThemeSearchQuery, AgentRegistryEntry } from './types';
+import type { HookEvent, FilterOptions, Theme, ThemeSearchQuery } from './types';
 
 let db: Database;
 
@@ -133,32 +133,6 @@ export function initDatabase(): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_themes_createdAt ON themes(createdAt)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_theme_shares_token ON theme_shares(shareToken)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_theme_ratings_theme ON theme_ratings(themeId)');
-
-  // Create agent_registry table
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS agent_registry (
-      id TEXT PRIMARY KEY,
-      source_app TEXT NOT NULL,
-      session_id TEXT NOT NULL,
-      display_name TEXT,
-      agent_type TEXT,
-      model_name TEXT,
-      short_agent_id TEXT,
-      parent_id TEXT,
-      team_name TEXT,
-      first_prompt TEXT,
-      lifecycle_status TEXT DEFAULT 'active',
-      first_seen_at INTEGER NOT NULL,
-      last_seen_at INTEGER NOT NULL,
-      event_count INTEGER DEFAULT 0
-    )
-  `);
-
-  // Create indexes for agent_registry
-  db.exec('CREATE INDEX IF NOT EXISTS idx_agent_registry_source_app ON agent_registry(source_app)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_agent_registry_session_id ON agent_registry(session_id)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_agent_registry_parent_id ON agent_registry(parent_id)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_agent_registry_team_name ON agent_registry(team_name)');
 }
 
 export function insertEvent(event: HookEvent): HookEvent {
@@ -578,95 +552,6 @@ export function exportEvents(filters: QueryEventsFilters): HookEvent[] {
 
   const rows = stmt.all(...params, limit, offset) as any[];
   return rows.map(row => parseEventRow(row));
-}
-
-// Agent registry helper functions
-export function upsertAgent(entry: Partial<AgentRegistryEntry> & { id: string }): void {
-  const existing = getAgent(entry.id);
-
-  if (existing) {
-    // Update existing entry
-    const fields: string[] = [];
-    const values: any[] = [];
-
-    if (entry.display_name !== undefined) { fields.push('display_name = ?'); values.push(entry.display_name); }
-    if (entry.agent_type !== undefined) { fields.push('agent_type = ?'); values.push(entry.agent_type); }
-    if (entry.model_name !== undefined) { fields.push('model_name = ?'); values.push(entry.model_name); }
-    if (entry.short_agent_id !== undefined) { fields.push('short_agent_id = ?'); values.push(entry.short_agent_id); }
-    if (entry.parent_id !== undefined) { fields.push('parent_id = ?'); values.push(entry.parent_id); }
-    if (entry.team_name !== undefined) { fields.push('team_name = ?'); values.push(entry.team_name); }
-    if (entry.first_prompt !== undefined) { fields.push('first_prompt = ?'); values.push(entry.first_prompt); }
-    if (entry.lifecycle_status !== undefined) { fields.push('lifecycle_status = ?'); values.push(entry.lifecycle_status); }
-    if (entry.last_seen_at !== undefined) { fields.push('last_seen_at = ?'); values.push(entry.last_seen_at); }
-    if (entry.event_count !== undefined) { fields.push('event_count = ?'); values.push(entry.event_count); }
-
-    if (fields.length > 0) {
-      values.push(entry.id);
-      db.prepare(`UPDATE agent_registry SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-    }
-  } else {
-    // Insert new entry
-    db.prepare(`
-      INSERT INTO agent_registry (id, source_app, session_id, display_name, agent_type, model_name, short_agent_id, parent_id, team_name, first_prompt, lifecycle_status, first_seen_at, last_seen_at, event_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      entry.id,
-      entry.source_app || '',
-      entry.session_id || '',
-      entry.display_name || null,
-      entry.agent_type || null,
-      entry.model_name || null,
-      entry.short_agent_id || null,
-      entry.parent_id || null,
-      entry.team_name || null,
-      entry.first_prompt || null,
-      entry.lifecycle_status || 'active',
-      entry.first_seen_at || Date.now(),
-      entry.last_seen_at || Date.now(),
-      entry.event_count || 0
-    );
-  }
-}
-
-export function getAgent(id: string): AgentRegistryEntry | null {
-  const row = db.prepare('SELECT * FROM agent_registry WHERE id = ?').get(id) as any;
-  if (!row) return null;
-  return parseAgentRow(row);
-}
-
-export function getAllAgents(): AgentRegistryEntry[] {
-  const rows = db.prepare('SELECT * FROM agent_registry ORDER BY first_seen_at ASC').all() as any[];
-  return rows.map(parseAgentRow);
-}
-
-export function getAgentsByParent(parentId: string): AgentRegistryEntry[] {
-  const rows = db.prepare('SELECT * FROM agent_registry WHERE parent_id = ? ORDER BY first_seen_at ASC').all(parentId) as any[];
-  return rows.map(parseAgentRow);
-}
-
-export function updateAgentField(id: string, field: string, value: any): void {
-  const allowedFields = ['display_name', 'agent_type', 'model_name', 'short_agent_id', 'parent_id', 'team_name', 'first_prompt', 'lifecycle_status', 'last_seen_at', 'event_count'];
-  if (!allowedFields.includes(field)) return;
-  db.prepare(`UPDATE agent_registry SET ${field} = ? WHERE id = ?`).run(value, id);
-}
-
-function parseAgentRow(row: any): AgentRegistryEntry {
-  return {
-    id: row.id,
-    source_app: row.source_app,
-    session_id: row.session_id,
-    display_name: row.display_name || '',
-    agent_type: row.agent_type || '',
-    model_name: row.model_name || null,
-    short_agent_id: row.short_agent_id || null,
-    parent_id: row.parent_id || null,
-    team_name: row.team_name || null,
-    first_prompt: row.first_prompt || null,
-    lifecycle_status: row.lifecycle_status || 'active',
-    first_seen_at: row.first_seen_at,
-    last_seen_at: row.last_seen_at,
-    event_count: row.event_count || 0,
-  };
 }
 
 export { db };

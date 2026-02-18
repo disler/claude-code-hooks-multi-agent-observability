@@ -2,59 +2,26 @@
   <div class="agent-swim-lane">
     <div class="lane-header">
       <div class="header-left">
-        <!-- Enhanced header when registry entry available -->
-        <template v-if="registryEntry">
+        <div class="agent-label-container">
           <span
-            v-if="lifecycleStatusColor"
-            class="lifecycle-dot"
-            :style="{ backgroundColor: lifecycleStatusColor }"
-            :title="`Status: ${registryEntry.lifecycle_status}`"
-          ></span>
-          <div class="agent-label-container">
-            <span
-              class="agent-label-app"
-              :style="{
-                backgroundColor: getHexColorForApp(appName),
-                borderColor: getHexColorForApp(appName)
-              }"
-            >
-              <span class="font-mono text-xs">{{ displayName || appName }}</span>
-            </span>
-            <span
-              class="agent-label-session"
-              :style="{
-                backgroundColor: getHexColorForSession(sessionId),
-                borderColor: getHexColorForSession(sessionId)
-              }"
-            >
-              <span class="font-mono text-xs">{{ sessionId }}</span>
-            </span>
-          </div>
-          <AgentTypeBadge v-if="agentType" :agent-type="agentType" />
-        </template>
-        <!-- Original header when no registry -->
-        <template v-else>
-          <div class="agent-label-container">
-            <span
-              class="agent-label-app"
-              :style="{
-                backgroundColor: getHexColorForApp(appName),
-                borderColor: getHexColorForApp(appName)
-              }"
-            >
-              <span class="font-mono text-xs">{{ appName }}</span>
-            </span>
-            <span
-              class="agent-label-session"
-              :style="{
-                backgroundColor: getHexColorForSession(sessionId),
-                borderColor: getHexColorForSession(sessionId)
-              }"
-            >
-              <span class="font-mono text-xs">{{ sessionId }}</span>
-            </span>
-          </div>
-        </template>
+            class="agent-label-app"
+            :style="{
+              backgroundColor: getHexColorForApp(appName),
+              borderColor: getHexColorForApp(appName)
+            }"
+          >
+            <span class="font-mono text-xs">{{ appName }}</span>
+          </span>
+          <span
+            class="agent-label-session"
+            :style="{
+              backgroundColor: getHexColorForSession(sessionId),
+              borderColor: getHexColorForSession(sessionId)
+            }"
+          >
+            <span class="font-mono text-xs">{{ sessionId }}</span>
+          </span>
+        </div>
         <div
           v-if="modelName"
           class="model-badge"
@@ -133,18 +100,16 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
-import type { HookEvent, TimeRange, ChartConfig, AgentRegistryEntry } from '../types';
+import type { HookEvent, TimeRange, ChartConfig } from '../types';
 import { useAgentChartData } from '../composables/useAgentChartData';
 import { createChartRenderer, type ChartDimensions } from '../utils/chartRenderer';
 import { useEventEmojis } from '../composables/useEventEmojis';
 import { useEventColors } from '../composables/useEventColors';
-import AgentTypeBadge from './AgentTypeBadge.vue';
 
 const props = defineProps<{
   agentName: string; // Format: "app:session" (e.g., "claude-code:a1b2c3d4")
   events: HookEvent[];
   timeRange: TimeRange;
-  registryEntry?: AgentRegistryEntry;
 }>();
 
 const emit = defineEmits<{
@@ -170,20 +135,6 @@ const formatGap = (gapMs: number): string => {
 // Extract app name and session ID from agent ID for display
 const appName = computed(() => props.agentName.split(':')[0]);
 const sessionId = computed(() => props.agentName.split(':')[1]);
-
-// Enhanced display from registry
-const displayName = computed(() => props.registryEntry?.display_name || null);
-const agentType = computed(() => props.registryEntry?.agent_type || null);
-const lifecycleStatusColor = computed(() => {
-  if (!props.registryEntry) return null;
-  const colorMap: Record<string, string> = {
-    active: '#22C55E',
-    completed: '#6B7280',
-    errored: '#EF4444',
-    idle: '#F59E0B',
-  };
-  return colorMap[props.registryEntry.lifecycle_status] || '#6B7280';
-});
 
 // Get model name from most recent event for this agent
 const modelName = computed(() => {
@@ -584,13 +535,6 @@ onUnmounted(() => {
 }
 
 .avg-time-badge {
-}
-
-.lifecycle-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
 }
 
 .close-btn {

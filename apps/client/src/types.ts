@@ -56,26 +56,8 @@ export interface FilterOptions {
 }
 
 export interface WebSocketMessage {
-  type: 'initial' | 'event' | 'hitl_response' | 'agent_update' | 'agent_registry';
-  data: HookEvent | HookEvent[] | HumanInTheLoopResponse | AgentRegistryEntry | AgentRegistryEntry[];
-}
-
-export interface AgentRegistryEntry {
-  id: string;
-  source_app: string;
-  session_id: string;
-  display_name: string;
-  agent_type: string;
-  model_name: string | null;
-  short_agent_id: string | null;
-  parent_id: string | null;
-  team_name: string | null;
-  first_prompt: string | null;
-  lifecycle_status: 'active' | 'completed' | 'errored' | 'idle';
-  first_seen_at: number;
-  last_seen_at: number;
-  event_count: number;
-  children?: AgentRegistryEntry[];
+  type: 'initial' | 'event' | 'hitl_response';
+  data: HookEvent | HookEvent[] | HumanInTheLoopResponse;
 }
 
 export type TimeRange = '1m' | '3m' | '5m' | '10m';

@@ -6,62 +6,8 @@
         Agent Event Stream
       </h2>
 
-      <!-- Agent/App Tags Row - Hierarchical when registry available -->
-      <div v-if="displayedAgentIds.length > 0 && agentGroups" class="mt-3 space-y-2">
-        <!-- Team groups -->
-        <div v-for="[teamName, teamAgentIds] in agentGroups.teams" :key="teamName" class="agent-team-group">
-          <span class="text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-tertiary)] mr-2">{{ teamName }}</span>
-          <div class="flex flex-wrap gap-1.5 mt-1">
-            <AgentHoverCard
-              v-for="agentId in teamAgentIds"
-              :key="agentId"
-              :agent="getRegistryEntry(agentId)"
-            >
-              <button
-                @click="emit('selectAgent', agentId)"
-                class="agent-chip-enhanced"
-                :style="{
-                  borderColor: getHexColorForApp(getAppNameFromAgentId(agentId)),
-                  backgroundColor: getHexColorForApp(getAppNameFromAgentId(agentId)) + (isAgentActive(agentId) ? '33' : '1a'),
-                  opacity: isAgentActive(agentId) ? 1 : 0.55
-                }"
-                :title="`Click to add ${getChipLabel(agentId)} to comparison lanes`"
-              >
-                <span class="inline-block w-2 h-2 rounded-full mr-1" :style="{ backgroundColor: getStatusDotColor(agentId) }"></span>
-                <span class="text-xs font-medium text-[var(--theme-text-primary)]">{{ getChipLabel(agentId) }}</span>
-              </button>
-            </AgentHoverCard>
-          </div>
-        </div>
-        <!-- Standalone agents -->
-        <div v-if="agentGroups.standalone.length > 0" class="agent-team-group">
-          <span class="text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-tertiary)] mr-2">Standalone</span>
-          <div class="flex flex-wrap gap-1.5 mt-1">
-            <AgentHoverCard
-              v-for="agentId in agentGroups.standalone"
-              :key="agentId"
-              :agent="getRegistryEntry(agentId)"
-            >
-              <button
-                @click="emit('selectAgent', agentId)"
-                class="agent-chip-enhanced"
-                :style="{
-                  borderColor: getHexColorForApp(getAppNameFromAgentId(agentId)),
-                  backgroundColor: getHexColorForApp(getAppNameFromAgentId(agentId)) + (isAgentActive(agentId) ? '33' : '1a'),
-                  opacity: isAgentActive(agentId) ? 1 : 0.55
-                }"
-                :title="`Click to add ${getChipLabel(agentId)} to comparison lanes`"
-              >
-                <span class="inline-block w-2 h-2 rounded-full mr-1" :style="{ backgroundColor: getStatusDotColor(agentId) }"></span>
-                <span class="text-xs font-medium text-[var(--theme-text-primary)]">{{ getChipLabel(agentId) }}</span>
-              </button>
-            </AgentHoverCard>
-          </div>
-        </div>
-      </div>
-
-      <!-- Fallback: flat agent chips when no registry -->
-      <div v-else-if="displayedAgentIds.length > 0" :class="isStudio ? 'studio-agents-section' : 'mt-3 flex flex-wrap gap-2 mobile:gap-1.5 justify-start'">
+      <!-- Agent/App Tags Row -->
+      <div v-if="displayedAgentIds.length > 0" :class="isStudio ? 'studio-agents-section' : 'mt-3 flex flex-wrap gap-2 mobile:gap-1.5 justify-start'">
         <span v-if="isStudio" class="studio-agents-label">Agents</span>
         <button
           v-for="agentId in displayedAgentIds"
@@ -171,10 +117,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
-import type { HookEvent, AgentRegistryEntry } from '../types';
+import type { HookEvent } from '../types';
 import EventRow from './EventRow.vue';
-import AgentTypeBadge from './AgentTypeBadge.vue';
-import AgentHoverCard from './AgentHoverCard.vue';
 import { useEventColors } from '../composables/useEventColors';
 import { useEventSearch } from '../composables/useEventSearch';
 import { useThemes } from '../composables/useThemes';
@@ -189,7 +133,6 @@ const props = defineProps<{
   stickToBottom: boolean;
   uniqueAppNames?: string[]; // Agent IDs (app:session) active in current time window
   allAppNames?: string[]; // All agent IDs (app:session) ever seen in session
-  agentRegistry?: Map<string, AgentRegistryEntry>;
 }>();
 
 const emit = defineEmits<{
@@ -217,63 +160,6 @@ const getAppNameFromAgentId = (agentId: string): string => {
 const isAgentActive = (agentId: string): boolean => {
   return (props.uniqueAppNames || []).includes(agentId);
 };
-
-// Get registry entry for an agent ID (format: "app:session8chars")
-const getRegistryEntry = (agentId: string): AgentRegistryEntry | undefined => {
-  if (!props.agentRegistry || props.agentRegistry.size === 0) return undefined;
-  // Try to find by iterating entries since the registry key is the full ID
-  for (const entry of props.agentRegistry.values()) {
-    const entryAgentId = `${entry.source_app}:${entry.session_id.slice(0, 8)}`;
-    if (entryAgentId === agentId) return entry;
-  }
-  return undefined;
-};
-
-// Whether we have registry data available
-const hasRegistry = computed(() => {
-  return props.agentRegistry && props.agentRegistry.size > 0;
-});
-
-// Get lifecycle status dot color
-const getStatusDotColor = (agentId: string): string => {
-  const entry = getRegistryEntry(agentId);
-  if (!entry) return isAgentActive(agentId) ? '#22C55E' : '#6B7280';
-  const colorMap: Record<string, string> = {
-    active: '#22C55E',
-    completed: '#6B7280',
-    errored: '#EF4444',
-    idle: '#F59E0B',
-  };
-  return colorMap[entry.lifecycle_status] || '#6B7280';
-};
-
-// Get display label for an agent chip
-const getChipLabel = (agentId: string): string => {
-  const entry = getRegistryEntry(agentId);
-  if (entry) return entry.display_name;
-  return agentId;
-};
-
-// Group agents by team when registry is available
-const agentGroups = computed(() => {
-  const ids = displayedAgentIds.value;
-  if (!hasRegistry.value) return null;
-
-  const teams = new Map<string, string[]>();
-  const standalone: string[] = [];
-
-  for (const agentId of ids) {
-    const entry = getRegistryEntry(agentId);
-    if (entry?.team_name) {
-      if (!teams.has(entry.team_name)) teams.set(entry.team_name, []);
-      teams.get(entry.team_name)!.push(agentId);
-    } else {
-      standalone.push(agentId);
-    }
-  }
-
-  return { teams, standalone };
-});
 
 const filteredEvents = computed(() => {
   let filtered = props.events.filter(event => {
@@ -345,25 +231,5 @@ watch(() => props.stickToBottom, (shouldStick) => {
 .event-leave-to {
   opacity: 0;
   transform: translateY(20px);
-}
-
-.agent-team-group {
-  padding: 4px 0;
-}
-
-.agent-chip-enhanced {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: 9999px;
-  border: 1px solid;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.agent-chip-enhanced:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
 }
 </style>
