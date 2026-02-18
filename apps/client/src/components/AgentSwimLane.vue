@@ -53,7 +53,7 @@
           </span>
         </div>
         <div
-          class="avg-time-badge flex items-center gap-1.5 px-2 py-2 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm min-h-[28px]"
+          class="avg-time-badge flex items-center gap-1.5 px-2 py-2 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] min-h-[28px]"
           @mouseover="hoveredAvgTime = true"
           @mouseleave="hoveredAvgTime = false"
           :title="`Average time between events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : '5 minutes'}`"
@@ -80,7 +80,7 @@
       ></canvas>
       <div
         v-if="tooltip.visible"
-        class="absolute bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-dark)] text-white px-2 py-1.5 rounded-lg text-xs pointer-events-none z-10 shadow-lg border border-[var(--theme-primary-light)] font-bold drop-shadow-md"
+        class="absolute bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] px-2 py-1.5 rounded-lg text-xs pointer-events-none z-10 border border-[var(--theme-border-primary)] font-bold"
         :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
       >
         {{ tooltip.text }}
@@ -520,9 +520,7 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all 0.2s ease;
   user-select: none;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   min-height: 28px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .model-badge {
@@ -534,11 +532,9 @@ onUnmounted(() => {
 .model-badge:hover {
   background: var(--theme-bg-quaternary);
   border-color: var(--theme-primary);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .avg-time-badge {
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .close-btn {

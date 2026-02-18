@@ -9,7 +9,8 @@ This project has Claude Code observability enabled. All hook events are captured
 
 ## Quick Start
 
-- **Dashboard**: `just start` (server + client)
+- **Dashboard (JS/TS projects)**: `bun run obs:start` (server + client)
+- **Dashboard (Python projects)**: `./.observability/obs.sh start`
 - **Query events**: `/observability query`
 - **View signals**: `/observability digest`
 - **Log a signal**: `/observability log`

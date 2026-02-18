@@ -535,89 +535,153 @@ async function copySkill(): Promise<void> {
   summary.created.push(".claude/skills/observability/SKILL.md");
 }
 
-// ─── Step 10: Update Justfile ───────────────────────────────
+// ─── Step 10: Add Observability Scripts (per project type) ──
 
-const OBS_JUSTFILE_MARKER = "# --- Observability (auto-generated) ---";
+/**
+ * For JS/TS projects: merge obs:* scripts into the target's package.json.
+ * Reads existing package.json, adds scripts defensively (no overwrite), writes back.
+ */
+async function mergePackageJsonScripts(): Promise<void> {
+  const pkgPath = join(targetDir, "package.json");
 
-const OBS_JUSTFILE_RECIPES = `
-${OBS_JUSTFILE_MARKER}
+  if (!(await exists(pkgPath))) {
+    summary.errors.push("package.json not found — cannot add obs:* scripts");
+    return;
+  }
 
-obs_port := env("OBS_PORT", "${port}")
-obs_client_port := env("OBS_CLIENT_PORT", "5173")
+  const pkg = await readJson(pkgPath) as Record<string, unknown>;
 
-# Start observability server + client in background
-obs-start:
-    cd .observability/server && bun run src/index.ts &
-    cd .observability/client && bun run dev &
-    @echo "Dashboard: http://localhost:{{obs_client_port}} | Server: http://localhost:{{obs_port}}"
+  if (!pkg.scripts) {
+    pkg.scripts = {};
+  }
+  const scripts = pkg.scripts as Record<string, string>;
 
-# Stop observability processes
-obs-stop:
-    -pkill -f ".observability/server/src/index.ts"
-    -pkill -f ".observability/client"
+  const obsScripts: Record<string, string> = {
+    "obs:start":
+      "cd .observability/server && bun run src/index.ts & cd .observability/client && bun run dev &",
+    "obs:stop":
+      "pkill -f '.observability/server' 2>/dev/null; pkill -f '.observability/client' 2>/dev/null",
+    "obs:status":
+      "curl -sf http://localhost:4000/health && echo 'Server: UP' || echo 'Server: DOWN'",
+  };
 
-# Check observability service status
-obs-status:
-    @curl -sf http://localhost:{{obs_port}}/health && echo "Server: UP" || echo "Server: DOWN"
-    @curl -sf http://localhost:{{obs_client_port}} && echo "Client: UP" || echo "Client: DOWN"
+  let added = 0;
+  let skipped = 0;
 
-# Query events (optional: type, since, limit)
-obs-query type="" since="" limit="50":
-    @curl -s "http://localhost:{{obs_port}}/events/query?type={{type}}&since={{since}}&limit={{limit}}" | bun -e "console.log(JSON.stringify(JSON.parse(await Bun.stdin.text()), null, 2))"
+  for (const [key, value] of Object.entries(obsScripts)) {
+    if (scripts[key]) {
+      skipped++;
+    } else {
+      scripts[key] = value;
+      added++;
+    }
+  }
 
-# Export events (optional: format, type, since)
-obs-export format="jsonl" type="" since="":
-    @curl -s "http://localhost:{{obs_port}}/events/export?format={{format}}&type={{type}}&since={{since}}"
+  await writeJson(pkgPath, pkg);
 
-# View recent learning signals
-obs-signals:
-    @curl -s "http://localhost:{{obs_port}}/events/query?signal_only=true&limit=20" | bun -e "console.log(JSON.stringify(JSON.parse(await Bun.stdin.text()), null, 2))"
+  if (added > 0) {
+    summary.created.push(`package.json obs:* scripts (${added} added)`);
+  }
+  if (skipped > 0) {
+    summary.skipped.push(`${skipped} obs:* scripts (already in package.json)`);
+  }
+}
+
+/**
+ * For Python projects: create .observability/obs.sh management script.
+ * Creates a standalone shell script with start/stop/status commands.
+ */
+async function createObsShellScript(): Promise<void> {
+  const obsDir = join(targetDir, ".observability");
+  const scriptPath = join(obsDir, "obs.sh");
+
+  if (await exists(scriptPath)) {
+    summary.skipped.push(".observability/obs.sh (already exists)");
+    return;
+  }
+
+  await ensureDir(obsDir);
+
+  const scriptContent = `#!/usr/bin/env bash
+# Observability management script
+case "$1" in
+  start)
+    cd "$(dirname "$0")/server" && bun run src/index.ts &
+    cd "$(dirname "$0")/client" && bun run dev &
+    echo "Dashboard: http://localhost:5173 | Server: http://localhost:4000"
+    ;;
+  stop)
+    pkill -f '.observability/server' 2>/dev/null
+    pkill -f '.observability/client' 2>/dev/null
+    echo "Stopped observability services"
+    ;;
+  status)
+    curl -sf http://localhost:4000/health && echo "Server: UP" || echo "Server: DOWN"
+    curl -sf http://localhost:5173 > /dev/null 2>&1 && echo "Client: UP" || echo "Client: DOWN"
+    ;;
+  *)
+    echo "Usage: ./obs.sh {start|stop|status}"
+    ;;
+esac
 `;
 
-async function updateJustfile(): Promise<void> {
-  const justfilePath = join(targetDir, "justfile");
+  await writeText(scriptPath, scriptContent);
 
-  if (!(await exists(justfilePath))) {
-    // Create a minimal justfile with obs recipes
-    const content = `# Project recipes\n\nset quiet\n${OBS_JUSTFILE_RECIPES}`;
-    await writeText(justfilePath, content);
-    summary.created.push("justfile (new, with obs-* recipes)");
-    return;
+  // Make executable (chmod +x)
+  const chmodResult = Bun.spawnSync(["chmod", "+x", scriptPath], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  if (chmodResult.exitCode !== 0) {
+    summary.errors.push(`Failed to chmod +x obs.sh: ${chmodResult.stderr.toString()}`);
+  } else {
+    summary.created.push(".observability/obs.sh (executable)");
   }
-
-  const content = await readText(justfilePath);
-
-  if (content.includes(OBS_JUSTFILE_MARKER)) {
-    summary.skipped.push("justfile obs-* recipes (already present)");
-    return;
-  }
-
-  await writeText(justfilePath, content.trimEnd() + "\n" + OBS_JUSTFILE_RECIPES);
-  summary.created.push("justfile (appended obs-* recipes)");
 }
 
 // ─── Step 11: Update CLAUDE.md ──────────────────────────────
 
 const OBS_CLAUDE_MARKER = "## Observability Toolkit";
 
-const OBS_CLAUDE_SECTION = `
+function getObsClaudeSection(lang: Language): string {
+  if (lang === "ts") {
+    return `
 ## Observability Toolkit
 
 This project has Claude Code observability enabled. Configuration: \`.claude/observability.json\`
 
-- **Start dashboard:** \`just obs-start\`
-- **Query traces:** Use \`/observability query\` skill or \`just obs-query type=PostToolUseFailure\`
+- **Start dashboard:** \`bun run obs:start\`
+- **Stop dashboard:** \`bun run obs:stop\`
+- **Check status:** \`bun run obs:status\`
+- **Query traces:** Use \`/observability query\` skill
 - **Log a signal:** \`bun .observability/scripts/log-signal.ts --type <type> --context '<json>'\`
-- **View learning signals:** \`just obs-signals\` or \`/observability digest\`
-- **Export events:** \`just obs-export format=jsonl\`
+- **View learning signals:** \`/observability digest\`
 - **Full docs:** Use \`/observability\` skill for guided access to all features
 `;
+  }
 
-async function updateClaudeMd(): Promise<void> {
+  return `
+## Observability Toolkit
+
+This project has Claude Code observability enabled. Configuration: \`.claude/observability.json\`
+
+- **Start dashboard:** \`./.observability/obs.sh start\`
+- **Stop dashboard:** \`./.observability/obs.sh stop\`
+- **Check status:** \`./.observability/obs.sh status\`
+- **Query traces:** Use \`/observability query\` skill
+- **Log a signal:** \`bun .observability/scripts/log-signal.ts --type <type> --context '<json>'\`
+- **View learning signals:** \`/observability digest\`
+- **Full docs:** Use \`/observability\` skill for guided access to all features
+`;
+}
+
+async function updateClaudeMd(lang: Language): Promise<void> {
   const claudeMdPath = join(targetDir, "CLAUDE.md");
+  const section = getObsClaudeSection(lang);
 
   if (!(await exists(claudeMdPath))) {
-    const content = `# ${sourceApp}\n${OBS_CLAUDE_SECTION}`;
+    const content = `# ${sourceApp}\n${section}`;
     await writeText(claudeMdPath, content);
     summary.created.push("CLAUDE.md (new, with observability section)");
     return;
@@ -630,13 +694,13 @@ async function updateClaudeMd(): Promise<void> {
     return;
   }
 
-  await writeText(claudeMdPath, content.trimEnd() + "\n" + OBS_CLAUDE_SECTION);
+  await writeText(claudeMdPath, content.trimEnd() + "\n" + section);
   summary.created.push("CLAUDE.md (appended observability section)");
 }
 
 // ─── Step 12: Print Summary ─────────────────────────────────
 
-function printSummary(): void {
+function printSummary(lang: Language): void {
   console.log("\n" + "=".repeat(60));
   console.log("  Observability Setup Complete");
   console.log("=".repeat(60));
@@ -662,8 +726,11 @@ function printSummary(): void {
     }
   }
 
+  const startCmd =
+    lang === "ts" ? "bun run obs:start" : "./.observability/obs.sh start";
+
   console.log("\n  NEXT STEPS:");
-  console.log(`    1. Start the dashboard:  just obs-start`);
+  console.log(`    1. Start the dashboard:  ${startCmd}`);
   console.log(`    2. Open the dashboard:   open http://localhost:5173`);
   console.log(`    3. Run Claude Code — hooks will send events automatically`);
   console.log("=".repeat(60) + "\n");
@@ -708,15 +775,20 @@ async function main(): Promise<void> {
   await copySkill();
 
   // Step 10
-  console.log("[8/9] Updating justfile...");
-  await updateJustfile();
+  if (lang === "ts") {
+    console.log("[8/9] Adding obs:* scripts to package.json...");
+    await mergePackageJsonScripts();
+  } else {
+    console.log("[8/9] Creating .observability/obs.sh script...");
+    await createObsShellScript();
+  }
 
   // Step 11
   console.log("[9/9] Updating CLAUDE.md...");
-  await updateClaudeMd();
+  await updateClaudeMd(lang);
 
   // Step 12
-  printSummary();
+  printSummary(lang);
 }
 
 main().catch((err) => {

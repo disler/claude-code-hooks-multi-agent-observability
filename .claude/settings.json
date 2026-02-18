@@ -3,11 +3,6 @@
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "teammateMode": "in-process",
-  "statusLine": {
-    "type": "command",
-    "command": "uv run $CLAUDE_PROJECT_DIR/.claude/status_lines/status_line_v6.py",
-    "padding": 0
-  },
   "hooks": {
     "PreToolUse": [
       {

@@ -20,7 +20,9 @@
     "apps/client/tsconfig.json",
     "apps/client/index.html",
     "apps/client/vite.config.ts",
-    "apps/client/tsconfig.*.json"
+    "apps/client/tsconfig.*.json",
+    "apps/client/tailwind.config.js",
+    "apps/client/postcss.config.js"
   ],
   "keywords": [
     "claude-code",

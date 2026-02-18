@@ -36,7 +36,15 @@ export interface HookEvent {
   timestamp?: number;
   model_name?: string;
 
-  // NEW: Optional HITL data
+  // Flattened event fields used by search
+  model?: string;
+  tool_name?: string;
+  tool_command?: string;
+  tool_file?: { path?: string };
+  hitl_question?: string;
+  hitl_permission?: string;
+
+  // Optional HITL data
   humanInTheLoop?: HumanInTheLoop;
   humanInTheLoopStatus?: HumanInTheLoopStatus;
 }
