@@ -112,3 +112,33 @@ hooks:
 # Open the client dashboard in browser
 open:
     open http://localhost:{{client_port}}
+
+# ─── Observability ──────────────────────────────────────
+
+# Start observability server + client in background
+obs-start:
+    cd apps/server && bun run src/index.ts &
+    cd apps/client && bun run dev &
+    @echo "Dashboard: http://localhost:5173 | Server: http://localhost:4000"
+
+# Stop observability processes
+obs-stop:
+    -pkill -f "apps/server/src/index.ts"
+    -pkill -f "apps/client"
+
+# Check observability service status
+obs-status:
+    @curl -sf http://localhost:4000/health && echo "Server: UP" || echo "Server: DOWN"
+    @curl -sf http://localhost:5173 && echo "Client: UP" || echo "Client: DOWN"
+
+# Query events (optional: type, since, limit)
+obs-query type="" since="" limit="50":
+    @curl -s "http://localhost:4000/events/query?type={{type}}&since={{since}}&limit={{limit}}" | bun -e "console.log(JSON.stringify(JSON.parse(await Bun.stdin.text()), null, 2))"
+
+# Export events (optional: format, type, since)
+obs-export format="jsonl" type="" since="":
+    @curl -s "http://localhost:4000/events/export?format={{format}}&type={{type}}&since={{since}}"
+
+# View recent learning signals
+obs-signals:
+    @curl -s "http://localhost:4000/events/query?signal_only=true&limit=20" | bun -e "console.log(JSON.stringify(JSON.parse(await Bun.stdin.text()), null, 2))"

@@ -39,6 +39,10 @@ export interface HookEvent {
   // NEW: Optional HITL data
   humanInTheLoop?: HumanInTheLoop;
   humanInTheLoopStatus?: HumanInTheLoopStatus;
+
+  // Tags and notes for signal/annotation support
+  tags?: string[];
+  notes?: Array<{ text: string; timestamp: number; source?: string }>;
 }
 
 export interface FilterOptions {

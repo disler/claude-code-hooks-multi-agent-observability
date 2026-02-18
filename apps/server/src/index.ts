@@ -1,15 +1,18 @@
-import { initDatabase, insertEvent, getFilterOptions, getRecentEvents, updateEventHITLResponse } from './db';
+import { resolve } from "node:path";
+import { initDatabase, insertEvent, getFilterOptions, getRecentEvents, updateEventHITLResponse, queryEvents, tagEvent, exportEvents } from './db';
 import type { HookEvent, HumanInTheLoopResponse } from './types';
-import { 
-  createTheme, 
-  updateThemeById, 
-  getThemeById, 
-  searchThemes, 
-  deleteThemeById, 
-  exportThemeById, 
+import {
+  createTheme,
+  updateThemeById,
+  getThemeById,
+  searchThemes,
+  deleteThemeById,
+  exportThemeById,
   importTheme,
-  getThemeStats 
+  getThemeStats
 } from './theme';
+
+const projectRoot = resolve(import.meta.dir, '..', '..', '..');
 
 // Initialize database
 initDatabase();
@@ -405,6 +408,229 @@ const server = Bun.serve({
       });
     }
     
+    // GET /health - Health check
+    if (url.pathname === '/health' && req.method === 'GET') {
+      return new Response(JSON.stringify({ status: 'ok', uptime: process.uptime() }), {
+        headers: { ...headers, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // GET /events/query - Query events with flexible filters
+    if (url.pathname === '/events/query' && req.method === 'GET') {
+      const filters = {
+        type: url.searchParams.get('type') || undefined,
+        session_id: url.searchParams.get('session_id') || undefined,
+        source_app: url.searchParams.get('source_app') || undefined,
+        since: url.searchParams.get('since') ? parseInt(url.searchParams.get('since')!) : undefined,
+        until: url.searchParams.get('until') ? parseInt(url.searchParams.get('until')!) : undefined,
+        tag: url.searchParams.get('tag') || undefined,
+        signal_only: url.searchParams.get('signal_only') === 'true',
+        limit: url.searchParams.get('limit') ? parseInt(url.searchParams.get('limit')!) : 50,
+        offset: url.searchParams.get('offset') ? parseInt(url.searchParams.get('offset')!) : 0,
+      };
+
+      const result = queryEvents(filters);
+      return new Response(JSON.stringify(result), {
+        headers: { ...headers, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // POST /events/:id/tag - Tag an event
+    if (url.pathname.match(/^\/events\/\d+\/tag$/) && req.method === 'POST') {
+      const id = parseInt(url.pathname.split('/')[2]);
+
+      try {
+        const body = await req.json() as { tags: string[]; note?: string };
+
+        if (!body.tags || !Array.isArray(body.tags)) {
+          return new Response(JSON.stringify({ error: 'tags must be an array of strings' }), {
+            status: 400,
+            headers: { ...headers, 'Content-Type': 'application/json' }
+          });
+        }
+
+        const updatedEvent = tagEvent(id, body.tags, body.note);
+
+        if (!updatedEvent) {
+          return new Response(JSON.stringify({ error: 'Event not found' }), {
+            status: 404,
+            headers: { ...headers, 'Content-Type': 'application/json' }
+          });
+        }
+
+        return new Response(JSON.stringify(updatedEvent), {
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error tagging event:', error);
+        return new Response(JSON.stringify({ error: 'Invalid request' }), {
+          status: 400,
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // GET /signals/rules - Read signal detection rules
+    if (url.pathname === '/signals/rules' && req.method === 'GET') {
+      try {
+        const configPath = `${projectRoot}/.claude/observability.json`;
+        const file = Bun.file(configPath);
+        if (await file.exists()) {
+          const config = await file.json();
+          return new Response(JSON.stringify({ rules: config.auto_detect?.rules || [] }), {
+            headers: { ...headers, 'Content-Type': 'application/json' }
+          });
+        }
+        return new Response(JSON.stringify({ rules: [] }), {
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error reading signals rules:', error);
+        return new Response(JSON.stringify({ rules: [] }), {
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // POST /signals/rules - Update signal detection rules
+    if (url.pathname === '/signals/rules' && req.method === 'POST') {
+      try {
+        const body = await req.json() as { rules: any[] };
+
+        if (!body.rules || !Array.isArray(body.rules)) {
+          return new Response(JSON.stringify({ error: 'rules must be an array' }), {
+            status: 400,
+            headers: { ...headers, 'Content-Type': 'application/json' }
+          });
+        }
+
+        const configPath = `${projectRoot}/.claude/observability.json`;
+        const file = Bun.file(configPath);
+        let config: any = {};
+
+        if (await file.exists()) {
+          config = await file.json();
+        }
+
+        if (!config.auto_detect) {
+          config.auto_detect = {};
+        }
+        config.auto_detect.rules = body.rules;
+
+        await Bun.write(configPath, JSON.stringify(config, null, 2));
+
+        return new Response(JSON.stringify({ rules: config.auto_detect.rules }), {
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error updating signals rules:', error);
+        return new Response(JSON.stringify({ error: 'Failed to update rules' }), {
+          status: 500,
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // GET /events/export - Export events in various formats
+    if (url.pathname === '/events/export' && req.method === 'GET') {
+      const filters = {
+        type: url.searchParams.get('type') || undefined,
+        session_id: url.searchParams.get('session_id') || undefined,
+        source_app: url.searchParams.get('source_app') || undefined,
+        since: url.searchParams.get('since') ? parseInt(url.searchParams.get('since')!) : undefined,
+        until: url.searchParams.get('until') ? parseInt(url.searchParams.get('until')!) : undefined,
+        tag: url.searchParams.get('tag') || undefined,
+        signal_only: url.searchParams.get('signal_only') === 'true',
+        limit: url.searchParams.get('limit') ? parseInt(url.searchParams.get('limit')!) : 1000,
+        offset: url.searchParams.get('offset') ? parseInt(url.searchParams.get('offset')!) : 0,
+      };
+      const format = url.searchParams.get('format') || 'json';
+      const events = exportEvents(filters);
+
+      if (format === 'jsonl') {
+        const lines = events.map(e => JSON.stringify(e)).join('\n');
+        return new Response(lines, {
+          headers: { ...headers, 'Content-Type': 'application/x-ndjson', 'Content-Disposition': 'attachment; filename="events.jsonl"' }
+        });
+      }
+
+      if (format === 'csv') {
+        const csvHeaders = ['id', 'source_app', 'session_id', 'hook_event_type', 'timestamp', 'summary', 'model_name', 'tags', 'payload'];
+        const csvRows = events.map(e => [
+          e.id,
+          `"${(e.source_app || '').replace(/"/g, '""')}"`,
+          `"${(e.session_id || '').replace(/"/g, '""')}"`,
+          `"${(e.hook_event_type || '').replace(/"/g, '""')}"`,
+          e.timestamp,
+          `"${(e.summary || '').replace(/"/g, '""')}"`,
+          `"${(e.model_name || '').replace(/"/g, '""')}"`,
+          `"${JSON.stringify(e.tags || []).replace(/"/g, '""')}"`,
+          `"${JSON.stringify(e.payload || {}).replace(/"/g, '""')}"`
+        ].join(','));
+        const csv = [csvHeaders.join(','), ...csvRows].join('\n');
+        return new Response(csv, {
+          headers: { ...headers, 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="events.csv"' }
+        });
+      }
+
+      // Default: json
+      return new Response(JSON.stringify(events), {
+        headers: { ...headers, 'Content-Type': 'application/json', 'Content-Disposition': 'attachment; filename="events.json"' }
+      });
+    }
+
+    // POST /signals - Create an explicit signal event
+    if (url.pathname === '/signals' && req.method === 'POST') {
+      try {
+        const body = await req.json() as {
+          type: string;
+          context: object;
+          source_app?: string;
+          session_id?: string;
+          tags?: string[];
+        };
+
+        if (!body.type || !body.context) {
+          return new Response(JSON.stringify({ error: 'type and context are required' }), {
+            status: 400,
+            headers: { ...headers, 'Content-Type': 'application/json' }
+          });
+        }
+
+        const event: HookEvent = {
+          source_app: body.source_app || 'signals-api',
+          session_id: body.session_id || `signal-${Date.now()}`,
+          hook_event_type: 'ExplicitSignal',
+          payload: { type: body.type, context: body.context },
+          tags: body.tags || [],
+          timestamp: Date.now()
+        };
+
+        const savedEvent = insertEvent(event);
+
+        // Broadcast to all WebSocket clients
+        const message = JSON.stringify({ type: 'event', data: savedEvent });
+        wsClients.forEach(client => {
+          try {
+            client.send(message);
+          } catch (err) {
+            wsClients.delete(client);
+          }
+        });
+
+        return new Response(JSON.stringify(savedEvent), {
+          status: 201,
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error creating signal:', error);
+        return new Response(JSON.stringify({ error: 'Invalid request' }), {
+          status: 400,
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // WebSocket upgrade
     if (url.pathname === '/stream') {
       const success = server.upgrade(req);
