@@ -266,6 +266,8 @@ const HOOK_EVENT_TYPES = [
   "UserPromptSubmit",
   "SessionStart",
   "SessionEnd",
+  "TeammateIdle",
+  "TaskCompleted",
 ] as const;
 
 /**
@@ -301,6 +303,8 @@ function buildHookEntry(
     },
     SessionStart: { script: "session_start" },
     SessionEnd: { script: "session_end" },
+    TeammateIdle: { script: "teammate_idle" },
+    TaskCompleted: { script: "task_completed" },
   };
 
   const info = hookMap[eventType];

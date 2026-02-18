@@ -45,6 +45,24 @@ export interface HookEvent {
   notes?: Array<{ text: string; timestamp: number; source?: string }>;
 }
 
+export interface AgentRegistryEntry {
+  id: string;                    // "source_app:session_short" or "source_app:agent_id"
+  source_app: string;
+  session_id: string;
+  display_name: string;
+  agent_type: string;            // "Explore", "Engineer", "QATester", etc.
+  model_name: string | null;
+  short_agent_id: string | null; // 7-char from SubagentStart (null for parent)
+  parent_id: string | null;      // References agent_registry.id
+  team_name: string | null;
+  first_prompt: string | null;   // First 80 chars of UserPromptSubmit
+  lifecycle_status: 'active' | 'completed' | 'errored' | 'idle';
+  first_seen_at: number;
+  last_seen_at: number;
+  event_count: number;
+  children?: AgentRegistryEntry[];
+}
+
 export interface FilterOptions {
   source_apps: string[];
   session_ids: string[];

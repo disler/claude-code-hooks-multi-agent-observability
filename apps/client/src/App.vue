@@ -85,6 +85,7 @@
         :selected-agents="selectedAgentLanes"
         :events="events"
         :time-range="currentTimeRange"
+        :agent-registry="agentRegistry"
         @update:selected-agents="selectedAgentLanes = $event"
       />
     </div>
@@ -96,6 +97,7 @@
         :filters="filters"
         :unique-app-names="uniqueAppNames"
         :all-app-names="allAppNames"
+        :agent-registry="agentRegistry"
         v-model:stick-to-bottom="stickToBottom"
         @select-agent="toggleAgentLane"
       />
@@ -135,9 +137,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import type { TimeRange } from './types';
 import { useWebSocket } from './composables/useWebSocket';
+import { useAgentRegistry } from './composables/useAgentRegistry';
 import { useThemes } from './composables/useThemes';
 import { useEventColors } from './composables/useEventColors';
 import EventTimeline from './components/EventTimeline.vue';
@@ -150,7 +153,18 @@ import AgentSwimLaneContainer from './components/AgentSwimLaneContainer.vue';
 import { WS_URL } from './config';
 
 // WebSocket connection
-const { events, isConnected, error, clearEvents } = useWebSocket(WS_URL);
+const { events, isConnected, error, clearEvents, setAgentHandlers } = useWebSocket(WS_URL);
+
+// Agent registry
+const { agents: agentRegistry, fetchAgents, handleAgentUpdate, handleAgentRegistry } = useAgentRegistry();
+
+// Wire agent WebSocket handlers
+setAgentHandlers(handleAgentUpdate, handleAgentRegistry);
+
+// Fetch agents on mount
+onMounted(() => {
+  fetchAgents();
+});
 
 // Theme management (sets up theme system)
 useThemes();
