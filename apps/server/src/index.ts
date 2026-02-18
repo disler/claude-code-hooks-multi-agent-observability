@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 import { initDatabase, insertEvent, getFilterOptions, getRecentEvents, updateEventHITLResponse, queryEvents, tagEvent, exportEvents } from './db';
 import type { HookEvent, HumanInTheLoopResponse } from './types';
-import { processEventForRegistry, getAgentHierarchy } from './agentRegistry';
 import {
   createTheme,
   updateThemeById,
@@ -144,11 +143,8 @@ function tryServe(port: number): ReturnType<typeof Bun.serve> | null {
         
         // Insert event into database
         const savedEvent = insertEvent(event);
-
-        // Process event for agent registry
-        const registryResult = processEventForRegistry(savedEvent);
-
-        // Broadcast event to all WebSocket clients
+        
+        // Broadcast to all WebSocket clients
         const message = JSON.stringify({ type: 'event', data: savedEvent });
         wsClients.forEach(client => {
           try {
@@ -158,14 +154,6 @@ function tryServe(port: number): ReturnType<typeof Bun.serve> | null {
             wsClients.delete(client);
           }
         });
-
-        // Broadcast agent registry update if changed
-        if (registryResult.changed || registryResult.isNew) {
-          const agentMessage = JSON.stringify({ type: 'agent_update', data: registryResult.entry });
-          wsClients.forEach(client => {
-            try { client.send(agentMessage); } catch { wsClients.delete(client); }
-          });
-        }
         
         return new Response(JSON.stringify(savedEvent), {
           headers: { ...headers, 'Content-Type': 'application/json' }
@@ -431,14 +419,6 @@ function tryServe(port: number): ReturnType<typeof Bun.serve> | null {
     // routes are all placed ABOVE the generic startsWith('/api/themes/') routes
     // to prevent shadowing by the generic :id handler.
     
-    // GET /api/agents - Get agent registry with hierarchy
-    if (url.pathname === '/api/agents' && req.method === 'GET') {
-      const agents = getAgentHierarchy();
-      return new Response(JSON.stringify(agents), {
-        headers: { ...headers, 'Content-Type': 'application/json' }
-      });
-    }
-
     // GET /health - Health check
     if (url.pathname === '/health' && req.method === 'GET') {
       return new Response(JSON.stringify({ status: 'ok', uptime: process.uptime() }), {
@@ -680,14 +660,10 @@ function tryServe(port: number): ReturnType<typeof Bun.serve> | null {
     open(ws) {
       console.log('WebSocket client connected');
       wsClients.add(ws);
-
+      
       // Send recent events on connection
       const events = getRecentEvents(300);
       ws.send(JSON.stringify({ type: 'initial', data: events }));
-
-      // Send agent registry on connection
-      const agents = getAgentHierarchy();
-      ws.send(JSON.stringify({ type: 'agent_registry', data: agents }));
     },
     
     message(ws, message) {
