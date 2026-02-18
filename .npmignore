@@ -1,0 +1,22 @@
+# Build artifacts
+node_modules/
+dist/
+*.db
+*.db-wal
+*.db-shm
+logs/
+.DS_Store
+bun.lock
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Development files
+playground-dashboard-designs.html
+events.db
+
+# Git
+.git/
+.gitignore

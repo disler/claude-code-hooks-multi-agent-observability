@@ -1,0 +1,40 @@
+{
+  "name": "@ajbmachon/setup-observability",
+  "version": "1.0.0",
+  "description": "Add Claude Code observability to any JS/TS or Python project with a single command",
+  "type": "module",
+  "bin": {
+    "setup-observability": "./scripts/setup-observability.ts"
+  },
+  "files": [
+    "scripts/",
+    ".claude/hooks/",
+    ".claude/hooks-ts/",
+    ".claude/skills/",
+    ".claude/observability.json",
+    "apps/server/src/",
+    "apps/server/package.json",
+    "apps/server/tsconfig.json",
+    "apps/client/src/",
+    "apps/client/package.json",
+    "apps/client/tsconfig.json",
+    "apps/client/index.html",
+    "apps/client/vite.config.ts",
+    "apps/client/tsconfig.*.json"
+  ],
+  "keywords": [
+    "claude-code",
+    "observability",
+    "hooks",
+    "multi-agent",
+    "dashboard"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ajbmachon/claude-code-hooks-multi-agent-observability.git"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  }
+}
