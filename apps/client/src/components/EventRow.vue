@@ -419,6 +419,7 @@ import { useThemes } from '../composables/useThemes';
 import ChatTranscriptModal from './ChatTranscriptModal.vue';
 import AgentTypeBadge from './AgentTypeBadge.vue';
 import { API_BASE_URL } from '../config';
+import { formatDuration } from '../utils/agentHelpers';
 
 const { getEmojiForToolName } = useEventEmojis();
 
@@ -680,12 +681,6 @@ const teamCreateInfo = computed(() => {
     teamName: input.team_name || 'unnamed',
   };
 });
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${(ms / 60000).toFixed(1)}m`;
-}
 
 const formatTime = (timestamp?: number) => {
   if (!timestamp) return '';

@@ -52,6 +52,7 @@
 import { ref, computed } from 'vue';
 import type { AgentRegistryEntry } from '../types';
 import AgentTypeBadge from './AgentTypeBadge.vue';
+import { getLifecycleClass, formatDuration } from '../utils/agentHelpers';
 
 const props = defineProps<{
   agent: AgentRegistryEntry | undefined;
@@ -69,21 +70,12 @@ const positionStyle = computed(() => {
 
 const statusClass = computed(() => {
   if (!props.agent) return '';
-  const statusMap: Record<string, string> = {
-    active: 'status-active',
-    completed: 'status-completed',
-    errored: 'status-errored',
-    idle: 'status-idle',
-  };
-  return statusMap[props.agent.lifecycle_status] || 'status-active';
+  return getLifecycleClass(props.agent.lifecycle_status);
 });
 
 const duration = computed(() => {
   if (!props.agent) return '--';
-  const ms = props.agent.last_seen_at - props.agent.first_seen_at;
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${(ms / 60000).toFixed(1)}m`;
+  return formatDuration(props.agent.last_seen_at - props.agent.first_seen_at);
 });
 
 function formatTime(ts: number): string {

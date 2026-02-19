@@ -178,6 +178,7 @@ import AgentHoverCard from './AgentHoverCard.vue';
 import { useEventColors } from '../composables/useEventColors';
 import { useEventSearch } from '../composables/useEventSearch';
 import { useThemes } from '../composables/useThemes';
+import { findRegistryEntryByShortId, getLifecycleColor, groupAgentsByTeam } from '../utils/agentHelpers';
 
 const props = defineProps<{
   events: HookEvent[];
@@ -220,13 +221,7 @@ const isAgentActive = (agentId: string): boolean => {
 
 // Get registry entry for an agent ID (format: "app:session8chars")
 const getRegistryEntry = (agentId: string): AgentRegistryEntry | undefined => {
-  if (!props.agentRegistry || props.agentRegistry.size === 0) return undefined;
-  // Try to find by iterating entries since the registry key is the full ID
-  for (const entry of props.agentRegistry.values()) {
-    const entryAgentId = `${entry.source_app}:${entry.session_id.slice(0, 8)}`;
-    if (entryAgentId === agentId) return entry;
-  }
-  return undefined;
+  return findRegistryEntryByShortId(props.agentRegistry, agentId);
 };
 
 // Whether we have registry data available
@@ -238,13 +233,7 @@ const hasRegistry = computed(() => {
 const getStatusDotColor = (agentId: string): string => {
   const entry = getRegistryEntry(agentId);
   if (!entry) return isAgentActive(agentId) ? '#22C55E' : '#6B7280';
-  const colorMap: Record<string, string> = {
-    active: '#22C55E',
-    completed: '#6B7280',
-    errored: '#EF4444',
-    idle: '#F59E0B',
-  };
-  return colorMap[entry.lifecycle_status] || '#6B7280';
+  return getLifecycleColor(entry.lifecycle_status);
 };
 
 // Get display label for an agent chip
@@ -256,23 +245,8 @@ const getChipLabel = (agentId: string): string => {
 
 // Group agents by team when registry is available
 const agentGroups = computed(() => {
-  const ids = displayedAgentIds.value;
   if (!hasRegistry.value) return null;
-
-  const teams = new Map<string, string[]>();
-  const standalone: string[] = [];
-
-  for (const agentId of ids) {
-    const entry = getRegistryEntry(agentId);
-    if (entry?.team_name) {
-      if (!teams.has(entry.team_name)) teams.set(entry.team_name, []);
-      teams.get(entry.team_name)!.push(agentId);
-    } else {
-      standalone.push(agentId);
-    }
-  }
-
-  return { teams, standalone };
+  return groupAgentsByTeam(displayedAgentIds.value, props.agentRegistry);
 });
 
 const filteredEvents = computed(() => {

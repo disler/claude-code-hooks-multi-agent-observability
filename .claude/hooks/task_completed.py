@@ -25,7 +25,8 @@ def main():
             with open(log_path, 'r') as f:
                 try:
                     log_data = json.load(f)
-                except (json.JSONDecodeError, ValueError):
+                except (json.JSONDecodeError, ValueError) as e:
+                    print(f"Warning: Could not decode {log_path}, starting new log. Error: {e}", file=sys.stderr)
                     log_data = []
         else:
             log_data = []
@@ -39,11 +40,11 @@ def main():
 
         sys.exit(0)
 
-    except json.JSONDecodeError:
-        # Handle JSON decode errors gracefully
+    except json.JSONDecodeError as e:
+        print(f"Warning: task_completed hook JSON decode error: {e}", file=sys.stderr)
         sys.exit(0)
-    except Exception:
-        # Exit cleanly on any other error
+    except Exception as e:
+        print(f"Warning: task_completed hook error: {e}", file=sys.stderr)
         sys.exit(0)
 
 

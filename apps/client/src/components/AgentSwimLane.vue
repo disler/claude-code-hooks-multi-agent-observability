@@ -139,6 +139,7 @@ import { createChartRenderer, type ChartDimensions } from '../utils/chartRendere
 import { useEventEmojis } from '../composables/useEventEmojis';
 import { useEventColors } from '../composables/useEventColors';
 import AgentTypeBadge from './AgentTypeBadge.vue';
+import { getLifecycleColor } from '../utils/agentHelpers';
 
 const props = defineProps<{
   agentName: string; // Format: "app:session" (e.g., "claude-code:a1b2c3d4")
@@ -176,13 +177,7 @@ const displayName = computed(() => props.registryEntry?.display_name || null);
 const agentType = computed(() => props.registryEntry?.agent_type || null);
 const lifecycleStatusColor = computed(() => {
   if (!props.registryEntry) return null;
-  const colorMap: Record<string, string> = {
-    active: '#22C55E',
-    completed: '#6B7280',
-    errored: '#EF4444',
-    idle: '#F59E0B',
-  };
-  return colorMap[props.registryEntry.lifecycle_status] || '#6B7280';
+  return getLifecycleColor(props.registryEntry.lifecycle_status);
 });
 
 // Get model name from most recent event for this agent

@@ -54,6 +54,7 @@
 import { computed } from 'vue';
 import type { HookEvent, TimeRange, AgentRegistryEntry } from '../types';
 import AgentSwimLane from './AgentSwimLane.vue';
+import { findRegistryEntryByShortId, groupAgentsByTeam } from '../utils/agentHelpers';
 
 const props = defineProps<{
   selectedAgents: string[];
@@ -72,12 +73,7 @@ function removeAgent(agent: string) {
 }
 
 function getRegistryEntry(agentId: string): AgentRegistryEntry | undefined {
-  if (!props.agentRegistry || props.agentRegistry.size === 0) return undefined;
-  for (const entry of props.agentRegistry.values()) {
-    const entryAgentId = `${entry.source_app}:${entry.session_id.slice(0, 8)}`;
-    if (entryAgentId === agentId) return entry;
-  }
-  return undefined;
+  return findRegistryEntryByShortId(props.agentRegistry, agentId);
 }
 
 const hasGroups = computed(() => {
@@ -85,20 +81,7 @@ const hasGroups = computed(() => {
 });
 
 const groupedAgents = computed(() => {
-  const teams = new Map<string, string[]>();
-  const standalone: string[] = [];
-
-  for (const agentId of props.selectedAgents) {
-    const entry = getRegistryEntry(agentId);
-    if (entry?.team_name) {
-      if (!teams.has(entry.team_name)) teams.set(entry.team_name, []);
-      teams.get(entry.team_name)!.push(agentId);
-    } else {
-      standalone.push(agentId);
-    }
-  }
-
-  return { teams, standalone };
+  return groupAgentsByTeam(props.selectedAgents, props.agentRegistry);
 });
 
 const teamColors = ['#3B82F6', '#8B5CF6', '#22C55E', '#F97316', '#EC4899', '#14B8A6', '#EAB308'];

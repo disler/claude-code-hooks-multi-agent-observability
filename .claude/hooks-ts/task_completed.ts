@@ -25,7 +25,8 @@ async function main() {
     if (await logFile.exists()) {
       try {
         logData = JSON.parse(await logFile.text());
-      } catch {
+      } catch (error) {
+        console.warn(`Warning: Could not parse ${logPath}. Initializing with new data. Error:`, error);
         logData = [];
       }
     }
@@ -36,7 +37,8 @@ async function main() {
     await Bun.write(logPath, JSON.stringify(logData, null, 2));
 
     process.exit(0);
-  } catch {
+  } catch (error) {
+    console.error("Warning: task_completed hook error:", error);
     process.exit(0);
   }
 }
