@@ -1,6 +1,6 @@
 {
   "name": "@ajbmachon/setup-observability",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Add Claude Code observability to any JS/TS or Python project with a single command",
   "type": "module",
   "bin": {

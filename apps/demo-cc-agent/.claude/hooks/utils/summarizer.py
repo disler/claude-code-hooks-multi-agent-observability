@@ -1,11 +1,9 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.8"
-# dependencies = [
-#     "anthropic",
-#     "python-dotenv",
-# ]
-# ///
+#!/usr/bin/env python3
+"""
+Summarizer Utility
+Generates concise one-sentence summaries of hook events using claude -p with Haiku.
+No pip dependencies — uses claude CLI subprocess via anth.prompt_llm().
+"""
 
 import json
 from typing import Optional, Dict, Any

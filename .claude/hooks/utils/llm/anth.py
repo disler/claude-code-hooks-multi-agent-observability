@@ -1,54 +1,75 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.8"
-# dependencies = [
-#     "anthropic",
-#     "python-dotenv",
-# ]
-# ///
+#!/usr/bin/env python3
+"""
+Base LLM prompting via `claude --print` subprocess with Haiku.
+
+Uses claude CLI instead of @anthropic-ai/sdk so:
+- No pip dependency on anthropic package
+- Inference covered by Max subscription (no API key cost)
+- --setting-sources '' prevents hook recursion
+- --tools '' disables tools for faster response
+
+Pattern adapted from PAI's Inference.ts.
+"""
 
 import os
 import sys
-from dotenv import load_dotenv
+import subprocess
+
+SYSTEM_PROMPT = (
+    "You are a concise assistant. Follow the user's formatting instructions exactly. "
+    "Return ONLY the requested output, no quotes, no formatting, no explanations."
+)
 
 
-def prompt_llm(prompt_text):
+def prompt_llm(prompt_text, system_prompt=None, timeout=10):
     """
-    Base Anthropic LLM prompting method using fastest model.
+    Prompt Haiku via claude --print subprocess.
 
     Args:
         prompt_text (str): The prompt to send to the model
+        system_prompt (str): Optional system prompt override
+        timeout (int): Timeout in seconds (default 10)
 
     Returns:
         str: The model's response text, or None if error
     """
-    load_dotenv()
-
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        return None
-
     try:
-        import anthropic
+        # Strip ANTHROPIC_API_KEY to force subscription auth (Max plan)
+        # Strip CLAUDECODE to allow nested claude invocation from hooks
+        env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "CLAUDECODE")}
 
-        client = anthropic.Anthropic(api_key=api_key)
+        cmd = [
+            "claude",
+            "--print",
+            "--model", "haiku",
+            "--tools", "",
+            "--output-format", "text",
+            "--setting-sources", "",
+            "--system-prompt", system_prompt or SYSTEM_PROMPT,
+        ]
 
-        message = client.messages.create(
-            model="claude-haiku-4-5-20251001",  # Haiku 4.5 - Fastest, most efficient model (TOP PRIORITY)
-            max_tokens=100,
-            temperature=0.3,
-            messages=[{"role": "user", "content": prompt_text}],
+        result = subprocess.run(
+            cmd,
+            input=prompt_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
         )
 
-        return message.content[0].text.strip()
+        if result.returncode != 0:
+            return None
 
-    except Exception:
+        output = result.stdout.strip()
+        return output if output else None
+
+    except (subprocess.TimeoutExpired, Exception):
         return None
 
 
 def generate_completion_message():
     """
-    Generate a completion message using Anthropic LLM.
+    Generate a completion message using Haiku.
 
     Returns:
         str: A natural language completion message, or None if error
@@ -92,7 +113,7 @@ Generate ONE completion message:"""
 
 def generate_agent_name():
     """
-    Generate a single-word agent name using Anthropic LLM.
+    Generate a single-word agent name using Haiku.
 
     Returns:
         str: A single alphanumeric agent name, or None if error
@@ -145,7 +166,7 @@ def main():
             if response:
                 print(response)
             else:
-                print("Error calling Anthropic API")
+                print("Error calling claude CLI")
     else:
         print(
             "Usage: ./anth.py 'your prompt here' or ./anth.py --completion or ./anth.py --agent-name"
