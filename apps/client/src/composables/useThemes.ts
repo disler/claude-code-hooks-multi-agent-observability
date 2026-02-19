@@ -411,6 +411,39 @@ const PREDEFINED_THEMES: Record<ThemeName, PredefinedTheme> = {
       activeBg: 'rgba(13, 148, 136, 0.15)',
       focusRing: '#0d9488'
     }
+  },
+  studio: {
+    name: 'studio',
+    displayName: 'Studio',
+    description: 'Clean minimal design with generous whitespace',
+    cssClass: 'theme-studio',
+    preview: { primary: '#fafafa', secondary: '#ffffff', accent: '#333333' },
+    colors: {
+      primary: '#333333',
+      primaryHover: '#555555',
+      primaryLight: '#f0f0f0',
+      primaryDark: '#111111',
+      bgPrimary: '#fafafa',
+      bgSecondary: '#ffffff',
+      bgTertiary: '#f0f0f0',
+      bgQuaternary: '#e5e5e5',
+      textPrimary: '#111111',
+      textSecondary: '#555555',
+      textTertiary: '#888888',
+      textQuaternary: '#bbbbbb',
+      borderPrimary: '#e8e8e8',
+      borderSecondary: '#d0d0d0',
+      borderTertiary: '#aaaaaa',
+      accentSuccess: '#22c55e',
+      accentWarning: '#f59e0b',
+      accentError: '#ef4444',
+      accentInfo: '#3b82f6',
+      shadow: 'rgba(0, 0, 0, 0.06)',
+      shadowLg: 'rgba(0, 0, 0, 0.12)',
+      hoverBg: 'rgba(0, 0, 0, 0.03)',
+      activeBg: 'rgba(0, 0, 0, 0.06)',
+      focusRing: '#333333'
+    }
   }
 };
 

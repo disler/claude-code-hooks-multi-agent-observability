@@ -1,0 +1,64 @@
+{
+  "version": "1.0",
+  "server_url": "http://localhost:4000",
+  "source_app": "observability-toolkit",
+  "auto_detect": {
+    "enabled": true,
+    "rules": [
+      {
+        "name": "test_failure",
+        "description": "Test runner failures",
+        "hook_event_type": "PostToolUseFailure",
+        "payload_match": "test|jest|vitest|pytest|bun test",
+        "auto_tag": [
+          "learning_signal",
+          "test_failure"
+        ]
+      },
+      {
+        "name": "build_failure",
+        "description": "Build/compile failures",
+        "hook_event_type": "PostToolUseFailure",
+        "payload_match": "build|compile|tsc|webpack|esbuild",
+        "auto_tag": [
+          "learning_signal",
+          "build_failure"
+        ]
+      },
+      {
+        "name": "permission_issue",
+        "description": "Permission requests from agents",
+        "hook_event_type": "PermissionRequest",
+        "payload_match": ".*",
+        "auto_tag": [
+          "learning_signal",
+          "permission_issue"
+        ]
+      },
+      {
+        "name": "agent_error",
+        "description": "Non-interrupt tool failures",
+        "hook_event_type": "PostToolUseFailure",
+        "payload_match": ".*",
+        "auto_tag": [
+          "learning_signal",
+          "agent_error"
+        ],
+        "condition": "is_interrupt === false"
+      }
+    ]
+  },
+  "tags": {
+    "vocabulary": [
+      "learning_signal",
+      "test_failure",
+      "build_failure",
+      "qa_rejection",
+      "correction",
+      "pattern:flaky",
+      "permission_issue",
+      "agent_error",
+      "resolved"
+    ]
+  }
+}

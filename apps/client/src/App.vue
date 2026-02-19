@@ -1,11 +1,11 @@
 <template>
   <div class="h-screen flex flex-col bg-[var(--theme-bg-secondary)]">
     <!-- Header with Primary Theme Colors -->
-    <header class="short:hidden bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-light)] shadow-lg border-b-2 border-[var(--theme-primary-dark)]">
-      <div class="px-3 py-4 mobile:py-1.5 mobile:px-2 flex items-center justify-between mobile:gap-2">
+    <header class="short:hidden bg-[var(--theme-bg-secondary)] border-b border-[var(--theme-border-primary)]">
+      <div class="px-3 py-3 mobile:py-1.5 mobile:px-2 flex items-center justify-between mobile:gap-2">
         <!-- Title Section - Hidden on mobile -->
         <div class="mobile:hidden">
-          <h1 class="text-2xl font-bold text-white drop-shadow-lg">
+          <h1 class="text-[17px] font-bold text-[var(--theme-text-primary)]" style="letter-spacing: -0.02em;">
             Multi-Agent Observability
           </h1>
         </div>
@@ -13,51 +13,50 @@
         <!-- Connection Status -->
         <div class="flex items-center mobile:space-x-1 space-x-1.5">
           <div v-if="isConnected" class="flex items-center mobile:space-x-0.5 space-x-1.5">
-            <span class="relative flex mobile:h-2 mobile:w-2 h-3 w-3">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span class="relative inline-flex rounded-full mobile:h-2 mobile:w-2 h-3 w-3 bg-green-500"></span>
+            <span class="relative flex mobile:h-1.5 mobile:w-1.5 h-2 w-2">
+              <span class="relative inline-flex rounded-full mobile:h-1.5 mobile:w-1.5 h-2 w-2 bg-green-500"></span>
             </span>
-            <span class="text-base mobile:text-xs text-white font-semibold drop-shadow-md mobile:hidden">Connected</span>
+            <span class="text-sm mobile:text-xs text-[var(--theme-text-secondary)] font-medium mobile:hidden">Connected</span>
           </div>
           <div v-else class="flex items-center mobile:space-x-0.5 space-x-1.5">
-            <span class="relative flex mobile:h-2 mobile:w-2 h-3 w-3">
-              <span class="relative inline-flex rounded-full mobile:h-2 mobile:w-2 h-3 w-3 bg-red-500"></span>
+            <span class="relative flex mobile:h-1.5 mobile:w-1.5 h-2 w-2">
+              <span class="relative inline-flex rounded-full mobile:h-1.5 mobile:w-1.5 h-2 w-2 bg-red-500"></span>
             </span>
-            <span class="text-base mobile:text-xs text-white font-semibold drop-shadow-md mobile:hidden">Disconnected</span>
+            <span class="text-sm mobile:text-xs text-[var(--theme-text-secondary)] font-medium mobile:hidden">Disconnected</span>
           </div>
         </div>
 
         <!-- Event Count and Theme Toggle -->
         <div class="flex items-center mobile:space-x-1 space-x-2">
-          <span class="text-base mobile:text-xs text-white font-semibold drop-shadow-md bg-[var(--theme-primary-dark)] mobile:px-2 mobile:py-0.5 px-3 py-1.5 rounded-full border border-white/30">
+          <span class="text-sm mobile:text-xs text-[var(--theme-text-secondary)] font-medium bg-[var(--theme-bg-tertiary)] mobile:px-2 mobile:py-0.5 px-2.5 py-1 rounded-full border border-[var(--theme-border-primary)]">
             {{ events.length }}
           </span>
 
           <!-- Clear Button -->
           <button
             @click="handleClearClick"
-            class="p-3 mobile:p-1 rounded-lg bg-white/20 hover:bg-white/30 transition-all duration-200 border border-white/30 hover:border-white/50 backdrop-blur-sm shadow-lg hover:shadow-xl"
+            class="p-2 mobile:p-1 rounded-lg bg-[var(--theme-bg-secondary)] hover:bg-[var(--theme-bg-tertiary)] transition-all duration-200 border border-[var(--theme-border-primary)] hover:border-[var(--theme-border-secondary)]"
             title="Clear events"
           >
-            <span class="text-2xl mobile:text-base">🗑️</span>
+            <svg class="w-5 h-5 mobile:w-4 mobile:h-4 text-[var(--theme-text-tertiary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
           </button>
 
           <!-- Filters Toggle Button -->
           <button
             @click="showFilters = !showFilters"
-            class="p-3 mobile:p-1 rounded-lg bg-white/20 hover:bg-white/30 transition-all duration-200 border border-white/30 hover:border-white/50 backdrop-blur-sm shadow-lg hover:shadow-xl"
+            class="p-2 mobile:p-1 rounded-lg bg-[var(--theme-bg-secondary)] hover:bg-[var(--theme-bg-tertiary)] transition-all duration-200 border border-[var(--theme-border-primary)] hover:border-[var(--theme-border-secondary)]"
             :title="showFilters ? 'Hide filters' : 'Show filters'"
           >
-            <span class="text-2xl mobile:text-base">📊</span>
+            <svg class="w-5 h-5 mobile:w-4 mobile:h-4 text-[var(--theme-text-tertiary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
           </button>
 
           <!-- Theme Manager Button -->
           <button
             @click="handleThemeManagerClick"
-            class="p-3 mobile:p-1 rounded-lg bg-white/20 hover:bg-white/30 transition-all duration-200 border border-white/30 hover:border-white/50 backdrop-blur-sm shadow-lg hover:shadow-xl"
+            class="p-2 mobile:p-1 rounded-lg bg-[var(--theme-bg-secondary)] hover:bg-[var(--theme-bg-tertiary)] transition-all duration-200 border border-[var(--theme-border-primary)] hover:border-[var(--theme-border-secondary)]"
             title="Open theme manager"
           >
-            <span class="text-2xl mobile:text-base">🎨</span>
+            <svg class="w-5 h-5 mobile:w-4 mobile:h-4 text-[var(--theme-text-tertiary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
           </button>
         </div>
       </div>
@@ -86,6 +85,7 @@
         :selected-agents="selectedAgentLanes"
         :events="events"
         :time-range="currentTimeRange"
+        :agent-registry="agentRegistry"
         @update:selected-agents="selectedAgentLanes = $event"
       />
     </div>
@@ -97,6 +97,7 @@
         :filters="filters"
         :unique-app-names="uniqueAppNames"
         :all-app-names="allAppNames"
+        :agent-registry="agentRegistry"
         v-model:stick-to-bottom="stickToBottom"
         @select-agent="toggleAgentLane"
       />
@@ -136,9 +137,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import type { TimeRange } from './types';
 import { useWebSocket } from './composables/useWebSocket';
+import { useAgentRegistry } from './composables/useAgentRegistry';
 import { useThemes } from './composables/useThemes';
 import { useEventColors } from './composables/useEventColors';
 import EventTimeline from './components/EventTimeline.vue';
@@ -151,7 +153,18 @@ import AgentSwimLaneContainer from './components/AgentSwimLaneContainer.vue';
 import { WS_URL } from './config';
 
 // WebSocket connection
-const { events, isConnected, error, clearEvents } = useWebSocket(WS_URL);
+const { events, isConnected, error, clearEvents, setAgentHandlers } = useWebSocket(WS_URL);
+
+// Agent registry
+const { agents: agentRegistry, fetchAgents, handleAgentUpdate, handleAgentRegistry } = useAgentRegistry();
+
+// Wire agent WebSocket handlers
+setAgentHandlers(handleAgentUpdate, handleAgentRegistry);
+
+// Fetch agents on mount
+onMounted(() => {
+  fetchAgents();
+});
 
 // Theme management (sets up theme system)
 useThemes();

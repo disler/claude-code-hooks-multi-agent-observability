@@ -2,26 +2,59 @@
   <div class="agent-swim-lane">
     <div class="lane-header">
       <div class="header-left">
-        <div class="agent-label-container">
+        <!-- Enhanced header when registry entry available -->
+        <template v-if="registryEntry">
           <span
-            class="agent-label-app"
-            :style="{
-              backgroundColor: getHexColorForApp(appName),
-              borderColor: getHexColorForApp(appName)
-            }"
-          >
-            <span class="font-mono text-xs">{{ appName }}</span>
-          </span>
-          <span
-            class="agent-label-session"
-            :style="{
-              backgroundColor: getHexColorForSession(sessionId),
-              borderColor: getHexColorForSession(sessionId)
-            }"
-          >
-            <span class="font-mono text-xs">{{ sessionId }}</span>
-          </span>
-        </div>
+            v-if="lifecycleStatusColor"
+            class="lifecycle-dot"
+            :style="{ backgroundColor: lifecycleStatusColor }"
+            :title="`Status: ${registryEntry.lifecycle_status}`"
+          ></span>
+          <div class="agent-label-container">
+            <span
+              class="agent-label-app"
+              :style="{
+                backgroundColor: getHexColorForApp(appName),
+                borderColor: getHexColorForApp(appName)
+              }"
+            >
+              <span class="font-mono text-xs">{{ displayName || appName }}</span>
+            </span>
+            <span
+              class="agent-label-session"
+              :style="{
+                backgroundColor: getHexColorForSession(sessionId),
+                borderColor: getHexColorForSession(sessionId)
+              }"
+            >
+              <span class="font-mono text-xs">{{ sessionId }}</span>
+            </span>
+          </div>
+          <AgentTypeBadge v-if="agentType" :agent-type="agentType" />
+        </template>
+        <!-- Original header when no registry -->
+        <template v-else>
+          <div class="agent-label-container">
+            <span
+              class="agent-label-app"
+              :style="{
+                backgroundColor: getHexColorForApp(appName),
+                borderColor: getHexColorForApp(appName)
+              }"
+            >
+              <span class="font-mono text-xs">{{ appName }}</span>
+            </span>
+            <span
+              class="agent-label-session"
+              :style="{
+                backgroundColor: getHexColorForSession(sessionId),
+                borderColor: getHexColorForSession(sessionId)
+              }"
+            >
+              <span class="font-mono text-xs">{{ sessionId }}</span>
+            </span>
+          </div>
+        </template>
         <div
           v-if="modelName"
           class="model-badge"
@@ -53,7 +86,7 @@
           </span>
         </div>
         <div
-          class="avg-time-badge flex items-center gap-1.5 px-2 py-2 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm min-h-[28px]"
+          class="avg-time-badge flex items-center gap-1.5 px-2 py-2 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] min-h-[28px]"
           @mouseover="hoveredAvgTime = true"
           @mouseleave="hoveredAvgTime = false"
           :title="`Average time between events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : '5 minutes'}`"
@@ -80,7 +113,7 @@
       ></canvas>
       <div
         v-if="tooltip.visible"
-        class="absolute bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-dark)] text-white px-2 py-1.5 rounded-lg text-xs pointer-events-none z-10 shadow-lg border border-[var(--theme-primary-light)] font-bold drop-shadow-md"
+        class="absolute bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] px-2 py-1.5 rounded-lg text-xs pointer-events-none z-10 border border-[var(--theme-border-primary)] font-bold"
         :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
       >
         {{ tooltip.text }}
@@ -100,16 +133,19 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
-import type { HookEvent, TimeRange, ChartConfig } from '../types';
+import type { HookEvent, TimeRange, ChartConfig, AgentRegistryEntry } from '../types';
 import { useAgentChartData } from '../composables/useAgentChartData';
 import { createChartRenderer, type ChartDimensions } from '../utils/chartRenderer';
 import { useEventEmojis } from '../composables/useEventEmojis';
 import { useEventColors } from '../composables/useEventColors';
+import AgentTypeBadge from './AgentTypeBadge.vue';
+import { getLifecycleColor } from '../utils/agentHelpers';
 
 const props = defineProps<{
   agentName: string; // Format: "app:session" (e.g., "claude-code:a1b2c3d4")
   events: HookEvent[];
   timeRange: TimeRange;
+  registryEntry?: AgentRegistryEntry;
 }>();
 
 const emit = defineEmits<{
@@ -135,6 +171,14 @@ const formatGap = (gapMs: number): string => {
 // Extract app name and session ID from agent ID for display
 const appName = computed(() => props.agentName.split(':')[0]);
 const sessionId = computed(() => props.agentName.split(':')[1]);
+
+// Enhanced display from registry
+const displayName = computed(() => props.registryEntry?.display_name || null);
+const agentType = computed(() => props.registryEntry?.agent_type || null);
+const lifecycleStatusColor = computed(() => {
+  if (!props.registryEntry) return null;
+  return getLifecycleColor(props.registryEntry.lifecycle_status);
+});
 
 // Get model name from most recent event for this agent
 const modelName = computed(() => {
@@ -520,9 +564,7 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all 0.2s ease;
   user-select: none;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   min-height: 28px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .model-badge {
@@ -534,11 +576,16 @@ onUnmounted(() => {
 .model-badge:hover {
   background: var(--theme-bg-quaternary);
   border-color: var(--theme-primary);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .avg-time-badge {
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.lifecycle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .close-btn {
