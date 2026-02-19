@@ -8,7 +8,7 @@ export function processEventForRegistry(event: HookEvent): { entry: AgentRegistr
 
   // Check if this is a SubagentStart — creates a new child entry
   if (event.hook_event_type === 'SubagentStart') {
-    const agentId = event.payload?.agent_id?.slice(0, 7) || `sub-${Date.now().toString(36)}`;
+    const agentId = event.payload?.agent_id?.slice(0, 7) || `${sessionShort}-unnamed`;
     const childId = `${event.source_app}:${agentId}`;
     const existing = getAgent(childId);
     const isNew = !existing;
@@ -41,7 +41,7 @@ export function processEventForRegistry(event: HookEvent): { entry: AgentRegistr
 
   // SubagentStop — mark child as completed
   if (event.hook_event_type === 'SubagentStop') {
-    const agentId = event.payload?.agent_id?.slice(0, 7) || `sub-${Date.now().toString(36)}`;
+    const agentId = event.payload?.agent_id?.slice(0, 7) || `${sessionShort}-unnamed`;
     const childId = `${event.source_app}:${agentId}`;
     const existing = getAgent(childId);
 
