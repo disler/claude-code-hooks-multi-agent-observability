@@ -496,6 +496,298 @@
   --theme-focus-ring: #0d9488;
 }
 
+/* Studio theme - Clean minimal design with generous whitespace */
+.theme-studio {
+  /* Primary colors */
+  --theme-primary: #333333;
+  --theme-primary-hover: #555555;
+  --theme-primary-light: #f0f0f0;
+  --theme-primary-dark: #111111;
+
+  /* Background colors */
+  --theme-bg-primary: #fafafa;
+  --theme-bg-secondary: #ffffff;
+  --theme-bg-tertiary: #f0f0f0;
+  --theme-bg-quaternary: #e5e5e5;
+
+  /* Text colors */
+  --theme-text-primary: #111111;
+  --theme-text-secondary: #555555;
+  --theme-text-tertiary: #888888;
+  --theme-text-quaternary: #bbbbbb;
+
+  /* Border colors */
+  --theme-border-primary: #e8e8e8;
+  --theme-border-secondary: #d0d0d0;
+  --theme-border-tertiary: #aaaaaa;
+
+  /* Accent colors */
+  --theme-accent-success: #22c55e;
+  --theme-accent-warning: #f59e0b;
+  --theme-accent-error: #ef4444;
+  --theme-accent-info: #3b82f6;
+
+  /* Shadow colors */
+  --theme-shadow: rgba(0, 0, 0, 0.06);
+  --theme-shadow-lg: rgba(0, 0, 0, 0.12);
+
+  /* Interactive states */
+  --theme-hover-bg: rgba(0, 0, 0, 0.03);
+  --theme-active-bg: rgba(0, 0, 0, 0.06);
+  --theme-focus-ring: #333333;
+
+  font-family: 'Instrument Sans', sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════
+   STUDIO THEME - Structural Layout Overrides
+   Matches playground Design 02 "Clean Studio"
+   ═══════════════════════════════════════════════════ */
+
+/* --- METRICS SECTION: 4-column grid with 1px dividers --- */
+.theme-studio .studio-metrics-container {
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: 1px !important;
+  background: #e8e8e8 !important;
+  border-bottom: 1px solid #e8e8e8 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+
+.theme-studio .studio-metric {
+  background: white !important;
+  padding: 18px 24px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  border: none !important;
+  border-radius: 0 !important;
+  min-width: unset !important;
+}
+
+.theme-studio .studio-metric-label {
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  color: #aaa !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+}
+
+.theme-studio .studio-metric-value {
+  font-size: 26px !important;
+  font-weight: 700 !important;
+  color: #111 !important;
+  margin-top: 4px !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1 !important;
+}
+
+/* --- CHART SECTION --- */
+.theme-studio .studio-chart-section {
+  background: white !important;
+  padding: 20px 32px !important;
+  border-bottom: 1px solid #e8e8e8 !important;
+}
+
+.theme-studio .studio-chart-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: 14px !important;
+}
+
+.theme-studio .studio-chart-title {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #888 !important;
+  letter-spacing: 0.03em !important;
+}
+
+.theme-studio .studio-time-tabs {
+  display: flex !important;
+  gap: 2px !important;
+  background: #f0f0f0 !important;
+  border-radius: 6px !important;
+  padding: 2px !important;
+}
+
+.theme-studio .studio-time-tab {
+  padding: 4px 10px !important;
+  border-radius: 4px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #888 !important;
+  cursor: pointer !important;
+  border: none !important;
+  background: transparent !important;
+  transition: all 0.15s !important;
+  min-width: unset !important;
+  min-height: unset !important;
+}
+
+.theme-studio .studio-time-tab-active {
+  background: white !important;
+  color: #333 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* --- AGENT CHIPS SECTION --- */
+.theme-studio .studio-agents-section {
+  background: white !important;
+  padding: 14px 32px !important;
+  border-bottom: 1px solid #e8e8e8 !important;
+  display: flex !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+}
+
+.theme-studio .studio-agents-label {
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  color: #bbb !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  margin-right: 8px !important;
+}
+
+.theme-studio .studio-agent-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 5px 12px !important;
+  border-radius: 20px !important;
+  border: 1px solid #e0e0e0 !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  color: #555 !important;
+  background: white !important;
+  cursor: pointer !important;
+  transition: all 0.15s !important;
+}
+
+.theme-studio .studio-agent-chip:hover {
+  border-color: #ccc !important;
+  background: #fafafa !important;
+}
+
+.theme-studio .studio-agent-chip .studio-chip-dot {
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+}
+
+.theme-studio .studio-agent-chip-inactive {
+  opacity: 0.5 !important;
+}
+
+/* --- SEARCH SECTION --- */
+.theme-studio .studio-search-section {
+  padding: 14px 32px !important;
+  background: white !important;
+  border-bottom: 1px solid #e8e8e8 !important;
+}
+
+.theme-studio .studio-search-input {
+  width: 100% !important;
+  padding: 10px 14px !important;
+  border: 1px solid #e8e8e8 !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  color: #333 !important;
+  outline: none !important;
+  background: #fafafa !important;
+}
+
+.theme-studio .studio-search-input:focus {
+  border-color: #ccc !important;
+  background: white !important;
+}
+
+/* --- EVENT LIST / CARDS --- */
+.theme-studio .studio-event-list {
+  background: #fafafa !important;
+  padding: 0 !important;
+}
+
+.theme-studio .studio-event-card {
+  background: white !important;
+  margin: 8px 24px !important;
+  border-radius: 10px !important;
+  border: 1px solid #eee !important;
+  padding: 14px 18px !important;
+  transition: all 0.15s !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+
+.theme-studio .studio-event-card:hover {
+  border-color: #ddd !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+.theme-studio .studio-event-top {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+.theme-studio .studio-event-indicator {
+  width: 3px !important;
+  height: 32px !important;
+  border-radius: 2px !important;
+  flex-shrink: 0 !important;
+}
+
+.theme-studio .studio-event-app {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #333 !important;
+  padding: 2px 10px !important;
+  border-radius: 6px !important;
+  border: 1px solid !important;
+}
+
+.theme-studio .studio-event-session {
+  font-size: 11px !important;
+  color: #aaa !important;
+  font-weight: 500 !important;
+}
+
+.theme-studio .studio-event-type {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: white !important;
+  padding: 2px 10px !important;
+  border-radius: 12px !important;
+}
+
+.theme-studio .studio-event-tool {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  color: #666 !important;
+  padding: 2px 8px !important;
+  border-radius: 6px !important;
+  border: 1px solid #e0e0e0 !important;
+  background: transparent !important;
+}
+
+.theme-studio .studio-event-time {
+  font-size: 11px !important;
+  color: #bbb !important;
+  margin-left: auto !important;
+}
+
+.theme-studio .studio-event-summary {
+  font-size: 12px !important;
+  color: #888 !important;
+  padding-left: 14px !important;
+  border-left: 2px solid #f0f0f0 !important;
+  margin-left: 6px !important;
+}
+
 /* Utility classes for theme variables */
 .theme-bg-primary { background-color: var(--theme-bg-primary); }
 .theme-bg-secondary { background-color: var(--theme-bg-secondary); }

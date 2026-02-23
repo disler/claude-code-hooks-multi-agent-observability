@@ -92,22 +92,33 @@ function validateTheme(theme: Partial<Theme>): ThemeValidationError[] {
 }
 
 function isValidColor(color: string): boolean {
-  // Check hex colors
-  if (/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(color)) {
+  // Check hex colors (#rgb, #rrggbb, #rrggbbaa)
+  if (/^#([A-Fa-f0-9]{3,4}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{8})$/.test(color)) {
     return true;
   }
-  
-  // Check rgba/rgb colors
-  if (/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d?(?:\.\d+)?))?\)$/.test(color)) {
+
+  // Check rgba/rgb colors (permissive - allows spaces and various alpha formats)
+  if (/^rgba?\(.+\)$/.test(color)) {
     return true;
   }
-  
+
+  // Check hsla/hsl colors
+  if (/^hsla?\(.+\)$/.test(color)) {
+    return true;
+  }
+
+  // Check CSS custom properties
+  if (/^var\(--.+\)$/.test(color)) {
+    return true;
+  }
+
   // Check named colors (basic validation)
   const namedColors = [
-    'transparent', 'black', 'white', 'red', 'green', 'blue', 
-    'yellow', 'cyan', 'magenta', 'gray', 'grey'
+    'transparent', 'black', 'white', 'red', 'green', 'blue',
+    'yellow', 'cyan', 'magenta', 'gray', 'grey', 'inherit',
+    'currentColor', 'currentcolor'
   ];
-  
+
   return namedColors.includes(color.toLowerCase());
 }
 

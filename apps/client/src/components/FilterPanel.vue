@@ -1,14 +1,14 @@
 <template>
-  <div class="bg-gradient-to-r from-[var(--theme-bg-primary)] to-[var(--theme-bg-secondary)] border-b-2 border-[var(--theme-primary)] px-3 py-4 mobile:py-2 shadow-lg">
+  <div class="bg-[var(--theme-bg-secondary)] border-b border-[var(--theme-border-primary)] px-3 py-3 mobile:py-2">
     <div class="flex flex-wrap gap-3 items-center mobile:flex-col mobile:items-stretch">
       <div class="flex-1 min-w-0 mobile:w-full">
-        <label class="block text-base mobile:text-sm font-bold text-[var(--theme-primary)] mb-1.5 drop-shadow-sm">
+        <label class="block text-xs mobile:text-xs font-semibold text-[var(--theme-text-tertiary)] uppercase tracking-wide mb-1">
           Source App
         </label>
         <select
           v-model="localFilters.sourceApp"
           @change="updateFilters"
-          class="w-full px-4 py-2 mobile:px-2 mobile:py-1.5 text-base mobile:text-sm border border-[var(--theme-primary)] rounded-lg focus:ring-2 focus:ring-[var(--theme-primary)]/30 focus:border-[var(--theme-primary-dark)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] shadow-md hover:shadow-lg transition-all duration-200"
+          class="w-full px-3 py-2 mobile:px-2 mobile:py-1.5 text-sm mobile:text-sm border border-[var(--theme-border-primary)] rounded-lg focus:ring-2 focus:ring-[var(--theme-primary)]/20 focus:border-[var(--theme-primary)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] transition-all duration-200"
         >
           <option value="">All Sources</option>
           <option v-for="app in filterOptions.source_apps" :key="app" :value="app">
@@ -18,13 +18,13 @@
       </div>
       
       <div class="flex-1 min-w-0 mobile:w-full">
-        <label class="block text-base mobile:text-sm font-bold text-[var(--theme-primary)] mb-1.5 drop-shadow-sm">
+        <label class="block text-xs mobile:text-xs font-semibold text-[var(--theme-text-tertiary)] uppercase tracking-wide mb-1">
           Session ID
         </label>
         <select
           v-model="localFilters.sessionId"
           @change="updateFilters"
-          class="w-full px-4 py-2 mobile:px-2 mobile:py-1.5 text-base mobile:text-sm border border-[var(--theme-primary)] rounded-lg focus:ring-2 focus:ring-[var(--theme-primary)]/30 focus:border-[var(--theme-primary-dark)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] shadow-md hover:shadow-lg transition-all duration-200"
+          class="w-full px-3 py-2 mobile:px-2 mobile:py-1.5 text-sm mobile:text-sm border border-[var(--theme-border-primary)] rounded-lg focus:ring-2 focus:ring-[var(--theme-primary)]/20 focus:border-[var(--theme-primary)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] transition-all duration-200"
         >
           <option value="">All Sessions</option>
           <option v-for="session in filterOptions.session_ids" :key="session" :value="session">
@@ -34,13 +34,13 @@
       </div>
       
       <div class="flex-1 min-w-0 mobile:w-full">
-        <label class="block text-base mobile:text-sm font-bold text-[var(--theme-primary)] mb-1.5 drop-shadow-sm">
+        <label class="block text-xs mobile:text-xs font-semibold text-[var(--theme-text-tertiary)] uppercase tracking-wide mb-1">
           Event Type
         </label>
         <select
           v-model="localFilters.eventType"
           @change="updateFilters"
-          class="w-full px-4 py-2 mobile:px-2 mobile:py-1.5 text-base mobile:text-sm border border-[var(--theme-primary)] rounded-lg focus:ring-2 focus:ring-[var(--theme-primary)]/30 focus:border-[var(--theme-primary-dark)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] shadow-md hover:shadow-lg transition-all duration-200"
+          class="w-full px-3 py-2 mobile:px-2 mobile:py-1.5 text-sm mobile:text-sm border border-[var(--theme-border-primary)] rounded-lg focus:ring-2 focus:ring-[var(--theme-primary)]/20 focus:border-[var(--theme-primary)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] transition-all duration-200"
         >
           <option value="">All Types</option>
           <option v-for="type in filterOptions.hook_event_types" :key="type" :value="type">
@@ -52,7 +52,7 @@
       <button
         v-if="hasActiveFilters"
         @click="clearFilters"
-        class="px-4 py-2 mobile:px-2 mobile:py-1.5 mobile:w-full text-base mobile:text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+        class="px-4 py-2 mobile:px-2 mobile:py-1.5 mobile:w-full text-sm mobile:text-sm font-medium text-[var(--theme-text-secondary)] bg-[var(--theme-bg-tertiary)] hover:bg-[var(--theme-bg-quaternary)] border border-[var(--theme-border-primary)] rounded-lg transition-colors"
       >
         Clear Filters
       </button>

@@ -1,57 +1,68 @@
 <template>
-  <div class="bg-gradient-to-r from-[var(--theme-bg-primary)] to-[var(--theme-bg-secondary)] px-3 py-4 mobile:py-2 shadow-lg">
-    <div class="flex items-center justify-between mb-3 mobile:mb-2">
-      <div class="flex items-center gap-3 mobile:gap-2">
-        <h3 class="text-base mobile:text-xs font-bold text-[var(--theme-primary)] drop-shadow-sm flex items-center">
-          <span class="mr-1.5 mobile:mr-1 text-xl mobile:text-sm">📊</span>
-          <span class="mobile:hidden">Live Activity Pulse</span>
-        </h3>
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-gradient-to-r from-[var(--theme-primary)]/10 to-[var(--theme-primary-light)]/10 rounded-lg border border-[var(--theme-primary)]/30 shadow-sm"
-            :title="`${uniqueAgentCount} active agent${uniqueAgentCount !== 1 ? 's' : ''}`"
-          >
-            <span class="text-lg mobile:text-base">👥</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-primary)]">{{ uniqueAgentCount }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">agents</span>
-          </div>
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm"
-            :title="`Total events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : timeRange === '5m' ? '5 minutes' : '10 minutes'}`"
-          >
-            <span class="text-lg mobile:text-base">⚡</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-text-primary)]">{{ totalEventCount }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">events</span>
-          </div>
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm"
-            :title="`Total tool calls in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : timeRange === '5m' ? '5 minutes' : '10 minutes'}`"
-          >
-            <span class="text-lg mobile:text-base">🔧</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-text-primary)]">{{ toolCallCount }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">tools</span>
-          </div>
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm"
-            :title="`Average time between events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : timeRange === '5m' ? '5 minutes' : '10 minutes'}`"
-          >
-            <span class="text-lg mobile:text-base">🕐</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-text-primary)]">{{ formatGap(eventTimingMetrics.avgGap) }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">avg gap</span>
-          </div>
+  <div :class="isStudio ? 'studio-chart-section' : 'bg-[var(--theme-bg-secondary)] px-3 py-4 mobile:py-2'">
+    <!-- Studio Layout: Metrics as 4-column grid -->
+    <div v-if="isStudio" class="studio-metrics-container">
+      <div class="studio-metric" :title="`${uniqueAgentCount} active agent${uniqueAgentCount !== 1 ? 's' : ''}`">
+        <span class="studio-metric-label">Agents</span>
+        <span class="studio-metric-value">{{ uniqueAgentCount }}</span>
+      </div>
+      <div class="studio-metric" :title="`Total events in the last ${timeRangeLabel}`">
+        <span class="studio-metric-label">Events</span>
+        <span class="studio-metric-value">{{ totalEventCount }}</span>
+      </div>
+      <div class="studio-metric" :title="`Total tool calls in the last ${timeRangeLabel}`">
+        <span class="studio-metric-label">Tool Calls</span>
+        <span class="studio-metric-value">{{ toolCallCount }}</span>
+      </div>
+      <div class="studio-metric" :title="`Average time between events in the last ${timeRangeLabel}`">
+        <span class="studio-metric-label">Avg Gap</span>
+        <span class="studio-metric-value">{{ formatGap(eventTimingMetrics.avgGap) }}</span>
+      </div>
+    </div>
+
+    <!-- Default Layout: Metrics as flex row -->
+    <div v-if="!isStudio" class="flex items-center justify-between mb-3 mobile:mb-2">
+      <div class="flex items-center gap-2 mobile:gap-1.5">
+        <div
+          class="flex flex-col items-center px-3 py-1.5 mobile:px-2 mobile:py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] min-w-[52px]"
+          :title="`${uniqueAgentCount} active agent${uniqueAgentCount !== 1 ? 's' : ''}`"
+        >
+          <span class="text-lg mobile:text-base font-bold text-[var(--theme-text-primary)] leading-tight">{{ uniqueAgentCount }}</span>
+          <span class="text-[10px] mobile:text-[9px] text-[var(--theme-text-tertiary)] font-medium uppercase tracking-wide">Agents</span>
+        </div>
+        <div
+          class="flex flex-col items-center px-3 py-1.5 mobile:px-2 mobile:py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] min-w-[52px]"
+          :title="`Total events in the last ${timeRangeLabel}`"
+        >
+          <span class="text-lg mobile:text-base font-bold text-[var(--theme-text-primary)] leading-tight">{{ totalEventCount }}</span>
+          <span class="text-[10px] mobile:text-[9px] text-[var(--theme-text-tertiary)] font-medium uppercase tracking-wide">Events</span>
+        </div>
+        <div
+          class="flex flex-col items-center px-3 py-1.5 mobile:px-2 mobile:py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] min-w-[52px]"
+          :title="`Total tool calls in the last ${timeRangeLabel}`"
+        >
+          <span class="text-lg mobile:text-base font-bold text-[var(--theme-text-primary)] leading-tight">{{ toolCallCount }}</span>
+          <span class="text-[10px] mobile:text-[9px] text-[var(--theme-text-tertiary)] font-medium uppercase tracking-wide">Tools</span>
+        </div>
+        <div
+          class="flex flex-col items-center px-3 py-1.5 mobile:px-2 mobile:py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] min-w-[52px]"
+          :title="`Average time between events in the last ${timeRangeLabel}`"
+        >
+          <span class="text-lg mobile:text-base font-bold text-[var(--theme-text-primary)] leading-tight">{{ formatGap(eventTimingMetrics.avgGap) }}</span>
+          <span class="text-[10px] mobile:text-[9px] text-[var(--theme-text-tertiary)] font-medium uppercase tracking-wide">Avg Gap</span>
         </div>
       </div>
-      <div class="flex gap-1.5 mobile:gap-1" role="tablist" aria-label="Time range selector">
+      <div class="flex gap-1 mobile:gap-0.5" role="tablist" aria-label="Time range selector">
         <button
           v-for="(range, index) in timeRanges"
           :key="range"
           @click="setTimeRange(range)"
           @keydown="handleTimeRangeKeyDown($event, index)"
           :class="[
-            'px-3 py-1.5 mobile:px-2 mobile:py-1 text-sm mobile:text-xs font-bold rounded-lg transition-all duration-200 min-w-[30px] mobile:min-w-[24px] min-h-[30px] mobile:min-h-[24px] flex items-center justify-center shadow-md hover:shadow-lg transform hover:scale-105 border',
+            'px-2.5 py-1 mobile:px-2 mobile:py-0.5 text-xs mobile:text-[10px] font-semibold rounded-md transition-colors duration-150 min-w-[28px] mobile:min-w-[22px] min-h-[26px] mobile:min-h-[22px] flex items-center justify-center border',
             timeRange === range
-              ? 'bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-light)] text-white border-[var(--theme-primary-dark)] drop-shadow-md'
-              : 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border-[var(--theme-border-primary)] hover:bg-[var(--theme-bg-quaternary)] hover:border-[var(--theme-primary)]'
+              ? 'bg-[var(--theme-primary)] text-white border-[var(--theme-primary)]'
+              : 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border-[var(--theme-border-primary)] hover:bg-[var(--theme-bg-quaternary)] hover:text-[var(--theme-text-primary)]'
           ]"
           role="tab"
           :aria-selected="timeRange === range"
@@ -62,6 +73,30 @@
         </button>
       </div>
     </div>
+
+    <!-- Studio: Chart header with Activity title + time tabs -->
+    <div v-if="isStudio" class="studio-chart-header">
+      <span class="studio-chart-title">Activity</span>
+      <div class="studio-time-tabs" role="tablist" aria-label="Time range selector">
+        <button
+          v-for="(range, index) in timeRanges"
+          :key="range"
+          @click="setTimeRange(range)"
+          @keydown="handleTimeRangeKeyDown($event, index)"
+          :class="[
+            'studio-time-tab',
+            timeRange === range ? 'studio-time-tab-active' : ''
+          ]"
+          role="tab"
+          :aria-selected="timeRange === range"
+          :aria-label="`Show ${range === '1m' ? '1 minute' : range === '3m' ? '3 minutes' : range === '5m' ? '5 minutes' : '10 minutes'} of activity`"
+          :tabindex="timeRange === range ? 0 : -1"
+        >
+          {{ range }}
+        </button>
+      </div>
+    </div>
+
     <div ref="chartContainer" class="relative">
       <canvas
         ref="canvas"
@@ -74,7 +109,7 @@
       ></canvas>
       <div
         v-if="tooltip.visible"
-        class="absolute bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-dark)] text-white px-2 py-1.5 mobile:px-3 mobile:py-2 rounded-lg text-xs mobile:text-sm pointer-events-none z-10 shadow-lg border border-[var(--theme-primary-light)] font-bold drop-shadow-md"
+        class="absolute bg-[var(--theme-bg-secondary)] text-[var(--theme-text-primary)] px-2 py-1.5 mobile:px-3 mobile:py-2 rounded-lg text-xs mobile:text-sm pointer-events-none z-10 border border-[var(--theme-border-primary)] font-bold"
         :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
       >
         {{ tooltip.text }}
@@ -83,8 +118,7 @@
         v-if="!hasData"
         class="absolute inset-0 flex items-center justify-center"
       >
-        <p class="text-[var(--theme-text-tertiary)] mobile:text-sm text-base font-semibold">
-          <span class="mr-1.5 text-base">⏳</span>
+        <p class="text-[var(--theme-text-tertiary)] mobile:text-xs text-sm font-medium">
           Waiting for events...
         </p>
       </div>
@@ -99,6 +133,7 @@ import { useChartData } from '../composables/useChartData';
 import { createChartRenderer, type ChartDimensions } from '../utils/chartRenderer';
 import { useEventEmojis } from '../composables/useEventEmojis';
 import { useEventColors } from '../composables/useEventColors';
+import { useThemes } from '../composables/useThemes';
 
 const props = defineProps<{
   events: HookEvent[];
@@ -114,6 +149,9 @@ const emit = defineEmits<{
   updateAllApps: [appNames: string[]];
   updateTimeRange: [timeRange: TimeRange];
 }>();
+
+const { state: themeState } = useThemes();
+const isStudio = computed(() => themeState.value.currentTheme === 'studio');
 
 const canvas = ref<HTMLCanvasElement>();
 const chartContainer = ref<HTMLDivElement>();
@@ -139,12 +177,17 @@ const {
 
 // Format gap time in ms to readable string (e.g., "125ms" or "1.2s")
 const formatGap = (gapMs: number): string => {
-  if (gapMs === 0) return '—';
+  if (gapMs === 0) return '\u2014';
   if (gapMs < 1000) {
     return `${Math.round(gapMs)}ms`;
   }
   return `${(gapMs / 1000).toFixed(1)}s`;
 };
+
+const timeRangeLabel = computed(() => {
+  const labels: Record<string, string> = { '1m': '1 minute', '3m': '3 minutes', '5m': '5 minutes', '10m': '10 minutes' };
+  return labels[timeRange.value] || timeRange.value;
+});
 
 // Watch uniqueAgentIdsInWindow and emit updates (for active agents in time window)
 watch(uniqueAgentIdsInWindow, (agentIds) => {
