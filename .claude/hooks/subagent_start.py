@@ -4,27 +4,22 @@
 # ///
 
 import json
-import os
 import sys
 from pathlib import Path
 from utils.constants import ensure_session_log_dir
+
 
 def main():
     try:
         # Read JSON input from stdin
         input_data = json.load(sys.stdin)
 
-        # Extract fields
+        # Extract session_id
         session_id = input_data.get('session_id', 'unknown')
-        tool_name = input_data.get('tool_name', '')
-        tool_use_id = input_data.get('tool_use_id', '')
-        tool_input = input_data.get('tool_input', {})
-        tool_response = input_data.get('tool_response', {})
-        is_mcp_tool = tool_name.startswith('mcp__')
 
         # Ensure session log directory exists
         log_dir = ensure_session_log_dir(session_id)
-        log_path = log_dir / 'post_tool_use.json'
+        log_path = log_dir / 'subagent_start.json'
 
         # Read existing log data or initialize empty list
         if log_path.exists():
@@ -36,25 +31,8 @@ def main():
         else:
             log_data = []
 
-        # Build log entry with tool_use_id
-        log_entry = {
-            "tool_name": tool_name,
-            "tool_use_id": tool_use_id,
-            "session_id": session_id,
-            "hook_event_name": input_data.get("hook_event_name", "PostToolUse"),
-            "is_mcp_tool": is_mcp_tool,
-        }
-
-        # For MCP tools, log the server and tool parts
-        if is_mcp_tool:
-            parts = tool_name.split('__')
-            if len(parts) >= 3:
-                log_entry["mcp_server"] = parts[1]
-                log_entry["mcp_tool_name"] = '__'.join(parts[2:])
-            log_entry["input_keys"] = list(tool_input.keys())[:10]
-
-        # Append log entry
-        log_data.append(log_entry)
+        # Append new data
+        log_data.append(input_data)
 
         # Write back to file with formatting
         with open(log_path, 'w') as f:
@@ -68,6 +46,7 @@ def main():
     except Exception:
         # Exit cleanly on any other error
         sys.exit(0)
+
 
 if __name__ == '__main__':
     main()

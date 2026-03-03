@@ -95,6 +95,13 @@ def main():
         # Extract required fields
         session_id = input_data.get("session_id", "")
         stop_hook_active = input_data.get("stop_hook_active", False)
+        agent_id = input_data.get("agent_id", "")
+        agent_type = input_data.get("agent_type", "")
+        agent_transcript_path = input_data.get("agent_transcript_path", "")
+
+        # If stop_hook_active is true, exit 0 immediately to prevent infinite loops
+        if stop_hook_active:
+            sys.exit(0)
 
         # Ensure session log directory exists
         log_dir = ensure_session_log_dir(session_id)
@@ -110,8 +117,16 @@ def main():
         else:
             log_data = []
 
-        # Append new data
-        log_data.append(input_data)
+        # Build log entry with agent_transcript_path
+        log_entry = {
+            "session_id": session_id,
+            "hook_event_name": input_data.get("hook_event_name", "SubagentStop"),
+            "stop_hook_active": stop_hook_active,
+            "agent_id": agent_id,
+            "agent_type": agent_type,
+            "agent_transcript_path": agent_transcript_path,
+        }
+        log_data.append(log_entry)
 
         # Write back to file with formatting
         with open(log_path, "w") as f:

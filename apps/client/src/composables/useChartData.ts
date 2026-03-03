@@ -86,16 +86,29 @@ export function useChartData(agentIdFilter?: string) {
           bucket.eventTypes = {};
         }
         bucket.eventTypes[event.hook_event_type] = (bucket.eventTypes[event.hook_event_type] || 0) + 1;
+        // Track tool events (EventType:ToolName combos)
+        if (event.payload?.tool_name) {
+          if (!bucket.toolEvents) {
+            bucket.toolEvents = {};
+          }
+          const toolEventKey = `${event.hook_event_type}:${event.payload.tool_name}`;
+          bucket.toolEvents[toolEventKey] = (bucket.toolEvents[toolEventKey] || 0) + 1;
+        }
         // Track sessions
         if (!bucket.sessions) {
           bucket.sessions = {};
         }
         bucket.sessions[event.session_id] = (bucket.sessions[event.session_id] || 0) + 1;
       } else {
+        const toolEvents: Record<string, number> = {};
+        if (event.payload?.tool_name) {
+          toolEvents[`${event.hook_event_type}:${event.payload.tool_name}`] = 1;
+        }
         dataPoints.value.push({
           timestamp: bucketTime,
           count: 1,
           eventTypes: { [event.hook_event_type]: 1 },
+          toolEvents,
           sessions: { [event.session_id]: 1 }
         });
       }
@@ -156,6 +169,7 @@ export function useChartData(agentIdFilter?: string) {
         timestamp: bucketTime,
         count: existingBucket?.count || 0,
         eventTypes: existingBucket?.eventTypes || {},
+        toolEvents: existingBucket?.toolEvents || {},
         sessions: existingBucket?.sessions || {}
       });
     }
@@ -201,12 +215,25 @@ export function useChartData(agentIdFilter?: string) {
       if (bucket) {
         bucket.count++;
         bucket.eventTypes[event.hook_event_type] = (bucket.eventTypes[event.hook_event_type] || 0) + 1;
+        // Track tool events
+        if (event.payload?.tool_name) {
+          if (!bucket.toolEvents) {
+            bucket.toolEvents = {};
+          }
+          const toolEventKey = `${event.hook_event_type}:${event.payload.tool_name}`;
+          bucket.toolEvents[toolEventKey] = (bucket.toolEvents[toolEventKey] || 0) + 1;
+        }
         bucket.sessions[event.session_id] = (bucket.sessions[event.session_id] || 0) + 1;
       } else {
+        const toolEvents: Record<string, number> = {};
+        if (event.payload?.tool_name) {
+          toolEvents[`${event.hook_event_type}:${event.payload.tool_name}`] = 1;
+        }
         dataPoints.value.push({
           timestamp: bucketTime,
           count: 1,
           eventTypes: { [event.hook_event_type]: 1 },
+          toolEvents,
           sessions: { [event.session_id]: 1 }
         });
       }

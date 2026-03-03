@@ -1,6 +1,6 @@
 # Multi-Agent Observability System
 
-Real-time monitoring and visualization for Claude Code agents through comprehensive hook event tracking. You can watch the [full breakdown here](https://youtu.be/9ijnN985O_c) and watch the latest enhancement where we compare Haiku 4.5 and Sonnet 4.5 [here](https://youtu.be/aA9KP7QIQvM).
+Real-time monitoring and visualization for Claude Code agents through comprehensive hook event tracking. Watch the [latest deep dive on multi-agent orchestration with Opus 4.6 here](https://youtu.be/RpUTF_U4kiw). With Claude Opus 4.6 and multi-agent orchestration, you can now spin up teams of specialized agents that work in parallel, and this observability system lets you trace every tool call, task handoff, and agent lifecycle event across the entire swarm.
 
 ## 🎯 Overview
 
@@ -23,9 +23,11 @@ Before getting started, ensure you have the following installed:
 - **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** - Anthropic's official CLI for Claude
 - **[Astral uv](https://docs.astral.sh/uv/)** - Fast Python package manager (required for hook scripts)
 - **[Bun](https://bun.sh/)**, **npm**, or **yarn** - For running the server and client
+- **[just](https://github.com/casey/just)** (optional) - Command runner for project recipes
 - **Anthropic API Key** - Set as `ANTHROPIC_API_KEY` environment variable
 - **OpenAI API Key** (optional) - For multi-model support with just-prompt MCP tool
 - **ElevenLabs API Key** (optional) - For audio features
+- **Firecrawl API Key** (optional) - For web scraping features
 
 ### Configure .claude Directory
 
@@ -83,7 +85,8 @@ To integrate the observability hooks into your projects:
            }
          ]
        }]
-       // ... (similar patterns for Notification, Stop, SubagentStop, PreCompact, SessionStart, SessionEnd)
+       // ... (similar patterns for all 12 hook events: Notification, Stop, SubagentStop,
+      //      SubagentStart, PreCompact, SessionStart, SessionEnd, PermissionRequest, PostToolUseFailure)
      }
    }
    ```
@@ -100,11 +103,11 @@ Now your project will send events to the observability system whenever Claude Co
 
 ## 🚀 Quick Start
 
-You can quickly view how this works by running this repositories .claude setup.
+You can quickly view how this works by running this repository's `.claude` setup.
 
 ```bash
 # 1. Start both server and client
-./scripts/start-system.sh
+just start          # or: ./scripts/start-system.sh
 
 # 2. Open http://localhost:5173 in your browser
 
@@ -115,6 +118,25 @@ Run git ls-files to understand the codebase.
 
 # 5. Copy the .claude folder to other projects you want to emit events from.
 cp -R .claude <directory of your codebase you want to emit events from>
+```
+
+### Using `just` (Recommended)
+
+A `justfile` provides convenient recipes for common operations:
+
+```bash
+just              # List all available recipes
+just start        # Start server + client
+just stop         # Stop all processes
+just restart      # Stop then start
+just server       # Start server only (dev mode)
+just client       # Start client only
+just install      # Install all dependencies
+just health       # Check server/client status
+just test-event   # Send a test event
+just db-reset     # Reset the database
+just hooks        # List all hook scripts
+just open         # Open dashboard in browser
 ```
 
 ## 📁 Project Structure
@@ -154,15 +176,36 @@ claude-code-hooks-multi-agent-observability/
 │
 ├── .claude/                # Claude Code integration
 │   ├── hooks/             # Hook scripts (Python with uv)
-│   │   ├── send_event.py  # Universal event sender
-│   │   ├── pre_tool_use.py    # Tool validation & blocking
-│   │   ├── post_tool_use.py   # Result logging
-│   │   ├── notification.py    # User interaction events
-│   │   ├── user_prompt_submit.py # User prompt logging & validation
-│   │   ├── stop.py           # Session completion
-│   │   └── subagent_stop.py  # Subagent completion
+│   │   ├── send_event.py          # Universal event sender (all 12 event types)
+│   │   ├── pre_tool_use.py        # Tool validation, blocking & summarization
+│   │   ├── post_tool_use.py       # Result logging with MCP tool detection
+│   │   ├── post_tool_use_failure.py # Tool failure logging
+│   │   ├── permission_request.py  # Permission request logging
+│   │   ├── notification.py        # User interaction events (type-aware TTS)
+│   │   ├── user_prompt_submit.py  # User prompt logging & validation
+│   │   ├── stop.py               # Session completion (stop_hook_active guard)
+│   │   ├── subagent_stop.py      # Subagent completion with transcript path
+│   │   ├── subagent_start.py     # Subagent lifecycle start tracking
+│   │   ├── pre_compact.py        # Context compaction with custom instructions
+│   │   ├── session_start.py      # Session start with agent type & model
+│   │   ├── session_end.py        # Session end with reason tracking
+│   │   └── validators/           # Stop hook validators
+│   │       ├── validate_new_file.py     # Validate file creation
+│   │       └── validate_file_contains.py # Validate file content sections
 │   │
-│   └── settings.json      # Hook configuration
+│   ├── agents/team/       # Agent team definitions
+│   │   ├── builder.md     # Engineering agent with linting hooks
+│   │   └── validator.md   # Read-only validation agent
+│   │
+│   ├── commands/          # Custom slash commands
+│   │   └── plan_w_team.md # Team-based planning command
+│   │
+│   ├── status_lines/      # Status line scripts
+│   │   └── status_line_v6.py # Context window usage display
+│   │
+│   └── settings.json      # Hook configuration (all 12 events)
+│
+├── justfile               # Task runner recipes (just start, just stop, etc.)
 │
 ├── scripts/               # Utility scripts
 │   ├── start-system.sh   # Launch server & client
@@ -181,20 +224,24 @@ claude-code-hooks-multi-agent-observability/
 The hook system intercepts Claude Code lifecycle events:
 
 - **`send_event.py`**: Core script that sends event data to the observability server
+  - Supports all 12 hook event types with event-specific field forwarding
   - Supports `--add-chat` flag for including conversation history
+  - Forwards event-specific fields (`tool_name`, `tool_use_id`, `agent_id`, `notification_type`, etc.) as top-level properties for easier querying
   - Validates server connectivity before sending
-  - Handles all event types with proper error handling
 
-- **Event-specific hooks**: Each implements validation and data extraction
-  - `pre_tool_use.py`: Blocks dangerous commands, validates tool usage
-  - `post_tool_use.py`: Captures execution results and outputs
-  - `notification.py`: Tracks user interaction points
-  - `user_prompt_submit.py`: Logs user prompts, supports validation (v1.0.54+)
-  - `stop.py`: Records session completion with optional chat history
-  - `subagent_stop.py`: Monitors subagent task completion
-  - `pre_compact.py`: Tracks context compaction operations (manual/auto)
-  - `session_start.py`: Logs session start, can load development context
-  - `session_end.py`: Logs session end, saves session statistics
+- **Event-specific hooks** (12 total): Each implements validation and data extraction
+  - `pre_tool_use.py`: Blocks dangerous commands, validates tool usage, summarizes tool inputs per tool type
+  - `post_tool_use.py`: Captures execution results with MCP tool detection (`mcp_server`, `mcp_tool_name`)
+  - `post_tool_use_failure.py`: Logs tool execution failures
+  - `permission_request.py`: Logs permission request events
+  - `notification.py`: Tracks user interactions with `notification_type`-aware TTS (permission_prompt, idle_prompt, etc.)
+  - `user_prompt_submit.py`: Logs user prompts, supports validation with JSON `{"decision": "block"}` pattern
+  - `stop.py`: Records session completion with `stop_hook_active` guard to prevent infinite loops
+  - `subagent_stop.py`: Monitors subagent task completion with transcript path tracking
+  - `subagent_start.py`: Tracks subagent lifecycle start events
+  - `pre_compact.py`: Tracks context compaction with custom instructions in backup filenames
+  - `session_start.py`: Logs session start with `agent_type`, `model`, and `source` fields
+  - `session_end.py`: Logs session end with reason tracking (including `bypass_permissions_disabled`)
 
 ### 2. Server (`apps/server/`)
 
@@ -231,10 +278,16 @@ Vue 3 application with real-time visualization:
   - Auto-scroll with manual override
   - Event limiting (configurable via `VITE_MAX_EVENTS_TO_DISPLAY`)
 
+- **Tool Emoji System**:
+  - Each tool type has a dedicated emoji (Bash: 💻, Read: 📖, Write: ✍️, Edit: ✏️, Task: 🤖, etc.)
+  - Tool events show combo emojis: event emoji + tool emoji (e.g., 🔧💻 for PreToolUse:Bash)
+  - MCP tools display with 🔌 prefix
+  - Tool name badge displayed alongside event type in the timeline
+
 - **Live Pulse Chart**:
   - Canvas-based real-time visualization
   - Session-specific colors for each bar
-  - Event type emojis displayed on bars
+  - Event type + tool combo emojis displayed on bars
   - Smooth animations and glow effects
   - Responsive to filter changes
 
@@ -252,17 +305,20 @@ Vue 3 application with real-time visualization:
 
 ## 🎨 Event Types & Visualization
 
-| Event Type       | Emoji | Purpose                | Color Coding  | Special Display                       |
-| ---------------- | ----- | ---------------------- | ------------- | ------------------------------------- |
-| PreToolUse       | 🔧     | Before tool execution  | Session-based | Tool name & details                   |
-| PostToolUse      | ✅     | After tool completion  | Session-based | Tool name & results                   |
-| Notification     | 🔔     | User interactions      | Session-based | Notification message                  |
-| Stop             | 🛑     | Response completion    | Session-based | Summary & chat transcript             |
-| SubagentStop     | 👥     | Subagent finished      | Session-based | Subagent details                      |
-| PreCompact       | 📦     | Context compaction     | Session-based | Compaction details                    |
-| UserPromptSubmit | 💬     | User prompt submission | Session-based | Prompt: _"user message"_ (italic)     |
-| SessionStart     | 🚀     | Session started        | Session-based | Session source (startup/resume/clear) |
-| SessionEnd       | 🏁     | Session ended          | Session-based | End reason (clear/logout/exit/other)  |
+| Event Type         | Emoji | Purpose                | Color Coding  | Special Display                      |
+| ------------------ | ----- | ---------------------- | ------------- | ------------------------------------ |
+| PreToolUse         | 🔧     | Before tool execution  | Session-based | Tool name + tool emoji & details     |
+| PostToolUse        | ✅     | After tool completion  | Session-based | Tool name + tool emoji & results     |
+| PostToolUseFailure | ❌     | Tool execution failed  | Session-based | Error details & interrupt status     |
+| PermissionRequest  | 🔐     | Permission requested   | Session-based | Tool name & permission suggestions   |
+| Notification       | 🔔     | User interactions      | Session-based | Notification message & type          |
+| Stop               | 🛑     | Response completion    | Session-based | Summary & chat transcript            |
+| SubagentStart      | 🟢     | Subagent started       | Session-based | Agent ID & type                      |
+| SubagentStop       | 👥     | Subagent finished      | Session-based | Agent details & transcript path      |
+| PreCompact         | 📦     | Context compaction     | Session-based | Trigger & custom instructions        |
+| UserPromptSubmit   | 💬     | User prompt submission | Session-based | Prompt: _"user message"_ (italic)    |
+| SessionStart       | 🚀     | Session started        | Session-based | Source, model & agent type           |
+| SessionEnd         | 🏁     | Session ended          | Session-based | End reason (clear/logout/exit/other) |
 
 ### UserPromptSubmit Event (v1.0.54+)
 
@@ -305,8 +361,8 @@ Already integrated! Hooks run both validation and observability:
   "command": "uv run .claude/hooks/pre_tool_use.py"
 },
 {
-  "type": "command", 
-  "command": "uv run .claude/hooks/send_event.py --source-app cc-hooks-observability --event-type PreToolUse"
+  "type": "command",
+  "command": "uv run .claude/hooks/send_event.py --source-app cc-hook-multi-agent-obvs --event-type PreToolUse"
 }
 ```
 
@@ -315,6 +371,12 @@ Already integrated! Hooks run both validation and observability:
 ```bash
 # System validation
 ./scripts/test-system.sh
+
+# Quick test event via just
+just test-event
+
+# Check server/client health
+just health
 
 # Manual event test
 curl -X POST http://localhost:4000/events \
@@ -325,6 +387,9 @@ curl -X POST http://localhost:4000/events \
     "hook_event_type": "PreToolUse",
     "payload": {"tool_name": "Bash", "tool_input": {"command": "ls"}}
   }'
+
+# Test a hook script directly
+just hook-test pre_tool_use
 ```
 
 ## ⚙️ Configuration
@@ -336,9 +401,9 @@ Copy `.env.sample` to `.env` in the project root and fill in your API keys:
 **Application Root** (`.env` file):
 - `ANTHROPIC_API_KEY` – Anthropic Claude API key (required)
 - `ENGINEER_NAME` – Your name (for logging/identification)
-- `GEMINI_API_KEY` – Google Gemini API key (optional)
 - `OPENAI_API_KEY` – OpenAI API key (optional)
-- `ELEVEN_API_KEY` – ElevenLabs API key (optional)
+- `ELEVENLABS_API_KEY` – ElevenLabs API key (optional, for TTS)
+- `FIRECRAWL_API_KEY` – Firecrawl API key (optional, for web scraping)
 
 **Client** (`.env` file in `apps/client/.env`):
 - `VITE_MAX_EVENTS_TO_DISPLAY=100` – Maximum events to show (removes oldest when exceeded)
@@ -348,45 +413,78 @@ Copy `.env.sample` to `.env` in the project root and fill in your API keys:
 - Server: `4000` (HTTP/WebSocket)
 - Client: `5173` (Vite dev server)
 
+## 🤖 Agent Teams
+
+This project supports Claude Code Agent Teams for orchestrating multi-agent workflows. Teams are enabled via the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` environment variable in `.claude/settings.json`.
+
+### Team Agents
+
+- **Builder** (`.claude/agents/team/builder.md`): Engineering agent that executes one task at a time. Includes PostToolUse hooks for `ruff` and `ty` validation on Write/Edit operations.
+- **Validator** (`.claude/agents/team/validator.md`): Read-only validation agent that inspects work without modifying files. Cannot use Write, Edit, or NotebookEdit tools.
+
+### Planning with Teams
+
+Use the `/plan_w_team` slash command to create team-based implementation plans:
+
+```bash
+/plan_w_team "Add a new feature for X"
+```
+
+This generates a spec document in `specs/` with task breakdowns, team member assignments, dependencies, and acceptance criteria. Plans are validated by Stop hook validators that ensure required sections are present.
+
+Execute a plan with:
+```bash
+/build specs/<plan-name>.md
+```
+
+## 🔭 Multi-Agent Orchestration & Observability
+
+[![Multi-Agent Orchestration with Claude Code](images/claude-code-multi-agent-orchestration.png)](https://youtu.be/RpUTF_U4kiw)
+
+The true constraint of agentic engineering is no longer what the models can do — it's our ability to prompt engineer and context engineer the outcomes we need, and build them into reusable systems. Multi-agent orchestration changes the game by letting you spin up teams of specialized agents that each focus on one task extraordinarily well, work in parallel, and shut down when done. See the official [Claude Code Agent Teams documentation](https://code.claude.com/docs/en/agent-teams) for the full reference.
+
+### The Orchestration Workflow
+
+The full multi-agent orchestration lifecycle follows this pattern:
+
+1. **Create a team** — `TeamCreate` sets up the coordination layer
+2. **Create tasks** — `TaskCreate` builds the centralized task list that drives all work
+3. **Spawn agents** — `Task` deploys specialized agents (builder, validator, etc.) into their own Tmux panes with independent context windows
+4. **Work in parallel** — Agents execute their assigned tasks simultaneously, communicating via `SendMessage`
+5. **Shut down agents** — Completed agents are gracefully terminated
+6. **Delete the team** — `TeamDelete` cleans up all coordination state
+
+### Why Observability Matters
+
+When you have multiple agents running in parallel — each with their own context window, session ID, and task assignments — you need visibility into what's happening across the swarm. Without observability, you're vibe coding at scale. With it, you can:
+
+- **Trace every tool call** across all agents in real-time via the dashboard
+- **Filter by agent swim lane** to inspect individual agent behavior
+- **Track task lifecycle** — see TaskCreate, TaskUpdate, and SendMessage events flow between agents
+- **Spot failures early** — PostToolUseFailure and PermissionRequest events surface issues before they cascade
+- **Measure throughput** — the live pulse chart shows activity density across your agent fleet
+
+This is what separates engineers from vibe coders: understanding what's happening underneath the hood so you can scale compute to scale impact with confidence.
+
 ## 🛡️ Security Features
 
-- Blocks dangerous commands (`rm -rf`, etc.)
+- Blocks dangerous `rm -rf` commands via `deny_tool()` JSON pattern (allowed only in specific directories)
 - Prevents access to sensitive files (`.env`, private keys)
+- `stop_hook_active` guard in `stop.py` and `subagent_stop.py` prevents infinite hook loops
+- Stop hook validators ensure plan files contain required sections before completion
 - Validates all inputs before execution
-- No external dependencies for core functionality
 
 ## 📊 Technical Stack
 
 - **Server**: Bun, TypeScript, SQLite
 - **Client**: Vue 3, TypeScript, Vite, Tailwind CSS
-- **Hooks**: Python 3.8+, Astral uv, TTS (ElevenLabs or OpenAI), LLMs (Claude or OpenAI)
+- **Hooks**: Python 3.11+, Astral uv, TTS (ElevenLabs or OpenAI), LLMs (Claude or OpenAI)
 - **Communication**: HTTP REST, WebSocket
-
-## 🔧 Troubleshooting
-
-### Hook Scripts Not Working
-
-If your hook scripts aren't executing properly, it might be due to relative paths in your `.claude/settings.json`. Claude Code documentation recommends using absolute paths for command scripts.
-
-**Solution**: Use the custom Claude Code slash command to automatically convert all relative paths to absolute paths:
-
-```bash
-# In Claude Code, simply run:
-/convert_paths_absolute
-```
-
-This command will:
-- Find all relative paths in your hook command scripts
-- Convert them to absolute paths based on your current working directory
-- Create a backup of your original settings.json
-- Show you exactly what changes were made
-
-This ensures your hooks work correctly regardless of where Claude Code is executed from.
 
 ## Master AI **Agentic Coding**
 > And prepare for the future of software engineering
 
-Learn tactical agentic coding patterns with [Tactical Agentic Coding](https://agenticengineer.com/tactical-agentic-coding?y=cchobvwh45)
+Learn tactical agentic coding patterns with [Tactical Agentic Coding](https://agenticengineer.com/tactical-agentic-coding?y=opsorch)
 
 Follow the [IndyDevDan YouTube channel](https://www.youtube.com/@indydevdan) to improve your agentic coding advantage.
 

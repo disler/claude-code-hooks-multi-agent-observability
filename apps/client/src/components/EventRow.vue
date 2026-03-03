@@ -172,6 +172,9 @@
             <span class="mr-1 text-sm">{{ hookEmoji }}</span>
             {{ event.hook_event_type }}
           </span>
+          <span v-if="toolName" class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-semibold border-2 border-[var(--theme-primary)] text-[var(--theme-primary)] bg-[var(--theme-primary-light)] shadow-sm">
+            <span class="mr-0.5">{{ toolEmoji }}</span>{{ toolName }}
+          </span>
         </div>
       </div>
 
@@ -193,6 +196,9 @@
           <span class="inline-flex items-center px-3 py-0.5 rounded-full text-sm font-bold bg-[var(--theme-primary)] text-white shadow-lg">
             <span class="mr-1.5 text-base">{{ hookEmoji }}</span>
             {{ event.hook_event_type }}
+          </span>
+          <span v-if="toolName" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-semibold border-2 border-[var(--theme-primary)] text-[var(--theme-primary)] bg-[var(--theme-primary-light)] shadow-sm">
+            <span class="mr-1">{{ toolEmoji }}</span>{{ toolName }}
           </span>
         </div>
         <span class="text-sm text-[var(--theme-text-tertiary)] font-semibold">
@@ -285,8 +291,11 @@
 import { ref, computed } from 'vue';
 import type { HookEvent, HumanInTheLoopResponse } from '../types';
 import { useMediaQuery } from '../composables/useMediaQuery';
+import { useEventEmojis } from '../composables/useEventEmojis';
 import ChatTranscriptModal from './ChatTranscriptModal.vue';
 import { API_BASE_URL } from '../config';
+
+const { getEmojiForToolName } = useEventEmojis();
 
 const props = defineProps<{
   event: HookEvent;
@@ -327,15 +336,26 @@ const hookEmoji = computed(() => {
   const emojiMap: Record<string, string> = {
     'PreToolUse': '🔧',
     'PostToolUse': '✅',
+    'PostToolUseFailure': '❌',
+    'PermissionRequest': '🔐',
     'Notification': '🔔',
     'Stop': '🛑',
+    'SubagentStart': '🟢',
     'SubagentStop': '👥',
     'PreCompact': '📦',
     'UserPromptSubmit': '💬',
     'SessionStart': '🚀',
     'SessionEnd': '🏁'
   };
-  return emojiMap[props.event.hook_event_type] || '❓';
+  const baseEmoji = emojiMap[props.event.hook_event_type] || '❓';
+
+  // For tool events, show combo: event emoji + tool emoji (e.g., 🔧💻)
+  const toolEventTypes = ['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest'];
+  if (toolEventTypes.includes(props.event.hook_event_type) && props.event.payload?.tool_name) {
+    return `${baseEmoji}${getEmojiForToolName(props.event.payload.tool_name)}`;
+  }
+
+  return baseEmoji;
 });
 
 const borderColorClass = computed(() => {
@@ -359,6 +379,20 @@ const appBgStyle = computed(() => {
 
 const formattedPayload = computed(() => {
   return JSON.stringify(props.event.payload, null, 2);
+});
+
+const toolName = computed(() => {
+  const eventType = props.event.hook_event_type;
+  const toolEvents = ['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest'];
+  if (toolEvents.includes(eventType) && props.event.payload?.tool_name) {
+    return props.event.payload.tool_name;
+  }
+  return null;
+});
+
+const toolEmoji = computed(() => {
+  if (!toolName.value) return '';
+  return getEmojiForToolName(toolName.value);
 });
 
 const toolInfo = computed(() => {
@@ -400,12 +434,43 @@ const toolInfo = computed(() => {
     const info: { tool: string; detail?: string } = { tool: payload.tool_name };
     
     if (payload.tool_input) {
-      if (payload.tool_input.command) {
-        info.detail = payload.tool_input.command.slice(0, 50) + (payload.tool_input.command.length > 50 ? '...' : '');
-      } else if (payload.tool_input.file_path) {
-        info.detail = payload.tool_input.file_path.split('/').pop();
-      } else if (payload.tool_input.pattern) {
-        info.detail = payload.tool_input.pattern;
+      const input = payload.tool_input;
+      if (input.command) {
+        info.detail = input.command.slice(0, 50) + (input.command.length > 50 ? '...' : '');
+      } else if (input.file_path) {
+        info.detail = input.file_path.split('/').pop();
+      } else if (input.pattern) {
+        info.detail = input.pattern;
+      } else if (input.url) {
+        // WebFetch
+        info.detail = input.url.slice(0, 60) + (input.url.length > 60 ? '...' : '');
+      } else if (input.query) {
+        // WebSearch
+        info.detail = `"${input.query.slice(0, 50)}${input.query.length > 50 ? '...' : ''}"`;
+      } else if (input.notebook_path) {
+        // NotebookEdit
+        info.detail = input.notebook_path.split('/').pop();
+      } else if (input.recipient) {
+        // SendMessage
+        info.detail = `→ ${input.recipient}${input.summary ? ': ' + input.summary : ''}`;
+      } else if (input.subject) {
+        // TaskCreate
+        info.detail = input.subject;
+      } else if (input.taskId) {
+        // TaskGet, TaskUpdate
+        info.detail = `#${input.taskId}${input.status ? ' → ' + input.status : ''}`;
+      } else if (input.description && input.subagent_type) {
+        // Task (launch agent)
+        info.detail = `${input.subagent_type}: ${input.description}`;
+      } else if (input.task_id) {
+        // TaskOutput, TaskStop
+        info.detail = `task: ${input.task_id}`;
+      } else if (input.team_name) {
+        // TeamCreate
+        info.detail = input.team_name;
+      } else if (input.skill) {
+        // Skill
+        info.detail = input.skill;
       }
     }
     

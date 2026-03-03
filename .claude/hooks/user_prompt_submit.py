@@ -177,13 +177,13 @@ def main():
         if args.validate and not args.log_only:
             is_valid, reason = validate_prompt(prompt)
             if not is_valid:
-                # Exit code 2 blocks the prompt with error message
-                print(f"Prompt blocked: {reason}", file=sys.stderr)
-                sys.exit(2)
-
-        # Add context information (optional)
-        # You can print additional context that will be added to the prompt
-        # Example: print(f"Current time: {datetime.now()}")
+                # Use JSON decision pattern to block prompts
+                output = {
+                    "decision": "block",
+                    "reason": f"Prompt blocked: {reason}",
+                }
+                print(json.dumps(output))
+                sys.exit(0)
 
         # Success - prompt will be processed
         sys.exit(0)

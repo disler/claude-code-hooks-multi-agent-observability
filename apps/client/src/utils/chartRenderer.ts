@@ -127,10 +127,10 @@ export class ChartRenderer {
   }
   
   drawBars(
-    dataPoints: ChartDataPoint[], 
-    maxValue: number, 
-    progress: number = 1, 
-    formatLabel?: (eventTypes: Record<string, number>) => string,
+    dataPoints: ChartDataPoint[],
+    maxValue: number,
+    progress: number = 1,
+    formatLabel?: (eventTypes: Record<string, number>, toolEvents?: Record<string, number>) => string,
     getSessionColor?: (sessionId: string) => string
   ) {
     const chartArea = this.getChartArea();
@@ -180,7 +180,7 @@ export class ChartRenderer {
       
       // Draw emoji labels with tooltip background
       if (formatLabel && point.eventTypes && Object.keys(point.eventTypes).length > 0 && barHeight > 10) {
-        const label = formatLabel(point.eventTypes);
+        const label = formatLabel(point.eventTypes, point.toolEvents);
         if (label) {
           this.ctx.save();
           this.ctx.font = '20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';

@@ -157,6 +157,11 @@ def main():
         session_id = input_data.get("session_id", "")
         stop_hook_active = input_data.get("stop_hook_active", False)
 
+        # If stop_hook_active is true, exit 0 immediately to prevent infinite loops
+        # This means Claude is already continuing from a previous stop hook decision
+        if stop_hook_active:
+            sys.exit(0)
+
         # Ensure session log directory exists
         log_dir = ensure_session_log_dir(session_id)
         log_path = log_dir / "stop.json"
@@ -171,8 +176,13 @@ def main():
         else:
             log_data = []
 
-        # Append new data
-        log_data.append(input_data)
+        # Build log entry with stop_hook_active value
+        log_entry = {
+            "session_id": session_id,
+            "hook_event_name": input_data.get("hook_event_name", "Stop"),
+            "stop_hook_active": stop_hook_active,
+        }
+        log_data.append(log_entry)
 
         # Write back to file with formatting
         with open(log_path, "w") as f:

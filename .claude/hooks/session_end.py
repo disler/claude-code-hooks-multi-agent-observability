@@ -21,7 +21,7 @@ except ImportError:
     pass  # dotenv is optional
 
 
-def log_session_end(input_data):
+def log_session_end(input_data, reason):
     """Log session end event to logs directory."""
     # Ensure logs directory exists
     log_dir = Path("logs")
@@ -38,12 +38,14 @@ def log_session_end(input_data):
     else:
         log_data = []
 
-    # Append the entire input data with timestamp
-    entry = {
-        **input_data,
-        "logged_at": datetime.now().isoformat()
+    # Build log entry ensuring reason is always present
+    log_entry = {
+        "session_id": input_data.get("session_id", "unknown"),
+        "hook_event_name": input_data.get("hook_event_name", "SessionEnd"),
+        "reason": reason,
+        "logged_at": datetime.now().isoformat(),
     }
-    log_data.append(entry)
+    log_data.append(log_entry)
 
     # Write back to file with formatting
     with open(log_file, 'w') as f:
@@ -112,8 +114,8 @@ def main():
         session_id = input_data.get('session_id', 'unknown')
         reason = input_data.get('reason', 'other')
 
-        # Log the session end event
-        log_session_end(input_data)
+        # Log the session end event (ensuring reason is always logged)
+        log_session_end(input_data, reason)
 
         # Save session statistics if requested
         if args.save_stats:
@@ -131,7 +133,8 @@ def main():
                         "clear": "Session cleared",
                         "logout": "Logging out",
                         "prompt_input_exit": "Session ended",
-                        "other": "Session ended"
+                        "bypass_permissions_disabled": "Bypass permissions disabled",
+                        "other": "Session ended",
                     }
                     message = messages.get(reason, "Session ended")
 
