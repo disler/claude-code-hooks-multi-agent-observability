@@ -54,36 +54,39 @@ function broadcastDashboard(message: object): void {
 
 function ensureContainerFromEvent(sourceApp: string, sessionId: string): void {
   const rows = db.prepare(
-    'SELECT id, active_session_ids FROM containers WHERE source_repo = ?'
+    'SELECT id, machine_hostname, active_session_ids FROM containers WHERE source_repo = ?'
   ).all(sourceApp) as any[];
 
-  if (rows.length === 0) {
-    // Create a stub container — will be enriched when the planq-daemon connects
+  // If a real (non-stub) container already explicitly claims this session via heartbeat, do nothing
+  for (const row of rows) {
+    if (row.machine_hostname === 'unknown') continue;
+    const ids: string[] = JSON.parse(row.active_session_ids || '[]');
+    if (ids.includes(sessionId)) return;
+  }
+
+  // Find or create the unknown stub for this source_repo
+  const stub = rows.find((r: any) => r.machine_hostname === 'unknown') ?? null;
+
+  let stubId: string;
+  if (!stub) {
+    // Use sourceApp as stub ID unless a real container already has that ID
+    stubId = rows.some((r: any) => r.id === sourceApp) ? `${sourceApp}:unknown` : sourceApp;
     db.prepare(`
       INSERT OR IGNORE INTO containers
         (id, source_repo, machine_hostname, container_hostname, active_session_ids, last_seen, connected)
-      VALUES (?, ?, 'unknown', '', ?, ?, 0)
-    `).run(sourceApp, sourceApp, JSON.stringify([sessionId]), Date.now());
-    const container = getContainer(sourceApp);
-    if (container) {
-      broadcastDashboard({ type: 'container_update', data: buildContainerWithState(container) });
-    }
-    return;
+      VALUES (?, ?, 'unknown', 'unknown', ?, ?, 0)
+    `).run(stubId, sourceApp, JSON.stringify([sessionId]), Date.now());
+  } else {
+    stubId = stub.id;
+    const ids: string[] = JSON.parse(stub.active_session_ids || '[]');
+    if (ids.includes(sessionId)) return;
+    ids.push(sessionId);
+    db.prepare('UPDATE containers SET active_session_ids = ?, last_seen = ? WHERE id = ?')
+      .run(JSON.stringify(ids), Date.now(), stubId);
   }
 
-  // Add session_id to any container that doesn't already list it
-  for (const row of rows) {
-    const ids: string[] = JSON.parse(row.active_session_ids || '[]');
-    if (!ids.includes(sessionId)) {
-      ids.push(sessionId);
-      db.prepare('UPDATE containers SET active_session_ids = ?, last_seen = ? WHERE id = ?')
-        .run(JSON.stringify(ids), Date.now(), row.id);
-      const container = getContainer(row.id);
-      if (container) {
-        broadcastDashboard({ type: 'container_update', data: buildContainerWithState(container) });
-      }
-    }
-  }
+  const container = getContainer(stubId);
+  if (container) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(container) });
 }
 
 export function broadcastAgentUpdate(data: {
@@ -178,6 +181,25 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     if (msg.planq_order) {
       const items = parsePlanqOrder(msg.planq_order);
       syncPlanqTasksFromParsed(containerId, items);
+    }
+
+    // Remove sessions now claimed by this real container from the unknown stub
+    const claimedIds: string[] = Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [];
+    if (claimedIds.length > 0) {
+      const sourceRepo: string = msg.source_repo ?? containerId;
+      const stubRow = db.prepare(
+        "SELECT id, active_session_ids FROM containers WHERE source_repo = ? AND machine_hostname = 'unknown'"
+      ).get(sourceRepo) as any;
+      if (stubRow) {
+        const stubIds: string[] = JSON.parse(stubRow.active_session_ids || '[]');
+        const remaining = stubIds.filter((id: string) => !claimedIds.includes(id));
+        if (remaining.length !== stubIds.length) {
+          db.prepare('UPDATE containers SET active_session_ids = ? WHERE id = ?')
+            .run(JSON.stringify(remaining), stubRow.id);
+          const stub = getContainer(stubRow.id);
+          if (stub) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(stub) });
+        }
+      }
     }
 
     // Broadcast to dashboard clients
