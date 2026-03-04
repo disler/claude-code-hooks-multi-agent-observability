@@ -22,6 +22,14 @@ async function serveStatic(distDir: string, urlPath: string): Promise<Response> 
     file = Bun.file(join(distDir, 'index.html'))
   }
   if (!(await file.exists())) {
+    // Check whether the whole dist dir is absent — give a clearer error
+    const indexMissing = !(await Bun.file(join(distDir, 'index.html')).exists())
+    if (indexMissing) {
+      return new Response(
+        `Build not found at ${distDir}\nRun: .devcontainer/host-firewall-admin.sh install-observability`,
+        { status: 503, headers: { 'Content-Type': 'text/plain' } }
+      )
+    }
     return new Response('Not found', { status: 404 })
   }
   return new Response(file)
