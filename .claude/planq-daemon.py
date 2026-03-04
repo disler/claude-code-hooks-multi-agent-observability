@@ -31,7 +31,10 @@ def _get_machine_hostname():
 
 SERVER_URL = os.environ.get('OBSERVABILITY_SERVER_URL', 'ws://172.30.0.1:4000/container-heartbeat')
 SOURCE_REPO = os.environ.get('SOURCE_REPO', Path.cwd().name)
-WORKSPACE_ROOT = Path(os.environ.get('WORKSPACE_HOST_PATH', str(Path.cwd())))
+# WORKSPACE_ROOT is the in-container path used for git and file operations.
+# WORKSPACE_HOST_PATH is the host-side path sent to the server for display only.
+WORKSPACE_ROOT = Path(os.environ.get('WORKSPACE_PATH', str(Path.cwd())))
+WORKSPACE_HOST_PATH = os.environ.get('WORKSPACE_HOST_PATH', str(WORKSPACE_ROOT))
 MACHINE_HOSTNAME = os.environ.get('DEVCONTAINER_HOST', '') or _get_machine_hostname()
 CONTAINER_HOSTNAME = os.environ.get('HOSTNAME', '')
 HEARTBEAT_INTERVAL = int(os.environ.get('OBSERVABILITY_HEARTBEAT_INTERVAL', '15'))
@@ -263,7 +266,7 @@ def _send_heartbeat(ws_app):
         'container_id': container_id,
         'machine_hostname': MACHINE_HOSTNAME,
         'container_hostname': CONTAINER_HOSTNAME,
-        'workspace_host_path': str(WORKSPACE_ROOT),
+        'workspace_host_path': WORKSPACE_HOST_PATH,
         'planq_order': planq,
         'active_session_ids': session_ids,
         **git,
