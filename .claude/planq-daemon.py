@@ -170,6 +170,41 @@ def _active_session_ids() -> list:
             pass
     return ids
 
+
+def _running_session_ids() -> list:
+    """Find session IDs of currently running claude processes via /proc fd symlinks."""
+    logs_dir = WORKSPACE_ROOT / '.claude' / 'logs'
+    if not logs_dir.exists():
+        return []
+    proc = Path('/proc')
+    if not proc.exists():
+        return []
+    running = set()
+    try:
+        for pid_dir in proc.iterdir():
+            if not pid_dir.name.isdigit():
+                continue
+            try:
+                cmdline = (pid_dir / 'cmdline').read_bytes().decode(errors='replace')
+                if 'claude' not in cmdline:
+                    continue
+            except OSError:
+                continue
+            fd_dir = pid_dir / 'fd'
+            try:
+                for fd in fd_dir.iterdir():
+                    try:
+                        target = Path(os.readlink(fd))
+                        if target.suffix == '.jsonl' and target.parent == logs_dir:
+                            running.add(target.stem)
+                    except OSError:
+                        pass
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return list(running)
+
 def _planq_order(container_id: str, source_repo: str, git_worktree: str) -> str:
     """Read the planq-order file for this container."""
     plans_dir = WORKSPACE_ROOT / 'plans'
@@ -301,7 +336,12 @@ def _send_heartbeat(ws_app):
     source_repo = SOURCE_REPO
     container_id = _compute_container_id(source_repo, git['git_worktree'])
     planq = _planq_order(container_id, source_repo, git['git_worktree'])
-    session_ids = _active_session_ids()
+    running_ids = _running_session_ids()
+    # Merge running sessions into the active list so the server always sees them
+    active_ids = _active_session_ids()
+    for sid in running_ids:
+        if sid not in active_ids:
+            active_ids.append(sid)
 
     heartbeat = {
         'type': 'heartbeat',
@@ -311,7 +351,8 @@ def _send_heartbeat(ws_app):
         'container_hostname': CONTAINER_HOSTNAME,
         'workspace_host_path': WORKSPACE_HOST_PATH,
         'planq_order': planq,
-        'active_session_ids': session_ids,
+        'active_session_ids': active_ids,
+        'running_session_ids': running_ids,
         **git,
     }
 

@@ -28,6 +28,7 @@ export interface ContainerRow {
   git_submodules: GitSubmoduleInfo[]; // parsed from JSON
   planq_order: string | null;
   active_session_ids: string[]; // parsed from JSON
+  running_session_ids: string[]; // parsed from JSON — sessions with live claude processes
   last_seen: number;
   connected: boolean;
 }
@@ -68,6 +69,7 @@ export function initContainerDatabase(): void {
       git_submodules TEXT DEFAULT '[]',
       planq_order TEXT,
       active_session_ids TEXT DEFAULT '[]',
+      running_session_ids TEXT DEFAULT '[]',
       last_seen INTEGER NOT NULL,
       connected INTEGER DEFAULT 0
     )
@@ -96,6 +98,9 @@ export function initContainerDatabase(): void {
   if (!columns.includes('git_submodules')) {
     db.exec("ALTER TABLE containers ADD COLUMN git_submodules TEXT DEFAULT '[]'");
   }
+  if (!columns.includes('running_session_ids')) {
+    db.exec("ALTER TABLE containers ADD COLUMN running_session_ids TEXT DEFAULT '[]'");
+  }
 }
 
 export function upsertContainer(data: Omit<ContainerRow, 'connected'>): ContainerRow {
@@ -104,8 +109,8 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       (id, source_repo, machine_hostname, container_hostname, workspace_host_path,
        git_branch, git_worktree, git_commit_hash, git_commit_message,
        git_staged_count, git_staged_diffstat, git_unstaged_count, git_unstaged_diffstat,
-       git_submodules, planq_order, active_session_ids, last_seen, connected)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+       git_submodules, planq_order, active_session_ids, running_session_ids, last_seen, connected)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
     ON CONFLICT(id) DO UPDATE SET
       source_repo=excluded.source_repo,
       machine_hostname=excluded.machine_hostname,
@@ -122,6 +127,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       git_submodules=excluded.git_submodules,
       planq_order=excluded.planq_order,
       active_session_ids=excluded.active_session_ids,
+      running_session_ids=excluded.running_session_ids,
       last_seen=excluded.last_seen,
       connected=1
   `);
@@ -143,6 +149,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
     JSON.stringify(data.git_submodules ?? []),
     data.planq_order ?? null,
     JSON.stringify(data.active_session_ids),
+    JSON.stringify(data.running_session_ids ?? []),
     data.last_seen
   );
 
@@ -181,6 +188,7 @@ function rowToContainer(row: any): ContainerRow {
     git_submodules: JSON.parse(row.git_submodules || '[]'),
     planq_order: row.planq_order,
     active_session_ids: JSON.parse(row.active_session_ids || '[]'),
+    running_session_ids: JSON.parse(row.running_session_ids || '[]'),
     last_seen: row.last_seen,
     connected: Boolean(row.connected),
   };

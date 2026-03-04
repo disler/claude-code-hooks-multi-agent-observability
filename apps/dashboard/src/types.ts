@@ -46,6 +46,7 @@ export interface ContainerWithState {
   git_submodules: GitSubmoduleInfo[]
   planq_order: string | null
   active_session_ids: string[]
+  running_session_ids: string[]
   last_seen: number
   connected: boolean
   sessions: SessionState[]

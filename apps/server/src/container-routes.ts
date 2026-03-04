@@ -213,6 +213,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       git_submodules: Array.isArray(msg.git_submodules) ? msg.git_submodules : [],
       planq_order: msg.planq_order ?? null,
       active_session_ids: Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [],
+      running_session_ids: Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [],
       last_seen: Date.now(),
     });
 
@@ -354,7 +355,7 @@ interface ContainerWithState extends ContainerRow {
 }
 
 function buildContainerWithState(container: ContainerRow): ContainerWithState {
-  const sessions = deriveSessionStates(container.source_repo, container.active_session_ids);
+  const sessions = deriveSessionStates(container.source_repo, container.active_session_ids, container.running_session_ids);
 
   let overall_status: 'busy' | 'awaiting_input' | 'idle' | 'offline' = 'offline';
   if (container.connected) {
@@ -368,7 +369,7 @@ function buildContainerWithState(container: ContainerRow): ContainerWithState {
   return { ...container, sessions, overall_status, planq_tasks };
 }
 
-function deriveSessionStates(sourceRepo: string, sessionIds: string[]): SessionState[] {
+function deriveSessionStates(sourceRepo: string, sessionIds: string[], runningIds: string[] = []): SessionState[] {
   if (!sessionIds.length) return [];
 
   const placeholders = sessionIds.map(() => '?').join(',');
@@ -423,13 +424,17 @@ function deriveSessionStates(sourceRepo: string, sessionIds: string[]): SessionS
 
     const model_name = events.find(e => e.model_name)?.model_name ?? null;
 
+    // A session confirmed running by a live claude process is always busy
+    if (status === 'idle' && runningIds.includes(sessionId)) status = 'busy';
+
     states.push({ session_id: sessionId, status, last_prompt, last_response_summary, model_name, subagent_count });
   }
 
   // Also include session IDs from the list that have no events yet
   for (const id of sessionIds) {
     if (!bySession.has(id)) {
-      states.push({ session_id: id, status: 'idle', last_prompt: null, last_response_summary: null, model_name: null, subagent_count: 0 });
+      const status = runningIds.includes(id) ? 'busy' : 'idle';
+      states.push({ session_id: id, status, last_prompt: null, last_response_summary: null, model_name: null, subagent_count: 0 });
     }
   }
 
