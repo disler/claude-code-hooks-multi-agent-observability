@@ -52,40 +52,78 @@ function broadcastDashboard(message: object): void {
   });
 }
 
-function ensureContainerFromEvent(sourceApp: string, sessionId: string): void {
+interface DevcontainerInfo {
+  host?: string;
+  container_id?: string;
+  workspace?: string;
+  git_branch?: string;
+}
+
+function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: DevcontainerInfo): void {
   const rows = db.prepare(
-    'SELECT id, machine_hostname, active_session_ids FROM containers WHERE source_repo = ?'
+    'SELECT id, machine_hostname, container_hostname, active_session_ids FROM containers WHERE source_repo = ?'
   ).all(sourceApp) as any[];
 
-  // If a real (non-stub) container already explicitly claims this session via heartbeat, do nothing
+  // If any container already claims this session, nothing to do
   for (const row of rows) {
-    if (row.machine_hostname === 'unknown') continue;
     const ids: string[] = JSON.parse(row.active_session_ids || '[]');
     if (ids.includes(sessionId)) return;
   }
 
-  // Find or create the unknown stub for this source_repo
-  const stub = rows.find((r: any) => r.machine_hostname === 'unknown') ?? null;
+  const machineHostname = (dc?.host && dc.host !== 'unknown') ? dc.host : 'unknown';
+  const containerHostname = dc?.container_id || 'unknown';
 
-  let stubId: string;
-  if (!stub) {
-    // Use sourceApp as stub ID unless a real container already has that ID
-    stubId = rows.some((r: any) => r.id === sourceApp) ? `${sourceApp}:unknown` : sourceApp;
-    db.prepare(`
-      INSERT OR IGNORE INTO containers
-        (id, source_repo, machine_hostname, container_hostname, active_session_ids, last_seen, connected)
-      VALUES (?, ?, 'unknown', 'unknown', ?, ?, 0)
-    `).run(stubId, sourceApp, JSON.stringify([sessionId]), Date.now());
-  } else {
-    stubId = stub.id;
-    const ids: string[] = JSON.parse(stub.active_session_ids || '[]');
-    if (ids.includes(sessionId)) return;
+  // Find the best matching existing container to add this session to:
+  // 1. Exact match on (machine_hostname, container_hostname) — same physical container
+  // 2. Hostname-only match — same host, unknown container
+  // 3. Any existing unknown stub
+  let match: any =
+    (machineHostname !== 'unknown' && containerHostname !== 'unknown'
+      ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === containerHostname)
+      : null) ??
+    (machineHostname !== 'unknown'
+      ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === 'unknown')
+      : null) ??
+    rows.find((r: any) => r.machine_hostname === 'unknown') ??
+    null;
+
+  if (match) {
+    const ids: string[] = JSON.parse(match.active_session_ids || '[]');
     ids.push(sessionId);
-    db.prepare('UPDATE containers SET active_session_ids = ?, last_seen = ? WHERE id = ?')
-      .run(JSON.stringify(ids), Date.now(), stubId);
+    // Upgrade stub fields with real devcontainer info where we now know better
+    db.prepare(`
+      UPDATE containers SET
+        active_session_ids = ?, last_seen = ?,
+        machine_hostname  = CASE WHEN machine_hostname  = 'unknown' AND ? != 'unknown' THEN ? ELSE machine_hostname  END,
+        container_hostname = CASE WHEN container_hostname = 'unknown' AND ? != 'unknown' THEN ? ELSE container_hostname END,
+        workspace_host_path = COALESCE(workspace_host_path, ?),
+        git_branch          = COALESCE(git_branch, ?)
+      WHERE id = ?
+    `).run(
+      JSON.stringify(ids), Date.now(),
+      machineHostname, machineHostname,
+      containerHostname, containerHostname,
+      dc?.workspace ?? null, dc?.git_branch ?? null,
+      match.id,
+    );
+    const container = getContainer(match.id);
+    if (container) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(container) });
+    return;
   }
 
-  const container = getContainer(stubId);
+  // No existing container — create one using whatever devcontainer info we have
+  const idTaken = rows.some((r: any) => r.id === sourceApp);
+  const newId = idTaken
+    ? (containerHostname !== 'unknown' ? `${sourceApp}:${containerHostname}` : `${sourceApp}:unknown`)
+    : sourceApp;
+
+  db.prepare(`
+    INSERT OR IGNORE INTO containers
+      (id, source_repo, machine_hostname, container_hostname, workspace_host_path, git_branch, active_session_ids, last_seen, connected)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+  `).run(newId, sourceApp, machineHostname, containerHostname, dc?.workspace ?? null, dc?.git_branch ?? null, JSON.stringify([sessionId]), Date.now());
+
+  const container = getContainer(newId);
   if (container) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(container) });
 }
 
@@ -96,7 +134,7 @@ export function broadcastAgentUpdate(data: {
   payload: any;
   summary?: string;
 }): void {
-  ensureContainerFromEvent(data.source_app, data.session_id);
+  ensureContainerFromEvent(data.source_app, data.session_id, data.payload?._devcontainer);
 
   // Derive status from hook event type
   let status: string | null = null;
@@ -183,14 +221,18 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       syncPlanqTasksFromParsed(containerId, items);
     }
 
-    // Remove sessions now claimed by this real container from the unknown stub
+    // Remove sessions now claimed by this real container from any event-derived records
+    // (stubs matched by unknown hostname, or by the same container_hostname)
     const claimedIds: string[] = Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [];
     if (claimedIds.length > 0) {
       const sourceRepo: string = msg.source_repo ?? containerId;
-      const stubRow = db.prepare(
-        "SELECT id, active_session_ids FROM containers WHERE source_repo = ? AND machine_hostname = 'unknown'"
-      ).get(sourceRepo) as any;
-      if (stubRow) {
+      const containerHostname: string = msg.container_hostname ?? '';
+      const stubs = db.prepare(`
+        SELECT id, active_session_ids FROM containers
+        WHERE source_repo = ? AND id != ?
+          AND (machine_hostname = 'unknown' OR container_hostname = ? OR container_hostname = 'unknown')
+      `).all(sourceRepo, containerId, containerHostname) as any[];
+      for (const stubRow of stubs) {
         const stubIds: string[] = JSON.parse(stubRow.active_session_ids || '[]');
         const remaining = stubIds.filter((id: string) => !claimedIds.includes(id));
         if (remaining.length !== stubIds.length) {
