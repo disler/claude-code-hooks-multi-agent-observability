@@ -98,7 +98,8 @@ const typeBadgeClass = computed(() => ({
   'manual-test': 'bg-yellow-900/60 text-yellow-300',
   'manual-commit': 'bg-orange-900/60 text-orange-300',
   'manual-task': 'bg-slate-700 text-slate-300',
-}[props.task.task_type] ?? 'bg-slate-700 text-slate-300'))
+  'unnamed-task': 'bg-blue-900/40 text-blue-400',
+} as Record<string, string>)[props.task.task_type] ?? 'bg-slate-700 text-slate-300')
 
 async function startEditDesc() {
   editDesc.value = props.task.description ?? ''
