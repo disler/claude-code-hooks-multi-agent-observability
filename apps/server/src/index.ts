@@ -1,5 +1,15 @@
 import { initDatabase, insertEvent, getFilterOptions, getRecentEvents, updateEventHITLResponse } from './db';
 import type { HookEvent, HumanInTheLoopResponse } from './types';
+import {
+  initContainerRoutes,
+  handleContainerRequest,
+  handleContainerOpen,
+  handleContainerMessage,
+  handleContainerClose,
+  handleDashboardOpen,
+  handleDashboardClose,
+  broadcastAgentUpdate,
+} from './container-routes';
 import { 
   createTheme, 
   updateThemeById, 
@@ -13,6 +23,7 @@ import {
 
 // Initialize database
 initDatabase();
+initContainerRoutes();
 
 // Store WebSocket clients
 const wsClients = new Set<any>();
@@ -136,7 +147,16 @@ const server = Bun.serve({
         
         // Insert event into database
         const savedEvent = insertEvent(event);
-        
+
+        // Broadcast agent state update to dashboard clients
+        broadcastAgentUpdate({
+          source_app: savedEvent.source_app,
+          session_id: savedEvent.session_id,
+          hook_event_type: savedEvent.hook_event_type,
+          payload: savedEvent.payload,
+          summary: savedEvent.summary,
+        });
+
         // Broadcast to all WebSocket clients
         const message = JSON.stringify({ type: 'event', data: savedEvent });
         wsClients.forEach(client => {
@@ -406,14 +426,24 @@ const server = Bun.serve({
       });
     }
     
-    // WebSocket upgrade
+    // WebSocket upgrades
     if (url.pathname === '/stream') {
-      const success = server.upgrade(req);
-      if (success) {
-        return undefined;
-      }
+      const success = server.upgrade(req, { data: { type: 'stream' } });
+      if (success) return undefined;
     }
-    
+    if (url.pathname === '/container-heartbeat') {
+      const success = server.upgrade(req, { data: { type: 'container' } });
+      if (success) return undefined;
+    }
+    if (url.pathname === '/dashboard/stream') {
+      const success = server.upgrade(req, { data: { type: 'dashboard' } });
+      if (success) return undefined;
+    }
+
+    // Container / dashboard HTTP routes
+    const containerResponse = await handleContainerRequest(req);
+    if (containerResponse) return containerResponse;
+
     // Default response
     return new Response('Multi-Agent Observability Server', {
       headers: { ...headers, 'Content-Type': 'text/plain' }
@@ -422,27 +452,49 @@ const server = Bun.serve({
   
   websocket: {
     open(ws) {
-      console.log('WebSocket client connected');
-      wsClients.add(ws);
-      
-      // Send recent events on connection
-      const events = getRecentEvents(300);
-      ws.send(JSON.stringify({ type: 'initial', data: events }));
+      const type = (ws.data as any)?.type ?? 'stream';
+      if (type === 'container') {
+        handleContainerOpen(ws);
+      } else if (type === 'dashboard') {
+        handleDashboardOpen(ws);
+      } else {
+        // Event stream client
+        console.log('WebSocket client connected');
+        wsClients.add(ws);
+        const events = getRecentEvents(300);
+        ws.send(JSON.stringify({ type: 'initial', data: events }));
+      }
     },
-    
+
     message(ws, message) {
-      // Handle any client messages if needed
-      console.log('Received message:', message);
+      const type = (ws.data as any)?.type ?? 'stream';
+      if (type === 'container') {
+        handleContainerMessage(ws, message as string);
+      }
     },
-    
+
     close(ws) {
-      console.log('WebSocket client disconnected');
-      wsClients.delete(ws);
+      const type = (ws.data as any)?.type ?? 'stream';
+      if (type === 'container') {
+        handleContainerClose(ws);
+      } else if (type === 'dashboard') {
+        handleDashboardClose(ws);
+      } else {
+        console.log('WebSocket client disconnected');
+        wsClients.delete(ws);
+      }
     },
-    
+
     error(ws, error) {
       console.error('WebSocket error:', error);
-      wsClients.delete(ws);
+      const type = (ws.data as any)?.type ?? 'stream';
+      if (type === 'container') {
+        handleContainerClose(ws);
+      } else if (type === 'dashboard') {
+        handleDashboardClose(ws);
+      } else {
+        wsClients.delete(ws);
+      }
     }
   }
 });
