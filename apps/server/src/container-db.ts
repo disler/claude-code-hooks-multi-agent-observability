@@ -101,6 +101,18 @@ export function initContainerDatabase(): void {
   if (!columns.includes('running_session_ids')) {
     db.exec("ALTER TABLE containers ADD COLUMN running_session_ids TEXT DEFAULT '[]'");
   }
+  if (!columns.includes('planq_server_modified_at')) {
+    db.exec('ALTER TABLE containers ADD COLUMN planq_server_modified_at INTEGER');
+  }
+}
+
+export function touchPlanqServerModified(containerId: string): void {
+  db.prepare('UPDATE containers SET planq_server_modified_at = ? WHERE id = ?').run(Date.now(), containerId);
+}
+
+export function getPlanqServerModifiedAt(containerId: string): number {
+  const row = db.prepare('SELECT planq_server_modified_at FROM containers WHERE id = ?').get(containerId) as any;
+  return row?.planq_server_modified_at ?? 0;
 }
 
 export function upsertContainer(data: Omit<ContainerRow, 'connected'>): ContainerRow {

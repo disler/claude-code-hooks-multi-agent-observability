@@ -13,6 +13,8 @@ import {
   updatePlanqTask,
   deletePlanqTask,
   reorderPlanqTasks,
+  touchPlanqServerModified,
+  getPlanqServerModifiedAt,
   type ContainerRow,
   type PlanqTaskRow,
 } from './container-db';
@@ -195,6 +197,26 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       ws.__containerId = containerId; // store for close handler
     }
 
+    // Merge daemon-detected sessions with existing server-side sessions that have recent
+    // hook events. This prevents heartbeats from wiping sessions added by hook events when
+    // the daemon can't detect them (e.g. logs in a different directory than expected).
+    const daemonSessionIds: string[] = Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [];
+    const sourceRepo: string = msg.source_repo ?? containerId;
+    const existingContainer = getContainer(containerId);
+    let mergedSessionIds = daemonSessionIds;
+    if (existingContainer) {
+      const toCheck = existingContainer.active_session_ids.filter(id => !daemonSessionIds.includes(id));
+      if (toCheck.length > 0) {
+        const cutoff = Date.now() - 4 * 60 * 60 * 1000;
+        const placeholders = toCheck.map(() => '?').join(',');
+        const recentRows = db.prepare(
+          `SELECT DISTINCT session_id FROM events WHERE source_app = ? AND session_id IN (${placeholders}) AND timestamp >= ?`
+        ).all(sourceRepo, ...toCheck, cutoff) as any[];
+        const recentIds = recentRows.map((r: any) => r.session_id);
+        if (recentIds.length > 0) mergedSessionIds = [...daemonSessionIds, ...recentIds];
+      }
+    }
+
     // Upsert container row
     const container = upsertContainer({
       id: containerId,
@@ -212,15 +234,20 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       git_unstaged_diffstat: msg.git_unstaged_diffstat ?? null,
       git_submodules: Array.isArray(msg.git_submodules) ? msg.git_submodules : [],
       planq_order: msg.planq_order ?? null,
-      active_session_ids: Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [],
+      active_session_ids: mergedSessionIds,
       running_session_ids: Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [],
       last_seen: Date.now(),
     });
 
-    // Sync planq tasks from planq_order text
+    // Sync planq tasks from planq_order text — but only if the server hasn't made local
+    // edits more recently (30s grace period avoids a race where the heartbeat file read
+    // predates a server-initiated file write, which would revert server-side changes).
     if (msg.planq_order) {
-      const items = parsePlanqOrder(msg.planq_order);
-      syncPlanqTasksFromParsed(containerId, items);
+      const lastServerEdit = getPlanqServerModifiedAt(containerId);
+      if (Date.now() - lastServerEdit > 30_000) {
+        const items = parsePlanqOrder(msg.planq_order);
+        syncPlanqTasksFromParsed(containerId, items);
+      }
     }
 
     // Remove sessions now claimed by this real container from any event-derived records
@@ -488,6 +515,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!task_type) return err('task_type required');
 
     const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null);
+    touchPlanqServerModified(containerId);
 
     // For named tasks, write the description content to the file in the container
     if (task_type === 'task' && filename && description) {
@@ -512,6 +540,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const body = await req.json() as any;
     const task = updatePlanqTask(taskId, { description: body.description, status: body.status });
     if (!task) return err('Task not found', 404);
+    touchPlanqServerModified(containerId);
 
     await writePlanqFile(containerId, container).catch(() => {});
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
@@ -528,6 +557,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     const deleted = deletePlanqTask(taskId);
     if (!deleted) return err('Task not found', 404);
+    touchPlanqServerModified(containerId);
 
     await writePlanqFile(containerId, container).catch(() => {});
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
@@ -543,6 +573,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const body = await req.json() as any;
     if (!Array.isArray(body)) return err('Body must be array of {id, position}');
     reorderPlanqTasks(body);
+    touchPlanqServerModified(containerId);
 
     await writePlanqFile(containerId, container).catch(() => {});
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
