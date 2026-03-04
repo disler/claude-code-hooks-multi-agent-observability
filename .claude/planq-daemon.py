@@ -92,6 +92,8 @@ def _git_info():
                     pass
             break
 
+    submodules = _git_submodule_info(ws)
+
     return {
         'git_branch': branch,
         'git_worktree': worktree,
@@ -101,7 +103,48 @@ def _git_info():
         'git_staged_diffstat': staged_diffstat,
         'git_unstaged_count': unstaged_count,
         'git_unstaged_diffstat': unstaged_diffstat,
+        'git_submodules': submodules,
     }
+
+
+def _git_submodule_info(ws):
+    status_out = _run(['git', 'submodule', 'status'], cwd=ws)
+    submodules = []
+    for line in status_out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Format: [+/-/U/ ] <hash> <path> [(<describe>)]
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        sub_path = parts[1]
+        sub_abs = str(Path(ws) / sub_path)
+
+        branch = _run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=sub_abs).strip() or None
+
+        raw_log = _run(['git', 'log', '-1', '--format=%h|||%s'], cwd=sub_abs)
+        if '|||' in raw_log:
+            commit_hash, commit_msg = raw_log.split('|||', 1)
+        else:
+            commit_hash, commit_msg = raw_log, ''
+
+        staged_count = len([l for l in _run(['git', 'diff', '--cached', '--name-only'], cwd=sub_abs).splitlines() if l])
+        staged_diffstat = _run(['git', 'diff', '--cached', '--stat'], cwd=sub_abs)
+        unstaged_count = len([l for l in _run(['git', 'diff', '--name-only'], cwd=sub_abs).splitlines() if l])
+        unstaged_diffstat = _run(['git', 'diff', '--stat'], cwd=sub_abs)
+
+        submodules.append({
+            'path': sub_path,
+            'branch': branch,
+            'commit_hash': commit_hash,
+            'commit_message': commit_msg,
+            'staged_count': staged_count,
+            'staged_diffstat': staged_diffstat or None,
+            'unstaged_count': unstaged_count,
+            'unstaged_diffstat': unstaged_diffstat or None,
+        })
+    return submodules
 
 def _compute_container_id(source_repo: str, git_worktree: str) -> str:
     """Derive container_id from source_repo + worktree path."""

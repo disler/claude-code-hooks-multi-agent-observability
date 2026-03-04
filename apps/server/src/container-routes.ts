@@ -210,6 +210,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       git_staged_diffstat: msg.git_staged_diffstat ?? null,
       git_unstaged_count: msg.git_unstaged_count ?? 0,
       git_unstaged_diffstat: msg.git_unstaged_diffstat ?? null,
+      git_submodules: Array.isArray(msg.git_submodules) ? msg.git_submodules : [],
       planq_order: msg.planq_order ?? null,
       active_session_ids: Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [],
       last_seen: Date.now(),

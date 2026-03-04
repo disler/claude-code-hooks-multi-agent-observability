@@ -1,3 +1,14 @@
+export interface GitSubmoduleInfo {
+  path: string
+  branch: string | null
+  commit_hash: string
+  commit_message: string
+  staged_count: number
+  staged_diffstat: string | null
+  unstaged_count: number
+  unstaged_diffstat: string | null
+}
+
 export interface SessionState {
   session_id: string
   status: 'busy' | 'idle' | 'awaiting_input'
@@ -32,6 +43,7 @@ export interface ContainerWithState {
   git_staged_diffstat: string | null
   git_unstaged_count: number
   git_unstaged_diffstat: string | null
+  git_submodules: GitSubmoduleInfo[]
   planq_order: string | null
   active_session_ids: string[]
   last_seen: number

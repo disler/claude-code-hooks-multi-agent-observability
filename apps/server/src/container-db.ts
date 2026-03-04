@@ -1,5 +1,15 @@
 import { db } from './db';
 
+export interface GitSubmoduleInfo {
+  path: string;
+  commit_hash: string;
+  commit_message: string;
+  staged_count: number;
+  staged_diffstat: string | null;
+  unstaged_count: number;
+  unstaged_diffstat: string | null;
+}
+
 export interface ContainerRow {
   id: string;
   source_repo: string;
@@ -14,6 +24,7 @@ export interface ContainerRow {
   git_staged_diffstat: string | null;
   git_unstaged_count: number;
   git_unstaged_diffstat: string | null;
+  git_submodules: GitSubmoduleInfo[]; // parsed from JSON
   planq_order: string | null;
   active_session_ids: string[]; // parsed from JSON
   last_seen: number;
@@ -53,6 +64,7 @@ export function initContainerDatabase(): void {
       git_staged_diffstat TEXT,
       git_unstaged_count INTEGER DEFAULT 0,
       git_unstaged_diffstat TEXT,
+      git_submodules TEXT DEFAULT '[]',
       planq_order TEXT,
       active_session_ids TEXT DEFAULT '[]',
       last_seen INTEGER NOT NULL,
@@ -77,6 +89,12 @@ export function initContainerDatabase(): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_containers_machine ON containers(machine_hostname)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_planq_container ON planq_tasks(container_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_planq_position ON planq_tasks(container_id, position)');
+
+  // Migrations for columns added after initial schema
+  const columns = (db.prepare('PRAGMA table_info(containers)').all() as any[]).map((r: any) => r.name);
+  if (!columns.includes('git_submodules')) {
+    db.exec("ALTER TABLE containers ADD COLUMN git_submodules TEXT DEFAULT '[]'");
+  }
 }
 
 export function upsertContainer(data: Omit<ContainerRow, 'connected'>): ContainerRow {
@@ -85,8 +103,8 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       (id, source_repo, machine_hostname, container_hostname, workspace_host_path,
        git_branch, git_worktree, git_commit_hash, git_commit_message,
        git_staged_count, git_staged_diffstat, git_unstaged_count, git_unstaged_diffstat,
-       planq_order, active_session_ids, last_seen, connected)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+       git_submodules, planq_order, active_session_ids, last_seen, connected)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
     ON CONFLICT(id) DO UPDATE SET
       source_repo=excluded.source_repo,
       machine_hostname=excluded.machine_hostname,
@@ -100,6 +118,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       git_staged_diffstat=excluded.git_staged_diffstat,
       git_unstaged_count=excluded.git_unstaged_count,
       git_unstaged_diffstat=excluded.git_unstaged_diffstat,
+      git_submodules=excluded.git_submodules,
       planq_order=excluded.planq_order,
       active_session_ids=excluded.active_session_ids,
       last_seen=excluded.last_seen,
@@ -120,6 +139,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
     data.git_staged_diffstat ?? null,
     data.git_unstaged_count,
     data.git_unstaged_diffstat ?? null,
+    JSON.stringify(data.git_submodules ?? []),
     data.planq_order ?? null,
     JSON.stringify(data.active_session_ids),
     data.last_seen
@@ -157,6 +177,7 @@ function rowToContainer(row: any): ContainerRow {
     git_staged_diffstat: row.git_staged_diffstat,
     git_unstaged_count: row.git_unstaged_count ?? 0,
     git_unstaged_diffstat: row.git_unstaged_diffstat,
+    git_submodules: JSON.parse(row.git_submodules || '[]'),
     planq_order: row.planq_order,
     active_session_ids: JSON.parse(row.active_session_ids || '[]'),
     last_seen: row.last_seen,
