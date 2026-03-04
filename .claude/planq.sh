@@ -148,10 +148,11 @@ cmd_run_next() {
 
     if [ -n "$dry_run" ]; then
         case "$task_type" in
-            task)   echo "[dry-run] Would run: claude \"\$(cat $PLANS_DIR/$task_value)\"" ;;
-            plan)   echo "[dry-run] Would run: claude \"Read plans/$task_value and implement the plan\"" ;;
+            task)          echo "[dry-run] Would run: claude \"\$(cat $PLANS_DIR/$task_value)\"" ;;
+            plan)          echo "[dry-run] Would run: claude \"Read plans/$task_value and implement the plan\"" ;;
+            unnamed-task)  echo "[dry-run] Would run: claude \"$task_value\"" ;;
             manual-*) echo "[dry-run] Would prompt for manual step: $task_value" ;;
-            *)      echo "[dry-run] Unknown task type: $task_type" ;;
+            *)        echo "[dry-run] Unknown task type: $task_type" ;;
         esac
         return 0
     fi
@@ -172,6 +173,11 @@ cmd_run_next() {
                 echo "Error: plan file not found: $task_file" >&2; return 1
             fi
             claude "Read plans/$task_value and implement the plan described in it."
+            _mark_done "$line_num" "$task_line"
+            ;;
+
+        unnamed-task)
+            claude "$task_value"
             _mark_done "$line_num" "$task_line"
             ;;
 
