@@ -207,7 +207,7 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
 
     const taskType = activeLine.slice(0, colonIdx).trim();
     const value = activeLine.slice(colonIdx + 1).trim();
-    const validTypes = ['task', 'plan', 'manual-test', 'manual-commit', 'manual-task'];
+    const validTypes = ['task', 'plan', 'manual-test', 'manual-commit', 'manual-task', 'unnamed-task'];
     if (!validTypes.includes(taskType)) continue;
 
     if (taskType === 'task' || taskType === 'plan') {

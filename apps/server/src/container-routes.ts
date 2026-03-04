@@ -488,6 +488,11 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null);
 
+    // For named tasks, write the description content to the file in the container
+    if (task_type === 'task' && filename && description) {
+      await relayFileWrite(containerId, filename, description).catch(() => {});
+    }
+
     // Write updated planq file through daemon
     await writePlanqFile(containerId, container).catch(() => {});
 
