@@ -2,6 +2,7 @@ import { db } from './db';
 
 export interface GitSubmoduleInfo {
   path: string;
+  branch: string | null;
   commit_hash: string;
   commit_message: string;
   staged_count: number;
