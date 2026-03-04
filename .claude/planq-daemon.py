@@ -32,7 +32,7 @@ def _get_machine_hostname():
 SERVER_URL = os.environ.get('OBSERVABILITY_SERVER_URL', 'ws://172.30.0.1:4000/container-heartbeat')
 SOURCE_REPO = os.environ.get('SOURCE_REPO', Path.cwd().name)
 WORKSPACE_ROOT = Path(os.environ.get('WORKSPACE_HOST_PATH', str(Path.cwd())))
-MACHINE_HOSTNAME = os.environ.get('DEVCONTAINER_MACHINE_HOSTNAME', '') or _get_machine_hostname()
+MACHINE_HOSTNAME = os.environ.get('DEVCONTAINER_HOST', '') or _get_machine_hostname()
 CONTAINER_HOSTNAME = os.environ.get('HOSTNAME', '')
 HEARTBEAT_INTERVAL = int(os.environ.get('OBSERVABILITY_HEARTBEAT_INTERVAL', '15'))
 
