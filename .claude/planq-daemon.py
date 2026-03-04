@@ -25,6 +25,17 @@ def _run(cmd, cwd=None):
         return ''
 
 def _get_machine_hostname():
+    # Prefer the file written by setup_git_worktree_on_host.py, which records
+    # the actual host machine name regardless of what localEnv:HOSTNAME resolves to
+    # (localEnv:HOSTNAME is often empty on macOS or Linux hosts).
+    try:
+        host_file = Path(os.environ.get('WORKSPACE_PATH', str(Path.cwd()))) / '.devcontainer' / '.sandbox-host-machine'
+        if host_file.exists():
+            name = host_file.read_text().strip()
+            if name:
+                return name
+    except Exception:
+        pass
     return _run(['hostname']) or 'unknown'
 
 # ── Config ────────────────────────────────────────────────────────────────────
