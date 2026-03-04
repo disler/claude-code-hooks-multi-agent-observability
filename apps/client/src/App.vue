@@ -59,6 +59,13 @@
           >
             <span class="text-2xl mobile:text-base">🎨</span>
           </button>
+
+          <!-- Infrastructure Dashboard Link -->
+          <a
+            href="/dashboard"
+            class="mobile:hidden p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-all duration-200 border border-white/30 hover:border-white/50 text-white text-sm font-semibold"
+            title="Infrastructure Dashboard"
+          >Infrastructure ↗</a>
         </div>
       </div>
     </header>

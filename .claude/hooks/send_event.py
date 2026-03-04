@@ -21,9 +21,11 @@ import json
 import sys
 import os
 import argparse
+import subprocess
 import urllib.request
 import urllib.error
 from datetime import datetime
+from pathlib import Path
 from utils.summarizer import generate_event_summary
 from utils.model_extractor import get_model_from_transcript
 
@@ -89,6 +91,36 @@ def main():
         'timestamp': int(datetime.now().timestamp() * 1000),
         'model_name': model_name
     }
+
+    # Devcontainer context enrichment — stored inside payload under '_devcontainer'
+    # so it is persisted by the observability server (which only stores payload)
+    # and visible in the client's payload JSON view.
+    _dc = {}
+    _workspace = os.environ.get('DEVCONTAINER_WORKSPACE', '')
+    if _workspace:
+        _dc['workspace'] = _workspace
+    _host = os.environ.get('DEVCONTAINER_HOST', '')
+    if not _host:
+        # ${localEnv:HOSTNAME} is not exported on all host platforms (e.g. macOS).
+        # Fall back to the file written by setup_git_worktree_on_host.py.
+        try:
+            _host_file = Path('/workspace/.devcontainer/.sandbox-host-machine')
+            if _host_file.exists():
+                _host = _host_file.read_text().strip()
+        except Exception:
+            pass
+    _dc['host'] = _host or 'unknown'
+    _dc['container_id'] = os.environ.get('HOSTNAME', 'unknown')
+    try:
+        _r = subprocess.run(
+            ['git', '-C', '/workspace', 'rev-parse', '--abbrev-ref', 'HEAD'],
+            capture_output=True, text=True, timeout=2
+        )
+        if _r.returncode == 0:
+            _dc['git_branch'] = _r.stdout.strip()
+    except Exception:
+        pass
+    event_data['payload'] = {**input_data, '_devcontainer': _dc}
 
     # Forward event-specific fields as top-level properties for easier querying.
     # These fields are only present for certain event types.

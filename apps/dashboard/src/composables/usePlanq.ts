@@ -1,0 +1,93 @@
+import { API_BASE } from '../config'
+import type { PlanqTask } from '../types'
+
+export function usePlanq() {
+  async function addTask(
+    containerId: string,
+    taskType: string,
+    filename: string | null,
+    description: string | null
+  ): Promise<PlanqTask | null> {
+    try {
+      const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_type: taskType, filename, description }),
+      })
+      if (!res.ok) return null
+      const data = await res.json()
+      return data.task ?? null
+    } catch {
+      return null
+    }
+  }
+
+  async function updateTask(
+    containerId: string,
+    taskId: number,
+    updates: { description?: string; status?: string }
+  ): Promise<PlanqTask | null> {
+    try {
+      const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      if (!res.ok) return null
+      const data = await res.json()
+      return data.task ?? null
+    } catch {
+      return null
+    }
+  }
+
+  async function deleteTask(containerId: string, taskId: number): Promise<boolean> {
+    try {
+      const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks/${taskId}`, {
+        method: 'DELETE',
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  async function reorderTasks(containerId: string, reorder: Array<{ id: number; position: number }>): Promise<boolean> {
+    try {
+      const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks/reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reorder }),
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  async function readFile(containerId: string, filename: string): Promise<string | null> {
+    try {
+      const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/file/${encodeURIComponent(filename)}`)
+      if (!res.ok) return null
+      const data = await res.json()
+      return data.content ?? ''
+    } catch {
+      return null
+    }
+  }
+
+  async function writeFile(containerId: string, filename: string, content: string): Promise<boolean> {
+    try {
+      const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/file/${encodeURIComponent(filename)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile }
+}
