@@ -10,3 +10,9 @@ mkdir -p /home/node/.local/bin
 printf '%s\n' '#!/bin/bash' 'exec /workspace/.claude/planq.sh "$@"' \
   > /home/node/.local/bin/planq
 chmod +x /home/node/.local/bin/planq
+
+# Set up the .claude/.venv virtual environment and install requirements.
+if [ -f /workspace/.claude/requirements.txt ]; then
+  python3 -m venv /workspace/.claude/.venv
+  /workspace/.claude/.venv/bin/pip install --quiet -r /workspace/.claude/requirements.txt
+fi
