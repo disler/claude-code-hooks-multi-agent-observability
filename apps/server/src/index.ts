@@ -104,6 +104,7 @@ async function sendResponseToAgent(
 // Create Bun server with HTTP and WebSocket support
 const server = Bun.serve({
   port: parseInt(process.env.SERVER_PORT || '4000'),
+  hostname: process.env.SERVER_HOST || '127.0.0.1',
   
   async fetch(req: Request) {
     const url = new URL(req.url);
