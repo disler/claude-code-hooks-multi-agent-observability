@@ -52,6 +52,40 @@ function broadcastDashboard(message: object): void {
   });
 }
 
+function ensureContainerFromEvent(sourceApp: string, sessionId: string): void {
+  const rows = db.prepare(
+    'SELECT id, active_session_ids FROM containers WHERE source_repo = ?'
+  ).all(sourceApp) as any[];
+
+  if (rows.length === 0) {
+    // Create a stub container — will be enriched when the planq-daemon connects
+    db.prepare(`
+      INSERT OR IGNORE INTO containers
+        (id, source_repo, machine_hostname, container_hostname, active_session_ids, last_seen, connected)
+      VALUES (?, ?, 'unknown', '', ?, ?, 0)
+    `).run(sourceApp, sourceApp, JSON.stringify([sessionId]), Date.now());
+    const container = getContainer(sourceApp);
+    if (container) {
+      broadcastDashboard({ type: 'container_update', data: buildContainerWithState(container) });
+    }
+    return;
+  }
+
+  // Add session_id to any container that doesn't already list it
+  for (const row of rows) {
+    const ids: string[] = JSON.parse(row.active_session_ids || '[]');
+    if (!ids.includes(sessionId)) {
+      ids.push(sessionId);
+      db.prepare('UPDATE containers SET active_session_ids = ?, last_seen = ? WHERE id = ?')
+        .run(JSON.stringify(ids), Date.now(), row.id);
+      const container = getContainer(row.id);
+      if (container) {
+        broadcastDashboard({ type: 'container_update', data: buildContainerWithState(container) });
+      }
+    }
+  }
+}
+
 export function broadcastAgentUpdate(data: {
   source_app: string;
   session_id: string;
@@ -59,6 +93,8 @@ export function broadcastAgentUpdate(data: {
   payload: any;
   summary?: string;
 }): void {
+  ensureContainerFromEvent(data.source_app, data.session_id);
+
   // Derive status from hook event type
   let status: string | null = null;
   let last_prompt: string | null = null;
