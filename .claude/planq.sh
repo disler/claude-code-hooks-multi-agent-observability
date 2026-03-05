@@ -385,6 +385,24 @@ cmd_daemon() {
     "$daemon_sh" "${1:-status}" "${@:2}"
 }
 
+usage_list()   { echo "Usage: planq list"; echo "  List all tasks with status."; }
+usage_show()   { echo "Usage: planq show [N]"; echo "  Show the next pending task, or task #N if given."; }
+usage_run()    { echo "Usage: planq run [N] [--dry-run|-n]"; echo "  Run the next pending task, or task #N if given, then mark it done."; }
+usage_create() {
+    echo "Usage: planq create [-t <type>] [-f <file>] [<desc>]"
+    echo "  Add a task to the planq file."
+    echo "  -t, --type  Task type (default: unnamed-task)"
+    echo "  -f, --file  Filename in plans/ (required for task/plan types)"
+    echo "  Task types: unnamed-task (default), task, plan, manual-test, manual-commit, manual-task"
+}
+usage_mark()   {
+    echo "Usage: planq mark <N> [done|d|underway|u|inactive|i]"
+    echo "  Mark task #N with a status (default: done)."
+    echo "  inactive/i restores a done/underway task to pending."
+}
+usage_delete() { echo "Usage: planq delete <N>"; echo "  Delete task #N from the planq file."; }
+usage_daemon() { echo "Usage: planq daemon [start|stop|restart|status]"; echo "  Manage the planq WebSocket daemon (default: status)."; }
+
 usage() {
     echo "Usage: planq.sh <subcommand> [options]"
     echo ""
@@ -412,8 +430,31 @@ usage() {
     echo "Planq file: $PLANQ_FILE"
 }
 
+_has_help_flag() {
+    for arg in "$@"; do
+        [ "$arg" = "--help" ] || [ "$arg" = "-h" ] && return 0
+    done
+    return 1
+}
+
 SUBCMD="${1:-}"
 shift || true
+
+# --help anywhere on the command line: show command-specific help if command is valid,
+# otherwise show general usage.
+if _has_help_flag "$@"; then
+    case "$SUBCMD" in
+        list|l)    usage_list ;;
+        show|s)    usage_show ;;
+        run|r)     usage_run ;;
+        create|c)  usage_create ;;
+        mark|m)    usage_mark ;;
+        delete|x)  usage_delete ;;
+        daemon|d)  usage_daemon ;;
+        *)         usage ;;
+    esac
+    exit 0
+fi
 
 case "$SUBCMD" in
     list|l)              cmd_list ;;
