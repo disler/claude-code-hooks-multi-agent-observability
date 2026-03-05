@@ -5,6 +5,12 @@
 #   list-tasks    / l   Print queue with status
 #   show-next-task / s  Show next pending task (does not run it)
 #   run-next-task  / r  Execute next pending task and mark it done
+#
+# Task line formats:
+#   task: <file>          Read file from plans/ and pass its contents to claude
+#   plan: <file>          Ask claude to read and implement plans/<file>
+#   unnamed-task: <text>  Pass the text directly to claude as a prompt
+#   manual-*: <desc>      Pause for a manual step, then continue
 
 set -u
 
@@ -219,6 +225,12 @@ usage() {
     echo "  show-next-task / s                      Show next pending task (no execution)"
     echo "  run-next-task  / r [--dry-run]          Execute next pending task"
     echo "  daemon / d <start|stop|restart|status>  Manage the planq WebSocket daemon"
+    echo ""
+    echo "Task line formats in planq file:"
+    echo "  task: <file>          Read plans/<file> and pass contents to claude"
+    echo "  plan: <file>          Ask claude to read and implement plans/<file>"
+    echo "  unnamed-task: <text>  Pass text directly to claude as a prompt"
+    echo "  manual-*: <desc>      Pause for a manual step"
     echo ""
     echo "Planq file: $PLANQ_FILE"
 }
