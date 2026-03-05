@@ -870,7 +870,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);
 
-    const content = await req.text();
+    const body = await req.json() as any;
+    const content = body.content ?? '';
     try {
       await relayFileWrite(containerId, filename, content);
       return json({ ok: true });
