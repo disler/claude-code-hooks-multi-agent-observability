@@ -6,7 +6,7 @@
 #   show / s [N]     Show next pending task, or task #N (does not run it)
 #   run  / r [N]     Execute next pending task, or task #N, and mark it done
 #   create / c       Add a task (default type: unnamed-task)
-#   mark / m         Mark a task done/underway/inactive
+#   mark / m         Mark a task done/underway/inactive (by number, filename, or text)
 #   delete / x       Delete a task
 #   daemon / d       Manage the planq WebSocket daemon
 
@@ -108,6 +108,34 @@ _find_task_by_number() {
                 trimmed="${trimmed#"# underway: "}"
             fi
             printf '%d\t%s\n' "$n" "$trimmed"
+            return
+        fi
+    done < "$PLANQ_FILE"
+}
+
+# Outputs: line_number TAB task_line  for a task identified by number, filename, or text
+_find_task_by_identifier() {
+    local ident="$1"
+    if [[ "$ident" =~ ^[0-9]+$ ]]; then
+        _find_task_by_number "$ident"
+        return
+    fi
+    [ ! -f "$PLANQ_FILE" ] && return
+    local n=0
+    while IFS= read -r line; do
+        n=$((n + 1))
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* ]] && continue
+        local task_line="$trimmed"
+        if [[ "$task_line" == "# done: "* ]]; then
+            task_line="${task_line#"# done: "}"
+        elif [[ "$task_line" == "# underway: "* ]]; then
+            task_line="${task_line#"# underway: "}"
+        fi
+        local task_value="${task_line#*: }"
+        if [ "$task_value" = "$ident" ]; then
+            printf '%d\t%s\n' "$n" "$task_line"
             return
         fi
     done < "$PLANQ_FILE"
@@ -365,9 +393,9 @@ _notify_daemon() {
 }
 
 cmd_mark() {
-    local task_num="${1:-}" state="${2:-done}"
-    if [ -z "$task_num" ]; then
-        echo "Usage: planq mark <N> [done|d|underway|u|inactive|i]" >&2; return 1
+    local ident="${1:-}" state="${2:-done}"
+    if [ -z "$ident" ]; then
+        echo "Usage: planq mark <N|filename|text> [done|d|underway|u|inactive|i]" >&2; return 1
     fi
     case "$state" in
         done|d)         state=done ;;
@@ -376,14 +404,14 @@ cmd_mark() {
         *) echo "Error: state must be done/d, underway/u, or inactive/i; got: $state" >&2; return 1 ;;
     esac
     local next
-    next="$(_find_task_by_number "$task_num")"
+    next="$(_find_task_by_identifier "$ident")"
     if [ -z "$next" ]; then
-        echo "No task #$task_num in $PLANQ_FILE" >&2; return 1
+        echo "No matching task for '$ident' in $PLANQ_FILE" >&2; return 1
     fi
     local line_num task_line
     line_num="$(printf '%s' "$next" | cut -f1)"
     task_line="$(printf '%s' "$next" | cut -f2-)"
-    echo "Task #$task_num: $task_line"
+    echo "Task: $task_line"
     case "$state" in
         done)     _mark_done     "$line_num" "$task_line"; echo "Marked as done." ;;
         underway) _mark_underway "$line_num" "$task_line"; echo "Marked as underway." ;;
@@ -434,8 +462,9 @@ usage_create() {
     echo "    planq create -t make-plan -f make-plan-001.md 'Design a caching layer for the API'"
 }
 usage_mark()   {
-    echo "Usage: planq mark <N> [done|d|underway|u|inactive|i]"
-    echo "  Mark task #N with a status (default: done)."
+    echo "Usage: planq mark <N|filename|text> [done|d|underway|u|inactive|i]"
+    echo "  Mark a task with a status (default: done)."
+    echo "  Identify the task by number, by its filename (for task/plan/make-plan), or by its exact description text (for unnamed-task etc.)."
     echo "  inactive/i restores a done/underway task to pending."
 }
 usage_delete() { echo "Usage: planq delete <N>"; echo "  Delete task #N from the planq file."; }
@@ -449,7 +478,7 @@ usage() {
     echo "  show   / s [N]                                 Show next pending task, or task #N"
     echo "  run    / r [N] [--dry-run|-n]                  Run next pending task, or task #N"
     echo "  create / c [-t <type>] [-f <file>] [<desc>]    Add a task (default type: unnamed-task)"
-    echo "  mark   / m <N> [done|d|underway|u|inactive|i]  Mark task #N (default: done)"
+    echo "  mark   / m <N|filename|text> [done|underway|i]  Mark a task by number, filename, or text (default: done)"
     echo "  delete / x <N>                                 Delete task #N"
     echo "  daemon / d [start|stop|restart|status]         Manage the planq WebSocket daemon"
     echo ""
