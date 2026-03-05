@@ -193,12 +193,11 @@ onMounted(async () => {
   plansFiles.value = await listPlansFiles(props.containerId)
 })
 
-// Reset state when task type changes
+// Reset slug/preview when task type changes, but preserve description
 watch(taskType, () => {
   taskSlug.value = ''
   planSlug.value = ''
   makePlanSlug.value = ''
-  description.value = ''
   filePreview.value = null
 })
 
