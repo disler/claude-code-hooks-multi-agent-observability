@@ -897,19 +897,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 }
 
 // Write the planq-order.txt through the daemon for a given container
-async function writePlanqFile(containerId: string, container: ContainerRow): Promise<void> {
+async function writePlanqFile(containerId: string, _container: ContainerRow): Promise<void> {
   const tasks = getPlanqTasks(containerId);
   const content = serializePlanqOrder(tasks);
-
-  // Determine filename based on git_worktree
-  let filename = 'planq-order.txt';
-  if (container.git_worktree) {
-    const worktreeSuffix = container.git_worktree.replace(/^trees\//, '').replace(/\//g, '-');
-    // If container_id ends with source_repo + something, use that suffix
-    const suffix = containerId.replace(container.source_repo, '').replace(/^\./, '');
-    if (suffix) filename = `planq-order-${suffix}.txt`;
-    else filename = `planq-order-${worktreeSuffix}.txt`;
-  }
-
-  await relayFileWrite(containerId, filename, content);
+  await relayFileWrite(containerId, 'planq-order.txt', content);
 }

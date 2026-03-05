@@ -275,18 +275,9 @@ def _running_session_ids() -> list:
         pass
     return list(running)
 
-def _planq_order(container_id: str, source_repo: str, git_worktree: str) -> str:
+def _planq_order() -> str:
     """Read the planq-order file for this container."""
-    plans_dir = WORKSPACE_ROOT / 'plans'
-    # Determine filename; fall back to planq-order.txt if worktree-specific file is absent
-    if git_worktree:
-        suffix = container_id.replace(source_repo, '').lstrip('.')
-        filename = f'planq-order-{suffix}.txt' if suffix else 'planq-order.txt'
-    else:
-        filename = 'planq-order.txt'
-    planq_file = plans_dir / filename
-    if not planq_file.exists() and filename != 'planq-order.txt':
-        planq_file = plans_dir / 'planq-order.txt'
+    planq_file = WORKSPACE_ROOT / 'plans' / 'planq-order.txt'
     if planq_file.exists():
         try:
             return planq_file.read_text()
@@ -472,7 +463,7 @@ def _send_heartbeat(ws_app):
     git = _git_info()
     source_repo = SOURCE_REPO
     container_id = _compute_container_id(source_repo, git['git_worktree'])
-    planq = _planq_order(container_id, source_repo, git['git_worktree'])
+    planq = _planq_order()
     history = _planq_history()
     running_ids = _running_session_ids()
     # Merge running sessions into the active list so the server always sees them
