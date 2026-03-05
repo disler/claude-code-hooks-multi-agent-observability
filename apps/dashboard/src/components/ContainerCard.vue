@@ -22,26 +22,28 @@
         :class="firstSub ? 'grid gap-x-4 gap-y-1' : 'flex flex-col gap-0.5'"
         :style="firstSub ? { gridTemplateColumns: 'auto 1fr' } : {}"
       >
-        <!-- Row 1: badge / container id / branch / worktree -->
+        <!-- Row 1: badge / project name / worktree / branch -->
         <div
           class="flex items-center gap-2 flex-wrap"
           :style="firstSub ? { gridRow: 1, gridColumn: 1 } : {}"
         >
           <AgentStatusBadge :status="container.status" />
-          <span class="text-sm font-semibold text-slate-100 font-mono">{{ container.id }}</span>
+          <span class="text-sm font-semibold text-slate-100 font-mono">{{ container.source_repo }}</span>
+          <span v-if="worktreeLabel" class="text-xs text-slate-500 font-mono">
+            [worktree <span class="text-sm font-semibold text-slate-100">{{ worktreeLabel }}</span>]
+          </span>
           <span v-if="container.git_branch" class="text-xs text-slate-400">
             branch: <span class="font-mono text-cyan-400">{{ container.git_branch }}</span>
           </span>
-          <span v-if="container.git_worktree" class="text-xs text-slate-500">[worktree]</span>
         </div>
 
-        <!-- Row 2, Col 1: workspace host path -->
+        <!-- Row 2, Col 1: workspace host path + container hostname -->
         <div
-          v-if="container.workspace_host_path"
-          class="text-xs text-slate-500 truncate font-mono"
+          class="text-xs text-slate-500 truncate font-mono flex items-center gap-2"
           :style="firstSub ? { gridRow: 2, gridColumn: 1 } : {}"
         >
-          {{ container.workspace_host_path }}
+          <span v-if="container.workspace_host_path">{{ container.workspace_host_path }}</span>
+          <span v-if="container.container_hostname" class="text-slate-600">{{ container.container_hostname }}</span>
         </div>
 
         <!-- Row 2, Col 2: first submodule label / name / branch -->
@@ -195,6 +197,25 @@ const emit = defineEmits<{
 
 const firstSub = computed<GitSubmoduleInfo | null>(() => props.container.git_submodules?.[0] ?? null)
 const extraSubs = computed<GitSubmoduleInfo[]>(() => props.container.git_submodules?.slice(1) ?? [])
+
+// Derive a human-readable worktree label, or null if this is the main worktree.
+// Priority: git_worktree field → workspace path basename if it differs from source_repo.
+// If the basename matches "$source_repo.$suffix" (e.g. "livepace.2"), show just the suffix.
+const worktreeLabel = computed<string | null>(() => {
+  if (props.container.git_worktree) {
+    // e.g. "trees/my-feature" → "my-feature"
+    return props.container.git_worktree.replace(/^trees\//, '').split('/').pop() ?? props.container.git_worktree
+  }
+  if (props.container.workspace_host_path) {
+    const base = props.container.workspace_host_path.split('/').pop() ?? ''
+    if (base && base !== props.container.source_repo) {
+      // "livepace.2" with source_repo "livepace" → show "2"
+      const numMatch = base.match(new RegExp(`^${props.container.source_repo}\\.(.+)$`))
+      return numMatch ? numMatch[1] : base
+    }
+  }
+  return null
+})
 
 const relativeTime = computed(() => {
   const diff = Math.floor((Date.now() - props.container.last_seen) / 1000)
