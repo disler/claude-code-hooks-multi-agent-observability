@@ -5,14 +5,17 @@
 #   planq-daemon.sh [--]start     Set up venv and start daemon in background
 #   planq-daemon.sh [--]stop      Stop running daemon
 #   planq-daemon.sh [--]restart   Stop then start
-#   planq-daemon.sh [--]status    Show whether daemon is running
+#   planq-daemon.sh [--]status    Show whether daemon is running and connected
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$SCRIPT_DIR/.venv"
-PID_FILE="/tmp/planq-daemon.pid"
-LOG_FILE="/tmp/planq-daemon.log"
+
+SANDBOX_DIR="${HOME}/.local/devcontainer-sandbox"
+PID_FILE="$SANDBOX_DIR/planq/planq-daemon.pid"
+STATUS_FILE="$SANDBOX_DIR/planq/planq-daemon.status"
+LOG_FILE="$SANDBOX_DIR/logs/planq-daemon.log"
 
 _setup_venv() {
     if [ ! -x "$VENV/bin/python3" ]; then
@@ -31,12 +34,17 @@ _is_running() {
     [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
+_read_status() {
+    [ -f "$STATUS_FILE" ] && cat "$STATUS_FILE" || echo "unknown"
+}
+
 cmd_start() {
     if _is_running; then
         echo "planq-daemon already running (pid $(_get_pid))"
         return 0
     fi
     _setup_venv
+    mkdir -p "$(dirname "$PID_FILE")" "$(dirname "$LOG_FILE")"
     "$VENV/bin/python3" -u "$SCRIPT_DIR/planq-daemon.py" >> "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     echo "planq-daemon started (pid $(_get_pid)), log: $LOG_FILE"
@@ -62,9 +70,16 @@ cmd_restart() {
 
 cmd_status() {
     if _is_running; then
-        echo "planq-daemon running (pid $(_get_pid)), log: $LOG_FILE"
+        local status_line
+        status_line="$(_read_status)"
+        echo "planq-daemon running (pid $(_get_pid))"
+        echo "  status: $status_line"
+        echo "  log:    $LOG_FILE"
     else
         echo "planq-daemon not running"
+        if [ -f "$STATUS_FILE" ]; then
+            echo "  last status: $(_read_status)"
+        fi
     fi
 }
 

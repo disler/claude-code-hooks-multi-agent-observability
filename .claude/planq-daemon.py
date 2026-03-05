@@ -15,6 +15,24 @@ import time
 import threading
 from pathlib import Path
 
+# ── Logging setup ─────────────────────────────────────────────────────────────
+
+def _setup_logging(log_file: Path) -> logging.Logger:
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    logger = logging.getLogger('planq-daemon')
+    logger.setLevel(logging.DEBUG)
+    fmt = logging.Formatter('%(asctime)s %(levelname)s %(message)s',
+                            datefmt='%Y-%m-%dT%H:%M:%S')
+    # File handler
+    fh = logging.FileHandler(log_file)
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+    # Stderr handler
+    sh = logging.StreamHandler(sys.stderr)
+    sh.setFormatter(fmt)
+    logger.addHandler(sh)
+    return logger
+
 # ── Helpers needed before config ──────────────────────────────────────────────
 
 def _run(cmd, cwd=None):
@@ -49,6 +67,26 @@ WORKSPACE_HOST_PATH = os.environ.get('WORKSPACE_HOST_PATH', str(WORKSPACE_ROOT))
 MACHINE_HOSTNAME = os.environ.get('DEVCONTAINER_HOST', '') or _get_machine_hostname()
 CONTAINER_HOSTNAME = os.environ.get('HOSTNAME', '')
 HEARTBEAT_INTERVAL = int(os.environ.get('OBSERVABILITY_HEARTBEAT_INTERVAL', '15'))
+
+_SANDBOX_DIR = Path.home() / '.local' / 'devcontainer-sandbox'
+_LOG_FILE = _SANDBOX_DIR / 'logs' / 'planq-daemon.log'
+_STATUS_FILE = _SANDBOX_DIR / 'planq' / 'planq-daemon.status'
+
+log = _setup_logging(_LOG_FILE)
+
+# ── Status file ───────────────────────────────────────────────────────────────
+
+def _write_status(state: str, detail: str = ''):
+    """Write current daemon state to the status file."""
+    try:
+        _STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime('%Y-%m-%dT%H:%M:%S')
+        line = f'{ts} {state}'
+        if detail:
+            line += f' {detail}'
+        _STATUS_FILE.write_text(line + '\n')
+    except OSError as e:
+        log.warning('Could not write status file: %s', e)
 
 # ── Filename security ─────────────────────────────────────────────────────────
 
@@ -239,7 +277,7 @@ def _handle_file_read(ws, msg: dict):
     filename = msg.get('filename', '')
     request_id = msg.get('request_id', '')
     if not _validate_filename(filename):
-        print(f'[planq-daemon] WARNING: rejected file_read for invalid filename: {filename!r}', file=sys.stderr)
+        log.warning('Rejected file_read for invalid filename: %r', filename)
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': 'invalid filename', 'content': ''})
         return
     target = WORKSPACE_ROOT / 'plans' / filename
@@ -254,7 +292,7 @@ def _handle_file_write(ws, msg: dict):
     request_id = msg.get('request_id', '')
     content = msg.get('content', '')
     if not _validate_filename(filename):
-        print(f'[planq-daemon] WARNING: rejected file_write for invalid filename: {filename!r}', file=sys.stderr)
+        log.warning('Rejected file_write for invalid filename: %r', filename)
         _ws_send(ws, {'type': 'file_write_ack', 'request_id': request_id, 'ok': False, 'error': 'invalid filename'})
         return
     if len(content) > 1_000_000:
@@ -274,7 +312,7 @@ def _ws_send(ws, data: dict):
     try:
         ws.send(json.dumps(data))
     except Exception as e:
-        print(f'[planq-daemon] send error: {e}', file=sys.stderr)
+        log.error('Send error: %s', e)
 
 # ── Main connection loop ──────────────────────────────────────────────────────
 
@@ -284,16 +322,19 @@ def _run_connection():
     try:
         import websocket
     except ImportError:
-        print('[planq-daemon] websocket-client not available; sleeping 60s', file=sys.stderr)
+        log.warning('websocket-client not available; sleeping 60s')
+        _write_status('disconnected', 'websocket-client not available')
         time.sleep(60)
         return
 
     connected = threading.Event()
     stop_event = threading.Event()
+    close_reason = {'code': None, 'msg': None}
 
     def on_open(ws):
         connected.set()
-        print('[planq-daemon] connected to server')
+        log.info('Connected to server %s', SERVER_URL)
+        _write_status('connected', SERVER_URL)
         # Send initial heartbeat
         _send_heartbeat(ws)
 
@@ -309,11 +350,14 @@ def _run_connection():
             threading.Thread(target=_handle_file_write, args=(ws, msg), daemon=True).start()
 
     def on_error(ws, error):
-        print(f'[planq-daemon] WS error: {error}', file=sys.stderr)
+        log.error('WebSocket error: %s', error)
 
     def on_close(ws, code, msg):
+        close_reason['code'] = code
+        close_reason['msg'] = msg
         stop_event.set()
-        print(f'[planq-daemon] disconnected (code={code})')
+        log.info('Disconnected (code=%s)', code)
+        _write_status('disconnected', f'code={code}')
 
     ws_app = websocket.WebSocketApp(
         SERVER_URL,
@@ -329,6 +373,8 @@ def _run_connection():
 
     # Wait for connection (up to 10s)
     if not connected.wait(timeout=10):
+        log.warning('Connection timed out after 10s')
+        _write_status('disconnected', 'connection timeout')
         ws_app.close()
         return
 
@@ -374,20 +420,35 @@ def _send_heartbeat(ws_app):
             # websocket.WebSocketApp — send via internal socket
             ws_app.sock and ws_app.sock.send(json.dumps(heartbeat))
     except Exception as e:
-        print(f'[planq-daemon] heartbeat send error: {e}', file=sys.stderr)
+        log.error('Heartbeat send error: %s', e)
 
 
 def main():
-    print(f'[planq-daemon] starting — server={SERVER_URL}, repo={SOURCE_REPO}')
+    log.info('Starting — server=%s, repo=%s', SERVER_URL, SOURCE_REPO)
+    _write_status('starting')
     backoff = 5
-    while True:
-        try:
-            _run_connection()
-        except Exception as e:
-            print(f'[planq-daemon] error: {e}', file=sys.stderr)
-        print(f'[planq-daemon] reconnecting in {backoff}s...')
-        time.sleep(backoff)
-        backoff = min(backoff * 2, 60)
+    try:
+        while True:
+            try:
+                _run_connection()
+            except Exception as e:
+                log.error('Connection error: %s', e)
+                _write_status('disconnected', str(e))
+            log.info('Reconnecting in %ds...', backoff)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 60)
+    except KeyboardInterrupt:
+        log.info('Exiting — received KeyboardInterrupt')
+        _write_status('stopped', 'KeyboardInterrupt')
+        sys.exit(0)
+    except SystemExit as e:
+        log.info('Exiting — SystemExit(%s)', e.code)
+        _write_status('stopped', f'SystemExit({e.code})')
+        raise
+    except Exception as e:
+        log.critical('Exiting — unhandled exception: %s', e, exc_info=True)
+        _write_status('stopped', f'error: {e}')
+        sys.exit(1)
 
 
 if __name__ == '__main__':
