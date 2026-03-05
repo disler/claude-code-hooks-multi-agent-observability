@@ -274,6 +274,8 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
 
     if (timer) console.log(`[heartbeat] ${hbCtx}: cancelled pending offline timer (reconnected)`);
 
+    const existingContainer = getContainer(containerId);
+
     // Warn if this heartbeat would overwrite an existing row's host/container identity
     if (existingContainer) {
       const hostChanging = existingContainer.machine_hostname !== 'unknown'
@@ -288,7 +290,6 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
         console.log(`[heartbeat] ${hbCtx}: WARNING — overwriting existing row identity: was host=${existingContainer.machine_hostname} container=${existingContainer.container_hostname} workspace=${existingContainer.workspace_host_path ?? '-'}`);
       }
     }
-    const existingContainer = getContainer(containerId);
     let mergedSessionIds = daemonSessionIds;
     if (existingContainer) {
       const toCheck = existingContainer.active_session_ids.filter(id => !daemonSessionIds.includes(id));
