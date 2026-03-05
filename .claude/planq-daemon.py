@@ -110,8 +110,7 @@ def _write_status(state: str, detail: str = ''):
 
 ALLOWED_FILENAME = re.compile(
     r'^(?:planq-order(?:-[A-Za-z0-9._-]+)?\.txt'
-    r'|(?:plan|task)-[0-9]+(?:-[a-z0-9-]+)?\.md'
-    r'|make-plan-[a-z0-9][a-z0-9-]*\.md)$'
+    r'|[A-Za-z0-9][A-Za-z0-9._-]*\.md)$'
 )
 
 def _validate_filename(filename: str) -> bool:
@@ -328,6 +327,48 @@ def _handle_file_write(ws, msg: dict):
     except OSError as e:
         _ws_send(ws, {'type': 'file_write_ack', 'request_id': request_id, 'ok': False, 'error': str(e)})
 
+def _handle_file_list(ws, msg: dict):
+    """Return sorted list of files in the plans/ directory."""
+    request_id = msg.get('request_id', '')
+    plans_dir = WORKSPACE_ROOT / 'plans'
+    try:
+        files = sorted(f.name for f in plans_dir.iterdir()
+                       if f.is_file() and not f.name.startswith('.'))
+    except OSError:
+        files = []
+    _ws_send(ws, {'type': 'file_list_response', 'request_id': request_id, 'ok': True, 'files': files})
+
+def _handle_file_write_new(ws, msg: dict):
+    """Write to a file, generating a unique name if the target already exists."""
+    filename = msg.get('filename', '')
+    request_id = msg.get('request_id', '')
+    content = msg.get('content', '')
+    if not _validate_filename(filename):
+        log.warning('Rejected file_write_new for invalid filename: %r', filename)
+        _ws_send(ws, {'type': 'file_write_new_ack', 'request_id': request_id, 'ok': False, 'error': 'invalid filename'})
+        return
+    if len(content) > 1_000_000:
+        _ws_send(ws, {'type': 'file_write_new_ack', 'request_id': request_id, 'ok': False, 'error': 'content too large'})
+        return
+    plans_dir = WORKSPACE_ROOT / 'plans'
+    stem = Path(filename).stem
+    ext = Path(filename).suffix or '.md'
+    actual = filename
+    counter = 1
+    while (plans_dir / actual).exists():
+        actual = f'{stem}-{counter}{ext}'
+        counter += 1
+        if counter > 99:
+            _ws_send(ws, {'type': 'file_write_new_ack', 'request_id': request_id, 'ok': False, 'error': 'too many name conflicts'})
+            return
+    target = plans_dir / actual
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        _ws_send(ws, {'type': 'file_write_new_ack', 'request_id': request_id, 'ok': True, 'filename': actual})
+    except OSError as e:
+        _ws_send(ws, {'type': 'file_write_new_ack', 'request_id': request_id, 'ok': False, 'error': str(e)})
+
 # ── WebSocket helpers ─────────────────────────────────────────────────────────
 
 def _ws_send(ws, data: dict):
@@ -370,6 +411,10 @@ def _run_connection():
             threading.Thread(target=_handle_file_read, args=(ws, msg), daemon=True).start()
         elif mtype == 'file_write':
             threading.Thread(target=_handle_file_write, args=(ws, msg), daemon=True).start()
+        elif mtype == 'file_list':
+            threading.Thread(target=_handle_file_list, args=(ws, msg), daemon=True).start()
+        elif mtype == 'file_write_new':
+            threading.Thread(target=_handle_file_write_new, args=(ws, msg), daemon=True).start()
 
     def on_error(ws, error):
         log.error('WebSocket error: %s', error)

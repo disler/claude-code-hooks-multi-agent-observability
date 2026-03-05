@@ -6,13 +6,14 @@ export function usePlanq() {
     containerId: string,
     taskType: string,
     filename: string | null,
-    description: string | null
+    description: string | null,
+    createFile = false
   ): Promise<PlanqTask | null> {
     try {
       const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task_type: taskType, filename, description }),
+        body: JSON.stringify({ task_type: taskType, filename, description, create_file: createFile }),
       })
       if (!res.ok) return null
       const data = await res.json()
@@ -76,6 +77,16 @@ export function usePlanq() {
     }
   }
 
+  async function listPlansFiles(containerId: string): Promise<string[]> {
+    try {
+      const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/plans-files`)
+      if (!res.ok) return []
+      return await res.json()
+    } catch {
+      return []
+    }
+  }
+
   async function writeFile(containerId: string, filename: string, content: string): Promise<boolean> {
     try {
       const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/file/${encodeURIComponent(filename)}`, {
@@ -89,5 +100,5 @@ export function usePlanq() {
     }
   }
 
-  return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile }
+  return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile, listPlansFiles }
 }

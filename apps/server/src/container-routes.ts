@@ -464,6 +464,32 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     }
     return;
   }
+
+  // File list response
+  if (msg.type === 'file_list_response') {
+    const pending = pendingFileRequests.get(msg.request_id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingFileRequests.delete(msg.request_id);
+      pending.resolve(JSON.stringify(Array.isArray(msg.files) ? msg.files : []));
+    }
+    return;
+  }
+
+  // File write-new ack (non-overwriting write; returns actual filename used)
+  if (msg.type === 'file_write_new_ack') {
+    const pending = pendingFileRequests.get(msg.request_id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingFileRequests.delete(msg.request_id);
+      if (msg.ok) {
+        pending.resolve(msg.filename ?? '');
+      } else {
+        pending.reject(new Error(msg.error ?? 'File write failed'));
+      }
+    }
+    return;
+  }
 }
 
 export function handleContainerClose(ws: any): void {
@@ -535,6 +561,38 @@ async function relayFileWrite(containerId: string, filename: string, content: st
     pendingFileRequests.set(requestId, { resolve, reject, timer });
     ws.send(JSON.stringify({ type: 'file_write', request_id: requestId, filename, content }));
   });
+}
+
+// Write to a new file only — daemon picks a non-conflicting name and returns it.
+async function relayFileWriteNew(containerId: string, filename: string, content: string): Promise<string> {
+  const ws = containerWsMap.get(containerId);
+  if (!ws) throw new Error('Container offline');
+
+  const requestId = crypto.randomUUID();
+  return new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingFileRequests.delete(requestId);
+      reject(new Error('File write timeout'));
+    }, 10_000);
+    pendingFileRequests.set(requestId, { resolve, reject, timer });
+    ws.send(JSON.stringify({ type: 'file_write_new', request_id: requestId, filename, content }));
+  });
+}
+
+async function relayFileList(containerId: string): Promise<string[]> {
+  const ws = containerWsMap.get(containerId);
+  if (!ws) throw new Error('Container offline');
+
+  const requestId = crypto.randomUUID();
+  const serialized = await new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingFileRequests.delete(requestId);
+      reject(new Error('File list timeout'));
+    }, 10_000);
+    pendingFileRequests.set(requestId, { resolve, reject, timer });
+    ws.send(JSON.stringify({ type: 'file_list', request_id: requestId }));
+  });
+  return JSON.parse(serialized) as string[];
 }
 
 // ── Derived state builder ─────────────────────────────────────────────────────
@@ -700,16 +758,19 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const { task_type, filename, description } = body;
+    const { task_type, description, create_file } = body;
+    let { filename } = body;
     if (!task_type) return err('task_type required');
+
+    // For named tasks: if create_file is set, write the description to a new file
+    // (daemon picks a non-conflicting name and returns the actual filename used).
+    if (create_file && filename && description && containerWsMap.has(containerId)) {
+      const actualFn = await relayFileWriteNew(containerId, filename, description).catch(() => null);
+      if (actualFn) filename = actualFn;
+    }
 
     const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null);
     touchPlanqServerModified(containerId);
-
-    // For named tasks, write the description content to the file in the container
-    if (task_type === 'task' && filename && description) {
-      await relayFileWrite(containerId, filename, description).catch(() => {});
-    }
     // For make-plan, write the prompt to the sidecar file (make-plan-<filename>)
     if (task_type === 'make-plan' && filename && description) {
       await relayFileWrite(containerId, `make-plan-${filename}`, description).catch(() => {});
@@ -773,6 +834,18 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     return json({ ok: true });
   }
 
+  // GET /planq/:id/plans-files
+  if (pathname.match(/^\/planq\/[^/]+\/plans-files$/) && method === 'GET') {
+    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    if (!containerWsMap.has(containerId)) return err('Container offline', 503);
+    try {
+      const files = await relayFileList(containerId);
+      return json(files);
+    } catch (e: any) {
+      return err(e.message || 'File list failed', 503);
+    }
+  }
+
   // GET /planq/:id/file/:filename
   if (pathname.match(/^\/planq\/[^/]+\/file\/.+$/) && method === 'GET') {
     const parts = pathname.split('/');
@@ -783,7 +856,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     try {
       const content = await relayFileRead(containerId, filename);
-      return new Response(content, { headers: { ...CORS, 'Content-Type': 'text/plain; charset=utf-8' } });
+      return json({ content });
     } catch (e: any) {
       return err(e.message || 'File read failed', 503);
     }

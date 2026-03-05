@@ -46,8 +46,9 @@
     <!-- Dialogs -->
     <AddTaskDialog
       v-if="showAddDialog"
+      :container-id="containerId"
       @close="showAddDialog = false"
-      @add="(type, fn, desc) => addTask(type, fn, desc)"
+      @add="(type, fn, desc, createFile) => addTask(type, fn, desc, createFile)"
     />
 
     <PlanqFileEditor
@@ -89,8 +90,8 @@ const pendingCount = computed(() => props.tasks.filter(t => t.status === 'pendin
 const underwayCount = computed(() => props.tasks.filter(t => t.status === 'underway').length)
 const doneCount = computed(() => props.tasks.filter(t => t.status === 'done').length)
 
-async function addTask(taskType: string, filename: string | null, description: string | null) {
-  await apiAdd(props.containerId, taskType, filename, description)
+async function addTask(taskType: string, filename: string | null, description: string | null, createFile = false) {
+  await apiAdd(props.containerId, taskType, filename, description, createFile)
   emit('tasks-changed')
 }
 

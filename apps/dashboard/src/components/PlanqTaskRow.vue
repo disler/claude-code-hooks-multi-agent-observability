@@ -1,4 +1,5 @@
 <template>
+  <div class="flex flex-col">
   <div
     class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-700/50 group"
     :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway' }"
@@ -21,9 +22,15 @@
     <!-- Type badge -->
     <span class="text-xs px-1 py-0.5 rounded font-mono shrink-0" :class="typeBadgeClass">{{ task.task_type }}</span>
 
-    <!-- Value -->
+    <!-- Value: filename is clickable to show description popup -->
     <span v-if="!editingDesc" class="text-xs text-slate-300 flex-1 truncate font-mono">
-      {{ task.filename ?? task.description }}
+      <button
+        v-if="task.filename"
+        @click.stop="toggleDescPopup"
+        class="hover:text-slate-100 hover:underline cursor-pointer"
+        :title="descPopupOpen ? 'Hide description' : 'Show description'"
+      >{{ task.filename }}</button>
+      <span v-else>{{ task.description }}</span>
     </span>
     <input
       v-else
@@ -84,6 +91,20 @@
       >✕</button>
     </div>
   </div>
+
+  <!-- Description popup (shown when filename is clicked) -->
+  <div
+    v-if="descPopupOpen"
+    class="mx-2 mb-1 rounded border border-slate-700 bg-slate-900 p-2"
+  >
+    <div v-if="loadingDesc" class="text-xs text-slate-500">Loading…</div>
+    <pre
+      v-else-if="descContent"
+      class="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words overflow-y-auto max-h-48"
+    >{{ descContent }}</pre>
+    <div v-else class="text-xs text-slate-500 italic">No description available.</div>
+  </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -136,6 +157,27 @@ function saveDesc() {
   editingDesc.value = false
 }
 
+// ── Description popup ─────────────────────────────────────────────────────────
+
+const descPopupOpen = ref(false)
+const descContent = ref<string | null>(null)
+const loadingDesc = ref(false)
+
+async function toggleDescPopup() {
+  descPopupOpen.value = !descPopupOpen.value
+  if (!descPopupOpen.value || descContent.value !== null) return
+
+  if (props.task.description) {
+    descContent.value = props.task.description
+    return
+  }
+  if (props.task.filename) {
+    loadingDesc.value = true
+    descContent.value = await readFile(props.containerId, props.task.filename)
+    loadingDesc.value = false
+  }
+}
+
 // ── Clipboard copy ────────────────────────────────────────────────────────────
 
 const copied = ref(false)
@@ -159,11 +201,14 @@ async function copyToClipboard() {
     // plan: claude is told to read and implement the file
     text = `Read plans/${props.task.filename} and implement the plan described in it.`
   } else if (props.task.task_type === 'task') {
-    // task: file contents are passed directly as the prompt — fetch them
-    copying.value = true
-    const content = await readFile(props.containerId, props.task.filename)
-    copying.value = false
-    text = content ?? ''
+    // task: use stored description if available, otherwise fetch file
+    if (props.task.description) {
+      text = props.task.description
+    } else {
+      copying.value = true
+      text = await readFile(props.containerId, props.task.filename) ?? ''
+      copying.value = false
+    }
   } else if (props.task.task_type === 'make-plan') {
     // make-plan: fetch sidecar prompt file and append the target filename instruction
     copying.value = true
@@ -178,7 +223,19 @@ async function copyToClipboard() {
   if (!text) return
 
   try {
-    await navigator.clipboard.writeText(text)
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      // Fallback for non-secure contexts (plain HTTP)
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0'
+      document.body.appendChild(ta)
+      ta.focus()
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
     copied.value = true
     setTimeout(() => { copied.value = false }, 1500)
   } catch {}
