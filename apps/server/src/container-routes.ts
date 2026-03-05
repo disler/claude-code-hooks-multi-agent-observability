@@ -248,22 +248,52 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
   }
 
   if (msg.type === 'heartbeat') {
-    const containerId: string = msg.container_id;
-    if (!containerId) return;
+    const claimedId: string = msg.container_id;
+    if (!claimedId) return;
+
+    const daemonSessionIds: string[] = Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [];
+    const sourceRepo: string = msg.source_repo ?? claimedId;
+    const containerHostname: string = msg.container_hostname ?? '';
+
+    // Resolve effective container ID.
+    // Multiple physical containers can report the same container_id (same repo on different
+    // machines, or multiple worktrees). Use container_hostname to give each its own stable row.
+    let containerId = claimedId;
+    if (containerHostname && containerHostname !== 'unknown') {
+      // Check if a row already exists for this exact physical container
+      const byHostname = db.prepare(
+        'SELECT id FROM containers WHERE source_repo = ? AND container_hostname = ?'
+      ).get(sourceRepo, containerHostname) as { id: string } | null;
+
+      if (byHostname) {
+        // Reuse the existing row (may be source_repo:hex from a prior stub or heartbeat)
+        containerId = byHostname.id;
+      } else {
+        // Check whether the claimed row is already owned by a different container_hostname
+        const claimedRow = db.prepare(
+          'SELECT container_hostname FROM containers WHERE id = ?'
+        ).get(claimedId) as { container_hostname: string } | null;
+        const takenByOther = claimedRow?.container_hostname
+          && claimedRow.container_hostname !== 'unknown'
+          && claimedRow.container_hostname !== containerHostname;
+        if (takenByOther) {
+          containerId = `${sourceRepo}:${containerHostname}`;
+          console.log(`[heartbeat] claimed id=${claimedId} already owned by container=${claimedRow!.container_hostname} — using id=${containerId}`);
+        }
+      }
+    }
+
+    const hbCtx = `id=${containerId} host=${msg.machine_hostname ?? 'unknown'} container=${containerHostname || '-'} workspace=${msg.workspace_host_path ?? '-'}`;
 
     // Cancel offline timer if pending
     const timer = offlineTimers.get(containerId);
     if (timer) {
       clearTimeout(timer);
       offlineTimers.delete(containerId);
+      console.log(`[heartbeat] ${hbCtx}: cancelled pending offline timer (reconnected)`);
     }
 
     // Register WS if not already and update its label with full identity
-    const daemonSessionIds: string[] = Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [];
-    const sourceRepo: string = msg.source_repo ?? containerId;
-    const containerHostname: string = msg.container_hostname ?? '';
-    const hbCtx = `id=${containerId} host=${msg.machine_hostname ?? 'unknown'} container=${containerHostname || '-'} workspace=${msg.workspace_host_path ?? '-'}`;
-
     if (!containerWsMap.has(containerId)) {
       containerWsMap.set(containerId, ws);
       ws.__containerId = containerId;
@@ -271,8 +301,6 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       ws.__wsLabel = `container@${addr} ${hbCtx}`;
       console.log(`[ws-identified] ${ws.__wsLabel}`);
     }
-
-    if (timer) console.log(`[heartbeat] ${hbCtx}: cancelled pending offline timer (reconnected)`);
 
     const existingContainer = getContainer(containerId);
 
