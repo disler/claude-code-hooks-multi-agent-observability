@@ -278,13 +278,15 @@ def _running_session_ids() -> list:
 def _planq_order(container_id: str, source_repo: str, git_worktree: str) -> str:
     """Read the planq-order file for this container."""
     plans_dir = WORKSPACE_ROOT / 'plans'
-    # Determine filename
+    # Determine filename; fall back to planq-order.txt if worktree-specific file is absent
     if git_worktree:
         suffix = container_id.replace(source_repo, '').lstrip('.')
         filename = f'planq-order-{suffix}.txt' if suffix else 'planq-order.txt'
     else:
         filename = 'planq-order.txt'
     planq_file = plans_dir / filename
+    if not planq_file.exists() and filename != 'planq-order.txt':
+        planq_file = plans_dir / 'planq-order.txt'
     if planq_file.exists():
         try:
             return planq_file.read_text()
