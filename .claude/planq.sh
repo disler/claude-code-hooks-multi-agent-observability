@@ -196,14 +196,14 @@ cmd_show() {
             head -5 "$PLANS_DIR/$task_value" | sed 's/^/  /'
         fi
     elif [ "$task_type" = "make-plan" ]; then
-        printf "  Plan file:   plans/%s\n" "$task_value"
-        local sidecar="$PLANS_DIR/make-plan-$task_value"
-        if [ -f "$sidecar" ]; then
-            printf "  Prompt file: plans/make-plan-%s\n" "$task_value"
+        local target_plan="${task_value/#make-plan-/plan-}"
+        printf "  Prompt file: plans/%s\n" "$task_value"
+        printf "  Plan target: plans/%s\n" "$target_plan"
+        if [ -f "$PLANS_DIR/$task_value" ]; then
             echo "  --- prompt preview ---"
-            head -5 "$sidecar" | sed 's/^/  /'
+            head -5 "$PLANS_DIR/$task_value" | sed 's/^/  /'
         else
-            echo "  (prompt file not found: plans/make-plan-$task_value)"
+            echo "  (prompt file not found: plans/$task_value)"
         fi
     else
         printf "  Desc:  %s\n" "$task_value"
@@ -244,7 +244,7 @@ cmd_run() {
         case "$task_type" in
             task)          echo "[dry-run] Would run: claude \"\$(cat $PLANS_DIR/$task_value)\"" ;;
             plan)          echo "[dry-run] Would run: claude \"Read plans/$task_value and implement the plan\"" ;;
-            make-plan)     echo "[dry-run] Would run: claude \"\$(cat $PLANS_DIR/make-plan-$task_value) Write the plan to plans/$task_value.\"" ;;
+            make-plan)     echo "[dry-run] Would run: claude \"\$(cat $PLANS_DIR/$task_value) Write the plan to plans/${task_value/#make-plan-/plan-}.\"" ;;
             unnamed-task)  echo "[dry-run] Would run: claude \"$task_value\"" ;;
             manual-*) echo "[dry-run] Would prompt for manual step: $task_value" ;;
             *)        echo "[dry-run] Unknown task type: $task_type" ;;
@@ -272,13 +272,14 @@ cmd_run() {
             ;;
 
         make-plan)
-            local sidecar_file="$PLANS_DIR/make-plan-$task_value"
-            if [ ! -f "$sidecar_file" ]; then
-                echo "Error: prompt file not found: $sidecar_file" >&2; return 1
+            local prompt_file="$PLANS_DIR/$task_value"
+            if [ ! -f "$prompt_file" ]; then
+                echo "Error: prompt file not found: $prompt_file" >&2; return 1
             fi
-            local prompt
-            prompt="$(cat "$sidecar_file")"
-            claude "${prompt} Write the plan to plans/${task_value}."
+            local prompt target_plan
+            prompt="$(cat "$prompt_file")"
+            target_plan="${task_value/#make-plan-/plan-}"
+            claude "${prompt} Write the plan to plans/${target_plan}."
             _mark_done "$line_num" "$task_line"
             ;;
 
@@ -327,15 +328,15 @@ cmd_create() {
             ;;
         make-plan)
             if [ -z "$filename" ]; then
-                echo "Error: --file required for make-plan (the target plan filename)" >&2; return 1
+                echo "Error: --file required for make-plan (the prompt filename, e.g. make-plan-001.md)" >&2; return 1
             fi
             if [ -z "$description" ]; then
                 echo "Error: description (the prompt) required for make-plan" >&2; return 1
             fi
             task_line="${task_type}: ${filename}"
             mkdir -p "$PLANS_DIR"
-            printf '%s\n' "$description" > "$PLANS_DIR/make-plan-${filename}"
-            echo "Wrote prompt to: plans/make-plan-${filename}"
+            printf '%s\n' "$description" > "$PLANS_DIR/${filename}"
+            echo "Wrote prompt to: plans/${filename}"
             ;;
         unnamed-task|manual-test|manual-commit|manual-task)
             if [ -z "$description" ]; then
@@ -429,8 +430,8 @@ usage_create() {
     echo "  -f, --file  Filename in plans/ (required for task/plan/make-plan types)"
     echo "  Task types: unnamed-task (default), task, plan, make-plan, manual-test, manual-commit, manual-task"
     echo ""
-    echo "  For make-plan, -f specifies the target plan filename and <desc> is the prompt:"
-    echo "    planq create -t make-plan -f plan-001.md 'Design a caching layer for the API'"
+    echo "  For make-plan, -f specifies the prompt filename (make-plan-*.md); Claude writes plan-*.md:"
+    echo "    planq create -t make-plan -f make-plan-001.md 'Design a caching layer for the API'"
 }
 usage_mark()   {
     echo "Usage: planq mark <N> [done|d|underway|u|inactive|i]"
@@ -456,14 +457,14 @@ usage() {
     echo "  unnamed-task               Pass description directly to claude as a prompt (default)"
     echo "  task                       Read plans/<file> and pass its contents to claude"
     echo "  plan                       Ask claude to read and implement plans/<file>"
-    echo "  make-plan                  Use a prompt to create a new plan file (writes plans/<file>)"
+    echo "  make-plan                  Use a prompt file (make-plan-*.md) to create a plan file (plan-*.md)"
     echo "  manual-(test|commit|task)  Pause for a manual step"
     echo ""
     echo "Task line formats in planq file:"
     echo "  unnamed-task: <text>"
     echo "  task: <file>"
     echo "  plan: <file>"
-    echo "  make-plan: <file>          (prompt stored in plans/make-plan-<file>)"
+    echo "  make-plan: <make-plan-file>  (prompt in plans/make-plan-*.md; Claude writes plans/plan-*.md)"
     echo "  manual-test: <desc>  (or manual-commit / manual-task)"
     echo ""
     echo "Planq file: $PLANQ_FILE"

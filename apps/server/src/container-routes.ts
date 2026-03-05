@@ -771,9 +771,9 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null);
     touchPlanqServerModified(containerId);
-    // For make-plan, write the prompt to the sidecar file (make-plan-<filename>)
+    // For make-plan, write the prompt to the filename directly (filename IS make-plan-*.md)
     if (task_type === 'make-plan' && filename && description) {
-      await relayFileWrite(containerId, `make-plan-${filename}`, description).catch(() => {});
+      await relayFileWrite(containerId, filename, description).catch(() => {});
     }
 
     // Write updated planq file through daemon

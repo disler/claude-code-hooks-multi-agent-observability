@@ -24,10 +24,12 @@
           :task="task"
           :position="i + 1"
           :container-id="containerId"
+          :all-tasks="tasks"
           @edit-file="editingFile = task"
           @set-status="(t, s) => setStatus(t, s)"
           @delete="deleteTask(task.id)"
           @update-desc="(id, desc) => updateDesc(id, desc)"
+          @add-plan="addPlanFromMakePlan"
           @dragstart="dragFrom = task.id"
           @drop="dropOn(task.id)"
         />
@@ -54,7 +56,7 @@
     <PlanqFileEditor
       v-if="editingFile"
       :container-id="containerId"
-      :filename="editingFile.task_type === 'make-plan' ? `make-plan-${editingFile.filename}` : editingFile.filename!"
+      :filename="editingFile.filename!"
       @close="editingFile = null"
       @saved="editingFile = null"
     />
@@ -107,6 +109,11 @@ async function deleteTask(id: number) {
 
 async function updateDesc(id: number, desc: string) {
   await apiUpdate(props.containerId, id, { description: desc })
+  emit('tasks-changed')
+}
+
+async function addPlanFromMakePlan(planFilename: string) {
+  await apiAdd(props.containerId, 'plan', planFilename, null, false)
   emit('tasks-changed')
 }
 
