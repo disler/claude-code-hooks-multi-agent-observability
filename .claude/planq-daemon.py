@@ -71,7 +71,7 @@ SERVER_URL = os.environ.get('OBSERVABILITY_SERVER_URL', 'ws://172.30.0.1:4000/co
 SOURCE_REPO = os.environ.get('SOURCE_REPO', Path.cwd().name)
 # WORKSPACE_ROOT is the in-container path used for git and file operations.
 # WORKSPACE_HOST_PATH is the host-side path sent to the server for display only.
-WORKSPACE_ROOT = Path(os.environ.get('WORKSPACE_PATH', str(Path.cwd())))
+WORKSPACE_ROOT = Path(os.environ.get('WORKSPACE_PATH', '/workspace'))
 WORKSPACE_HOST_PATH = os.environ.get('WORKSPACE_HOST_PATH', str(WORKSPACE_ROOT))
 MACHINE_HOSTNAME = _get_machine_hostname()
 CONTAINER_HOSTNAME = os.environ.get('HOSTNAME', '')
