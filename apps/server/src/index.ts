@@ -476,8 +476,9 @@ const server = Bun.serve({
     },
 
     close(ws) {
-      const { type, addr } = ws.data as any;
-      const label = (ws as any).__wsLabel ?? `${type}@${addr ?? 'unknown'}`;
+      const type = (ws.data as any)?.type ?? 'unknown';
+      const addr = (ws.data as any)?.addr ?? 'unknown';
+      const label = (ws as any).__wsLabel ?? `${type}@${addr}`;
       if (type === 'container') {
         handleContainerClose(ws);
       } else if (type === 'dashboard') {

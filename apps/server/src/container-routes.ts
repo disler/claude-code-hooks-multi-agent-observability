@@ -204,7 +204,7 @@ export function broadcastAgentUpdate(data: {
     // Log which containers will be affected by this agent_update on the client side
     // (client matches on source_repo + session_id in active_session_ids)
     const claimants = (db.prepare(
-      'SELECT id, machine_hostname, container_hostname, workspace_host_path FROM containers WHERE source_repo = ?'
+      'SELECT id, machine_hostname, container_hostname, workspace_host_path, active_session_ids FROM containers WHERE source_repo = ?'
     ).all(data.source_app) as any[]).filter((r: any) => {
       const ids: string[] = JSON.parse(r.active_session_ids || '[]');
       return ids.includes(data.session_id);
@@ -343,6 +343,8 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       running_session_ids: Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [],
       last_seen: Date.now(),
     });
+
+    console.log(`[heartbeat] ${hbCtx}: upserted connected=${container.connected} sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}]`);
 
     // Sync planq tasks from planq_order text — but only if the server hasn't made local
     // edits more recently (30s grace period avoids a race where the heartbeat file read
