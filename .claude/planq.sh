@@ -202,13 +202,23 @@ cmd_run_next() {
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
+cmd_daemon() {
+    local daemon_sh="$SCRIPT_DIR/planq-daemon.sh"
+    if [ ! -x "$daemon_sh" ]; then
+        echo "Error: planq-daemon.sh not found at $daemon_sh" >&2
+        exit 1
+    fi
+    "$daemon_sh" "$@"
+}
+
 usage() {
     echo "Usage: planq.sh <subcommand> [options]"
     echo ""
     echo "Subcommands:"
-    echo "  list-tasks    / l           List all tasks with status"
-    echo "  show-next-task / s          Show next pending task (no execution)"
-    echo "  run-next-task  / r [--dry-run]  Execute next pending task"
+    echo "  list-tasks    / l                       List all tasks with status"
+    echo "  show-next-task / s                      Show next pending task (no execution)"
+    echo "  run-next-task  / r [--dry-run]          Execute next pending task"
+    echo "  daemon / d <start|stop|restart|status>  Manage the planq WebSocket daemon"
     echo ""
     echo "Planq file: $PLANQ_FILE"
 }
@@ -226,6 +236,7 @@ case "$SUBCMD" in
         done
         cmd_run_next "$DRY"
         ;;
+    daemon|d)              cmd_daemon "$@" ;;
     --help|-h|help|"")   usage ;;
     *)
         echo "Unknown subcommand: $SUBCMD" >&2
