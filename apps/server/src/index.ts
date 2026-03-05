@@ -477,7 +477,7 @@ const server = Bun.serve({
 
     close(ws) {
       const type = (ws.data as any)?.type ?? 'unknown';
-      const addr = (ws.data as any)?.addr ?? 'unknown';
+      const addr = (ws.data as any)?.addr ?? (ws as any).remoteAddress ?? 'unknown';
       const label = (ws as any).__wsLabel ?? `${type}@${addr}`;
       if (type === 'container') {
         handleContainerClose(ws);
@@ -492,10 +492,25 @@ const server = Bun.serve({
 
     error(ws, error) {
       const type = (ws.data as any)?.type ?? 'unknown';
-      const addr = (ws.data as any)?.addr ?? 'unknown';
+      const addr = (ws.data as any)?.addr ?? (ws as any).remoteAddress ?? 'unknown';
       const label = (ws as any).__wsLabel ?? `${type}@${addr}`;
-      const msg = error instanceof Error ? error.message : (error != null ? String(error) : 'no error details');
-      console.error(`[ws-error] ${label}: ${msg}`);
+      let msg: string;
+      if (error == null) {
+        msg = 'null/undefined error';
+      } else if (error instanceof Error) {
+        msg = error.message || error.toString();
+      } else if (typeof error === 'object') {
+        const e = error as any;
+        msg = e.message ?? e.reason ?? e.code ?? JSON.stringify(error) ?? String(error);
+        if (!msg || msg === '{}') {
+          // Dump all keys for diagnosis
+          const keys = Object.getOwnPropertyNames(e);
+          msg = keys.length ? keys.map(k => `${k}=${JSON.stringify(e[k])}`).join(' ') : `[${e.constructor?.name ?? 'object'} no keys]`;
+        }
+      } else {
+        msg = String(error);
+      }
+      console.error(`[ws-error] ${label}: ${msg} (ctor=${error?.constructor?.name ?? typeof error})`);
       if (type === 'container') {
         handleContainerClose(ws);
       } else if (type === 'dashboard') {
