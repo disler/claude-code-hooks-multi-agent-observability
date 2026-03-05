@@ -83,7 +83,7 @@ cmd_status() {
     fi
 }
 
-SUBCMD="${1:-start}"
+SUBCMD="${1:-status}"
 SUBCMD="${SUBCMD#--}"   # strip leading -- so --start == start
 case "$SUBCMD" in
     start)   cmd_start ;;

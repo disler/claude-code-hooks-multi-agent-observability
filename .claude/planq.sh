@@ -208,7 +208,7 @@ cmd_daemon() {
         echo "Error: planq-daemon.sh not found at $daemon_sh" >&2
         exit 1
     fi
-    "$daemon_sh" "$@"
+    "$daemon_sh" "${1:-status}" "${@:2}"
 }
 
 usage() {
