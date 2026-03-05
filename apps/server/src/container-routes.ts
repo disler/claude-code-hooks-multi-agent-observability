@@ -81,6 +81,8 @@ function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: Dev
   //    machine_hostname is 'unknown' in the hook event (common when DEVCONTAINER_HOST unset)
   // 3. Machine hostname match with unknown container hostname
   // 4. Any existing unknown stub
+  // 5. If only one container exists for this source_repo, use it — covers the common case
+  //    where HOSTNAME env var is unset so both hostnames are 'unknown' in hook events
   let match: any =
     (machineHostname !== 'unknown' && containerHostname !== 'unknown'
       ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === containerHostname)
@@ -92,6 +94,7 @@ function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: Dev
       ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === 'unknown')
       : null) ??
     rows.find((r: any) => r.machine_hostname === 'unknown') ??
+    (rows.length === 1 ? rows[0] : null) ??
     null;
 
   if (match) {
