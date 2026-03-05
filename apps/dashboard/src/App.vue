@@ -27,8 +27,10 @@
             :hosts="allHosts"
             :model-repo-filter="repoFilter"
             :model-host-filter="hostFilter"
+            :model-connection-filter="connectionFilter"
             @update:repo-filter="repoFilter = $event"
             @update:host-filter="hostFilter = $event"
+            @update:connection-filter="connectionFilter = $event"
           />
 
           <!-- Connection status -->
@@ -80,6 +82,7 @@ const { connected } = useDashboardWs(handleMessage)
 
 const repoFilter = ref('')
 const hostFilter = ref('')
+const connectionFilter = ref('')
 
 const allRepos = computed(() => {
   const repos = new Set<string>()
@@ -97,7 +100,9 @@ const filteredHosts = computed(() => {
   const map = new Map<string, typeof byHost.value extends Map<string, infer V> ? V : never>()
   for (const [host, conts] of byHost.value) {
     if (hostFilter.value && host !== hostFilter.value) continue
-    const filtered = repoFilter.value ? conts.filter(c => c.source_repo === repoFilter.value) : conts
+    let filtered = repoFilter.value ? conts.filter(c => c.source_repo === repoFilter.value) : conts
+    if (connectionFilter.value === 'online') filtered = filtered.filter(c => c.connected)
+    else if (connectionFilter.value === 'offline') filtered = filtered.filter(c => !c.connected)
     if (filtered.length > 0) map.set(host, filtered)
   }
   return map

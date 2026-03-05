@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -38,9 +39,16 @@ def _setup_logging(log_file: Path) -> logging.Logger:
 
 def _run(cmd, cwd=None):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=5, cwd=cwd)
-        return r.stdout.strip() if r.returncode == 0 else ''
-    except Exception:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10, cwd=cwd)
+        if r.returncode != 0:
+            log.debug('_run %s (cwd=%s) rc=%d stderr=%r', cmd[0], cwd, r.returncode, r.stderr[:200])
+            return ''
+        return r.stdout.strip()
+    except subprocess.TimeoutExpired:
+        log.warning('_run %s (cwd=%s) timed out', cmd[0], cwd)
+        return ''
+    except Exception as e:
+        log.debug('_run %s (cwd=%s) error: %s', cmd[0], cwd, e)
         return ''
 
 def _get_machine_hostname():
@@ -63,9 +71,9 @@ SERVER_URL = os.environ.get('OBSERVABILITY_SERVER_URL', 'ws://172.30.0.1:4000/co
 SOURCE_REPO = os.environ.get('SOURCE_REPO', Path.cwd().name)
 # WORKSPACE_ROOT is the in-container path used for git and file operations.
 # WORKSPACE_HOST_PATH is the host-side path sent to the server for display only.
-WORKSPACE_ROOT = Path(os.environ.get('WORKSPACE_PATH', str(Path.cwd())))
+WORKSPACE_ROOT = Path(os.environ.get('WORKSPACE_PATH', '/workspace'))
 WORKSPACE_HOST_PATH = os.environ.get('WORKSPACE_HOST_PATH', str(WORKSPACE_ROOT))
-MACHINE_HOSTNAME = os.environ.get('DEVCONTAINER_HOST', '') or _get_machine_hostname()
+MACHINE_HOSTNAME = _get_machine_hostname()
 CONTAINER_HOSTNAME = os.environ.get('HOSTNAME', '')
 HEARTBEAT_INTERVAL = int(os.environ.get('OBSERVABILITY_HEARTBEAT_INTERVAL', '15'))
 
@@ -74,6 +82,15 @@ _LOG_FILE = _SANDBOX_DIR / 'logs' / 'planq-daemon.log'
 _STATUS_FILE = _SANDBOX_DIR / 'planq' / 'planq-daemon.status'
 
 log = _setup_logging(_LOG_FILE)
+
+# Set by SIGUSR1 to trigger an immediate heartbeat
+_immediate_heartbeat = threading.Event()
+
+def _handle_sigusr1(signum, frame):
+    log.debug('Received SIGUSR1 — scheduling immediate heartbeat')
+    _immediate_heartbeat.set()
+
+signal.signal(signal.SIGUSR1, _handle_sigusr1)
 
 # ── Status file ───────────────────────────────────────────────────────────────
 
@@ -93,7 +110,7 @@ def _write_status(state: str, detail: str = ''):
 
 ALLOWED_FILENAME = re.compile(
     r'^(?:planq-order(?:-[A-Za-z0-9._-]+)?\.txt'
-    r'|(?:plan|task)-[0-9]+(?:-[a-z0-9-]+)?\.md)$'
+    r'|[A-Za-z0-9][A-Za-z0-9._-]*\.md)$'
 )
 
 def _validate_filename(filename: str) -> bool:
@@ -120,10 +137,13 @@ def _git_info():
     else:
         commit_hash, commit_msg = raw_log, ''
 
-    staged_count = len([l for l in _run(['git', 'diff', '--cached', '--name-only'], cwd=ws).splitlines() if l])
+    staged_names = [l for l in _run(['git', 'diff', '--cached', '--name-only'], cwd=ws).splitlines() if l]
+    staged_count = len(staged_names)
     staged_diffstat = _run(['git', 'diff', '--cached', '--stat'], cwd=ws)
-    unstaged_count = len([l for l in _run(['git', 'diff', '--name-only'], cwd=ws).splitlines() if l])
+    unstaged_names = [l for l in _run(['git', 'diff', '--name-only'], cwd=ws).splitlines() if l]
+    unstaged_count = len(unstaged_names)
     unstaged_diffstat = _run(['git', 'diff', '--stat'], cwd=ws)
+    log.debug('git_info cwd=%s branch=%s staged=%d unstaged=%d', ws, branch, staged_count, unstaged_count)
 
     # Determine worktree path
     worktree = ''
@@ -307,6 +327,48 @@ def _handle_file_write(ws, msg: dict):
     except OSError as e:
         _ws_send(ws, {'type': 'file_write_ack', 'request_id': request_id, 'ok': False, 'error': str(e)})
 
+def _handle_file_list(ws, msg: dict):
+    """Return sorted list of files in the plans/ directory."""
+    request_id = msg.get('request_id', '')
+    plans_dir = WORKSPACE_ROOT / 'plans'
+    try:
+        files = sorted(f.name for f in plans_dir.iterdir()
+                       if f.is_file() and not f.name.startswith('.'))
+    except OSError:
+        files = []
+    _ws_send(ws, {'type': 'file_list_response', 'request_id': request_id, 'ok': True, 'files': files})
+
+def _handle_file_write_new(ws, msg: dict):
+    """Write to a file, generating a unique name if the target already exists."""
+    filename = msg.get('filename', '')
+    request_id = msg.get('request_id', '')
+    content = msg.get('content', '')
+    if not _validate_filename(filename):
+        log.warning('Rejected file_write_new for invalid filename: %r', filename)
+        _ws_send(ws, {'type': 'file_write_new_ack', 'request_id': request_id, 'ok': False, 'error': 'invalid filename'})
+        return
+    if len(content) > 1_000_000:
+        _ws_send(ws, {'type': 'file_write_new_ack', 'request_id': request_id, 'ok': False, 'error': 'content too large'})
+        return
+    plans_dir = WORKSPACE_ROOT / 'plans'
+    stem = Path(filename).stem
+    ext = Path(filename).suffix or '.md'
+    actual = filename
+    counter = 1
+    while (plans_dir / actual).exists():
+        actual = f'{stem}-{counter}{ext}'
+        counter += 1
+        if counter > 99:
+            _ws_send(ws, {'type': 'file_write_new_ack', 'request_id': request_id, 'ok': False, 'error': 'too many name conflicts'})
+            return
+    target = plans_dir / actual
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        _ws_send(ws, {'type': 'file_write_new_ack', 'request_id': request_id, 'ok': True, 'filename': actual})
+    except OSError as e:
+        _ws_send(ws, {'type': 'file_write_new_ack', 'request_id': request_id, 'ok': False, 'error': str(e)})
+
 # ── WebSocket helpers ─────────────────────────────────────────────────────────
 
 def _ws_send(ws, data: dict):
@@ -349,6 +411,10 @@ def _run_connection():
             threading.Thread(target=_handle_file_read, args=(ws, msg), daemon=True).start()
         elif mtype == 'file_write':
             threading.Thread(target=_handle_file_write, args=(ws, msg), daemon=True).start()
+        elif mtype == 'file_list':
+            threading.Thread(target=_handle_file_list, args=(ws, msg), daemon=True).start()
+        elif mtype == 'file_write_new':
+            threading.Thread(target=_handle_file_write_new, args=(ws, msg), daemon=True).start()
 
     def on_error(ws, error):
         log.error('WebSocket error: %s', error)
@@ -383,7 +449,8 @@ def _run_connection():
     last_beat = time.time()
     while not stop_event.is_set():
         time.sleep(1)
-        if time.time() - last_beat >= HEARTBEAT_INTERVAL:
+        if _immediate_heartbeat.is_set() or time.time() - last_beat >= HEARTBEAT_INTERVAL:
+            _immediate_heartbeat.clear()
             _send_heartbeat(ws_app)
             last_beat = time.time()
 

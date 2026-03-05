@@ -4,6 +4,7 @@
       'border-green-500': session.status === 'busy',
       'border-yellow-500': session.status === 'awaiting_input',
       'border-slate-600': session.status === 'idle',
+      'border-red-900': session.status === 'terminated',
     }"
   >
     <div class="flex items-center gap-2 flex-wrap">
@@ -18,6 +19,19 @@
       <span v-if="session.subagent_count > 0" class="text-xs text-purple-400">
         + {{ session.subagent_count }} subagent{{ session.subagent_count > 1 ? 's' : '' }}
       </span>
+      <!-- hide / unhide controls -->
+      <button
+        v-if="explicitlyHidden"
+        @click="emit('unhide')"
+        class="ml-auto text-xs text-slate-600 hover:text-slate-400 transition-colors"
+        title="Unhide this session"
+      >unhide</button>
+      <button
+        v-else-if="isHideable"
+        @click="emit('hide')"
+        class="ml-auto text-xs text-slate-700 hover:text-slate-500 transition-colors"
+        title="Hide this session"
+      >hide</button>
     </div>
 
     <div v-if="session.last_prompt" class="text-xs text-slate-300 truncate max-w-prose">
@@ -34,15 +48,25 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import AgentStatusBadge from './AgentStatusBadge.vue'
 import type { SessionState } from '../types'
 
-const props = defineProps<{ session: SessionState }>()
+const props = defineProps<{ session: SessionState; explicitlyHidden?: boolean }>()
+const emit = defineEmits<{ hide: []; unhide: [] }>()
 
 const shortId = computed(() => props.session.session_id.slice(0, 8))
 
-// Reactive now-tick so relative time updates live
+// Reactive now-tick so relative time and hideability update live
 const now = ref(Date.now())
 let ticker: ReturnType<typeof setInterval> | null = null
 onMounted(() => { ticker = setInterval(() => { now.value = Date.now() }, 10_000) })
 onUnmounted(() => { if (ticker) clearInterval(ticker) })
+
+const ONE_HOUR = 3_600_000
+
+const isHideable = computed(() => {
+  const s = props.session
+  if (s.status === 'terminated') return true
+  if (s.status === 'idle' && s.last_event_at !== null && s.last_event_at < now.value - ONE_HOUR) return true
+  return false
+})
 
 const isoTime = computed(() => {
   if (!props.session.last_event_at) return ''

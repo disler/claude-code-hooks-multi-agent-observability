@@ -47,7 +47,7 @@ export interface PlanqItem {
   task_type: string;
   filename: string | null;
   description: string | null;
-  status: 'pending' | 'done';
+  status: 'pending' | 'done' | 'underway';
 }
 
 export function initContainerDatabase(): void {
@@ -177,6 +177,11 @@ export function getContainer(id: string): ContainerRow | null {
   return row ? rowToContainer(row) : null;
 }
 
+export function deleteContainer(id: string): boolean {
+  const result = db.prepare('DELETE FROM containers WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
 export function getAllContainers(): ContainerRow[] {
   const rows = db.prepare('SELECT * FROM containers ORDER BY machine_hostname, source_repo').all() as any[];
   return rows.map(rowToContainer);
@@ -214,11 +219,14 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    let isDone = false;
+    let status: 'pending' | 'done' | 'underway' = 'pending';
     let activeLine = trimmed;
     if (trimmed.startsWith('# done:')) {
-      isDone = true;
+      status = 'done';
       activeLine = trimmed.slice('# done:'.length).trim();
+    } else if (trimmed.startsWith('# underway:')) {
+      status = 'underway';
+      activeLine = trimmed.slice('# underway:'.length).trim();
     } else if (trimmed.startsWith('#')) {
       continue; // regular comment
     }
@@ -228,13 +236,13 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
 
     const taskType = activeLine.slice(0, colonIdx).trim();
     const value = activeLine.slice(colonIdx + 1).trim();
-    const validTypes = ['task', 'plan', 'manual-test', 'manual-commit', 'manual-task', 'unnamed-task'];
+    const validTypes = ['task', 'plan', 'make-plan', 'manual-test', 'manual-commit', 'manual-task', 'unnamed-task'];
     if (!validTypes.includes(taskType)) continue;
 
-    if (taskType === 'task' || taskType === 'plan') {
-      items.push({ task_type: taskType, filename: value, description: null, status: isDone ? 'done' : 'pending' });
+    if (taskType === 'task' || taskType === 'plan' || taskType === 'make-plan') {
+      items.push({ task_type: taskType, filename: value, description: null, status });
     } else {
-      items.push({ task_type: taskType, filename: null, description: value, status: isDone ? 'done' : 'pending' });
+      items.push({ task_type: taskType, filename: null, description: value, status });
     }
   }
   return items;
@@ -246,6 +254,7 @@ export function serializePlanqOrder(tasks: PlanqTaskRow[]): string {
   for (const t of sorted) {
     let line = t.filename ? `${t.task_type}: ${t.filename}` : `${t.task_type}: ${t.description || ''}`;
     if (t.status === 'done') line = `# done: ${line}`;
+    else if (t.status === 'underway') line = `# underway: ${line}`;
     lines.push(line);
   }
   return lines.join('\n') + '\n';

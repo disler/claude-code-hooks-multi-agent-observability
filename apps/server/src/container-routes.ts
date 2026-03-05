@@ -4,6 +4,7 @@ import {
   upsertContainer,
   setContainerDisconnected,
   getAllContainers,
+  deleteContainer,
   getContainer,
   parsePlanqOrder,
   serializePlanqOrder,
@@ -199,6 +200,8 @@ export function broadcastAgentUpdate(data: {
   } else if (data.hook_event_type === 'Stop') {
     status = 'idle';
     last_response_summary = data.summary ?? null;
+  } else if (data.hook_event_type === 'SessionEnd') {
+    status = 'terminated';
   } else if (data.hook_event_type === 'Notification') {
     const ntype = data.payload?.notification_type as string;
     if (ntype === 'permission_prompt') status = 'awaiting_input';
@@ -378,7 +381,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       last_seen: Date.now(),
     });
 
-    console.log(`[heartbeat] ${hbCtx}: upserted connected=${container.connected} sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}]`);
+    console.log(`[heartbeat] ${hbCtx}: upserted connected=${container.connected} sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}] git: staged=${msg.git_staged_count ?? 'n/a'} unstaged=${msg.git_unstaged_count ?? 'n/a'} branch=${msg.git_branch ?? '-'}`);
 
     // Sync planq tasks from planq_order text — but only if the server hasn't made local
     // edits more recently (30s grace period avoids a race where the heartbeat file read
@@ -461,6 +464,32 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     }
     return;
   }
+
+  // File list response
+  if (msg.type === 'file_list_response') {
+    const pending = pendingFileRequests.get(msg.request_id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingFileRequests.delete(msg.request_id);
+      pending.resolve(JSON.stringify(Array.isArray(msg.files) ? msg.files : []));
+    }
+    return;
+  }
+
+  // File write-new ack (non-overwriting write; returns actual filename used)
+  if (msg.type === 'file_write_new_ack') {
+    const pending = pendingFileRequests.get(msg.request_id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingFileRequests.delete(msg.request_id);
+      if (msg.ok) {
+        pending.resolve(msg.filename ?? '');
+      } else {
+        pending.reject(new Error(msg.error ?? 'File write failed'));
+      }
+    }
+    return;
+  }
 }
 
 export function handleContainerClose(ws: any): void {
@@ -534,11 +563,43 @@ async function relayFileWrite(containerId: string, filename: string, content: st
   });
 }
 
+// Write to a new file only — daemon picks a non-conflicting name and returns it.
+async function relayFileWriteNew(containerId: string, filename: string, content: string): Promise<string> {
+  const ws = containerWsMap.get(containerId);
+  if (!ws) throw new Error('Container offline');
+
+  const requestId = crypto.randomUUID();
+  return new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingFileRequests.delete(requestId);
+      reject(new Error('File write timeout'));
+    }, 10_000);
+    pendingFileRequests.set(requestId, { resolve, reject, timer });
+    ws.send(JSON.stringify({ type: 'file_write_new', request_id: requestId, filename, content }));
+  });
+}
+
+async function relayFileList(containerId: string): Promise<string[]> {
+  const ws = containerWsMap.get(containerId);
+  if (!ws) throw new Error('Container offline');
+
+  const requestId = crypto.randomUUID();
+  const serialized = await new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingFileRequests.delete(requestId);
+      reject(new Error('File list timeout'));
+    }, 10_000);
+    pendingFileRequests.set(requestId, { resolve, reject, timer });
+    ws.send(JSON.stringify({ type: 'file_list', request_id: requestId }));
+  });
+  return JSON.parse(serialized) as string[];
+}
+
 // ── Derived state builder ─────────────────────────────────────────────────────
 
 interface SessionState {
   session_id: string;
-  status: 'busy' | 'awaiting_input' | 'idle';
+  status: 'busy' | 'awaiting_input' | 'idle' | 'terminated';
   last_prompt: string | null;
   last_response_summary: string | null;
   model_name: string | null;
@@ -590,13 +651,15 @@ function deriveSessionStates(sourceRepo: string, sessionIds: string[]): SessionS
     // Events are already sorted desc; first is most recent
     const latest = events[0];
 
-    let status: 'busy' | 'awaiting_input' | 'idle' = 'idle';
+    let status: 'busy' | 'awaiting_input' | 'idle' | 'terminated' = 'idle';
     if (['UserPromptSubmit', 'PreToolUse', 'PostToolUse'].includes(latest.hook_event_type)) {
       // Check if there's a subsequent Stop/SessionEnd
       const hasStop = events.some(e => ['Stop', 'SessionEnd'].includes(e.hook_event_type)
         && e.timestamp > latest.timestamp);
       status = hasStop ? 'idle' : 'busy';
-    } else if (latest.hook_event_type === 'Stop' || latest.hook_event_type === 'SessionEnd') {
+    } else if (latest.hook_event_type === 'SessionEnd') {
+      status = 'terminated';
+    } else if (latest.hook_event_type === 'Stop') {
       status = 'idle';
     } else if (latest.hook_event_type === 'Notification') {
       const payload = typeof latest.payload === 'string' ? JSON.parse(latest.payload) : latest.payload;
@@ -669,6 +732,18 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     return json(containers);
   }
 
+  // DELETE /dashboard/containers/:id — discard a container (e.g. stale offline entry)
+  if (pathname.startsWith('/dashboard/containers/') && method === 'DELETE') {
+    const containerId = decodeURIComponent(pathname.slice('/dashboard/containers/'.length));
+    const container = getContainer(containerId);
+    if (!container) return err('Container not found', 404);
+    if (container.connected) return err('Cannot delete a connected container', 409);
+    deleteContainer(containerId);
+    console.log(`[dashboard] deleted offline container id=${containerId}`);
+    broadcastDashboard({ type: 'container_removed', data: { id: containerId } });
+    return json({ ok: true });
+  }
+
   // GET /planq/:id
   if (pathname.match(/^\/planq\/[^/]+$/) && method === 'GET') {
     const containerId = decodeURIComponent(pathname.split('/')[2]);
@@ -683,15 +758,22 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const { task_type, filename, description } = body;
+    const { task_type, description, create_file } = body;
+    let { filename } = body;
     if (!task_type) return err('task_type required');
+
+    // For named tasks: if create_file is set, write the description to a new file
+    // (daemon picks a non-conflicting name and returns the actual filename used).
+    if (create_file && filename && description && containerWsMap.has(containerId)) {
+      const actualFn = await relayFileWriteNew(containerId, filename, description).catch(() => null);
+      if (actualFn) filename = actualFn;
+    }
 
     const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null);
     touchPlanqServerModified(containerId);
-
-    // For named tasks, write the description content to the file in the container
-    if (task_type === 'task' && filename && description) {
-      await relayFileWrite(containerId, filename, description).catch(() => {});
+    // For make-plan, write the prompt to the sidecar file (make-plan-<filename>)
+    if (task_type === 'make-plan' && filename && description) {
+      await relayFileWrite(containerId, `make-plan-${filename}`, description).catch(() => {});
     }
 
     // Write updated planq file through daemon
@@ -752,6 +834,18 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     return json({ ok: true });
   }
 
+  // GET /planq/:id/plans-files
+  if (pathname.match(/^\/planq\/[^/]+\/plans-files$/) && method === 'GET') {
+    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    if (!containerWsMap.has(containerId)) return err('Container offline', 503);
+    try {
+      const files = await relayFileList(containerId);
+      return json(files);
+    } catch (e: any) {
+      return err(e.message || 'File list failed', 503);
+    }
+  }
+
   // GET /planq/:id/file/:filename
   if (pathname.match(/^\/planq\/[^/]+\/file\/.+$/) && method === 'GET') {
     const parts = pathname.split('/');
@@ -762,7 +856,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     try {
       const content = await relayFileRead(containerId, filename);
-      return new Response(content, { headers: { ...CORS, 'Content-Type': 'text/plain; charset=utf-8' } });
+      return json({ content });
     } catch (e: any) {
       return err(e.message || 'File read failed', 503);
     }
@@ -776,7 +870,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);
 
-    const content = await req.text();
+    const body = await req.json() as any;
+    const content = body.content ?? '';
     try {
       await relayFileWrite(containerId, filename, content);
       return json({ ok: true });

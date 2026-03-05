@@ -153,19 +153,34 @@
         </template>
       </div>
 
-      <!-- Last seen (offline) -->
-      <div v-if="!container.connected" class="text-xs text-slate-500 shrink-0">
-        {{ relativeTime }}
+      <!-- Last seen (offline) + discard button -->
+      <div v-if="!container.connected" class="flex flex-col items-end gap-1 shrink-0">
+        <span class="text-xs text-slate-500">{{ relativeTime }}</span>
+        <button
+          class="text-xs text-slate-600 hover:text-red-400 transition-colors"
+          title="Discard this offline container"
+          @click="discardContainer"
+        >discard</button>
       </div>
     </div>
 
     <!-- Sessions -->
-    <div v-if="container.sessions.length > 0" class="mt-3 flex flex-col gap-1">
+    <div v-if="visibleSessions.length > 0 || hiddenSessionCount > 0" class="mt-3 flex flex-col gap-1">
       <SessionRow
-        v-for="session in container.sessions"
+        v-for="session in visibleSessions"
         :key="session.session_id"
         :session="session"
+        :explicitly-hidden="isExplicitlyHidden(session.session_id)"
+        @hide="hideSession(session.session_id)"
+        @unhide="unhideSession(session.session_id)"
       />
+      <!-- show/hide hidden sessions toggle -->
+      <div v-if="hiddenSessionCount > 0" class="mt-0.5 pl-3">
+        <button
+          @click="showHidden = !showHidden"
+          class="text-xs text-slate-600 hover:text-slate-400 transition-colors"
+        >{{ showHidden ? 'hide previous sessions' : `show ${hiddenSessionCount} previous session${hiddenSessionCount > 1 ? 's' : ''}` }}</button>
+      </div>
     </div>
     <div v-else-if="container.connected" class="mt-2 text-xs text-slate-600 italic">No active sessions</div>
 
@@ -180,12 +195,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import AgentStatusBadge from './AgentStatusBadge.vue'
 import GitDiffstatPopover from './GitDiffstatPopover.vue'
 import SessionRow from './SessionRow.vue'
 import PlanqPanel from './PlanqPanel.vue'
-import type { ContainerWithState, GitSubmoduleInfo } from '../types'
+import { API_BASE } from '../config'
+import { useHiddenSessions } from '../composables/useHiddenSessions'
+import type { ContainerWithState, GitSubmoduleInfo, SessionState } from '../types'
 
 const props = defineProps<{
   container: ContainerWithState
@@ -194,6 +211,53 @@ const props = defineProps<{
 const emit = defineEmits<{
   'tasks-changed': []
 }>()
+
+// ── Session hiding ────────────────────────────────────────────────────────────
+
+const { hide, show, isExplicitlyHidden } = useHiddenSessions()
+const showHidden = ref(false)
+
+const now = ref(Date.now())
+let nowTicker: ReturnType<typeof setInterval> | null = null
+onMounted(() => { nowTicker = setInterval(() => { now.value = Date.now() }, 60_000) })
+onUnmounted(() => { if (nowTicker) clearInterval(nowTicker) })
+
+const ONE_HOUR = 3_600_000
+
+function isAutoHidden(session: SessionState): boolean {
+  return session.status === 'terminated'
+    && session.last_event_at !== null
+    && session.last_event_at < now.value - ONE_HOUR
+}
+
+const hiddenSessions = computed(() =>
+  props.container.sessions.filter(s => isAutoHidden(s) || isExplicitlyHidden(s.session_id))
+)
+
+const hiddenSessionCount = computed(() => hiddenSessions.value.length)
+
+const visibleSessions = computed(() =>
+  showHidden.value
+    ? props.container.sessions
+    : props.container.sessions.filter(s => !isAutoHidden(s) && !isExplicitlyHidden(s.session_id))
+)
+
+function hideSession(sessionId: string) {
+  hide(sessionId)
+}
+
+function unhideSession(sessionId: string) {
+  show(sessionId)
+}
+
+// ── Container actions ─────────────────────────────────────────────────────────
+
+async function discardContainer() {
+  const label = `${props.container.source_repo}${props.container.workspace_host_path ? ' (' + props.container.workspace_host_path + ')' : ''}`
+  if (!confirm(`Discard offline container ${label}?\n\nThis removes it from the dashboard. It will reappear if the planq daemon reconnects.`)) return
+  await fetch(`${API_BASE}/dashboard/containers/${encodeURIComponent(props.container.id)}`, { method: 'DELETE' })
+  // Server broadcasts container_removed; no local state needed
+}
 
 const firstSub = computed<GitSubmoduleInfo | null>(() => props.container.git_submodules?.[0] ?? null)
 const extraSubs = computed<GitSubmoduleInfo[]>(() => props.container.git_submodules?.slice(1) ?? [])

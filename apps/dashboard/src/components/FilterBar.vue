@@ -17,6 +17,16 @@
       <option value="">All hosts</option>
       <option v-for="h in hosts" :key="h" :value="h">{{ h }}</option>
     </select>
+
+    <select
+      v-model="connectionFilter"
+      class="text-sm bg-slate-800 border border-slate-600 rounded px-2 py-1 text-slate-300 focus:outline-none focus:border-slate-400"
+      @change="emit('update:connectionFilter', connectionFilter)"
+    >
+      <option value="">All</option>
+      <option value="online">Online only</option>
+      <option value="offline">Offline only</option>
+    </select>
   </div>
 </template>
 
@@ -28,16 +38,20 @@ const props = defineProps<{
   hosts: string[]
   modelRepoFilter: string
   modelHostFilter: string
+  modelConnectionFilter: string
 }>()
 
 const emit = defineEmits<{
   'update:repoFilter': [value: string]
   'update:hostFilter': [value: string]
+  'update:connectionFilter': [value: string]
 }>()
 
 const repoFilter = ref(props.modelRepoFilter)
 const hostFilter = ref(props.modelHostFilter)
+const connectionFilter = ref(props.modelConnectionFilter)
 
 watch(() => props.modelRepoFilter, v => { repoFilter.value = v })
 watch(() => props.modelHostFilter, v => { hostFilter.value = v })
+watch(() => props.modelConnectionFilter, v => { connectionFilter.value = v })
 </script>

@@ -11,7 +11,7 @@ export interface GitSubmoduleInfo {
 
 export interface SessionState {
   session_id: string
-  status: 'busy' | 'idle' | 'awaiting_input'
+  status: 'busy' | 'idle' | 'awaiting_input' | 'terminated'
   last_prompt: string | null
   last_response_summary: string | null
   subagent_count: number
@@ -22,11 +22,11 @@ export interface SessionState {
 export interface PlanqTask {
   id: number
   container_id: string
-  task_type: 'task' | 'plan' | 'manual-test' | 'manual-commit' | 'manual-task' | 'unnamed-task'
+  task_type: 'task' | 'plan' | 'make-plan' | 'manual-test' | 'manual-commit' | 'manual-task' | 'unnamed-task'
   filename: string | null
   description: string | null
   position: number
-  status: 'pending' | 'done'
+  status: 'pending' | 'done' | 'underway'
 }
 
 export interface ContainerWithState {
