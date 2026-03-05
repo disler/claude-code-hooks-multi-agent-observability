@@ -69,11 +69,18 @@ function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: Dev
   // If any container already claims this session, nothing to do
   for (const row of rows) {
     const ids: string[] = JSON.parse(row.active_session_ids || '[]');
-    if (ids.includes(sessionId)) return;
+    if (ids.includes(sessionId)) {
+      console.log(`[ensureContainer] source=${sourceApp} session=${sessionId.slice(0,8)}: already claimed by id=${row.id} host=${row.machine_hostname} container=${row.container_hostname}`);
+      return;
+    }
   }
 
   const machineHostname = (dc?.host && dc.host !== 'unknown') ? dc.host : 'unknown';
   const containerHostname = dc?.container_id || 'unknown';
+
+  const existingIds = rows.map((r: any) => r.id);
+  const evCtx = `source=${sourceApp} host=${machineHostname} container=${containerHostname} workspace=${dc?.workspace ?? '-'} session=${sessionId.slice(0,8)}`;
+  console.log(`[ensureContainer] ${evCtx} existing=[${existingIds.join(', ')}]`);
 
   // Find the best matching existing container to add this session to:
   // 1. Exact match on (machine_hostname, container_hostname) — same physical container
@@ -83,21 +90,25 @@ function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: Dev
   // 4. Any existing unknown stub
   // 5. If only one container exists for this source_repo, use it — covers the common case
   //    where HOSTNAME env var is unset so both hostnames are 'unknown' in hook events
+  let matchTier = 0;
   let match: any =
-    (machineHostname !== 'unknown' && containerHostname !== 'unknown'
+    (++matchTier && machineHostname !== 'unknown' && containerHostname !== 'unknown'
       ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === containerHostname)
       : null) ??
-    (containerHostname !== 'unknown'
+    (++matchTier && containerHostname !== 'unknown'
       ? rows.find((r: any) => r.container_hostname === containerHostname)
       : null) ??
-    (machineHostname !== 'unknown'
+    (++matchTier && machineHostname !== 'unknown'
       ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === 'unknown')
       : null) ??
-    rows.find((r: any) => r.machine_hostname === 'unknown') ??
-    (rows.length === 1 ? rows[0] : null) ??
+    (++matchTier ? rows.find((r: any) => r.machine_hostname === 'unknown') : null) ??
+    (++matchTier && rows.length === 1 ? rows[0] : null) ??
     null;
 
+  if (!match) matchTier = 0;
+
   if (match) {
+    console.log(`[ensureContainer] ${evCtx} → tier ${matchTier} matched id=${match.id} host=${match.machine_hostname} container=${match.container_hostname}`);
     const ids: string[] = JSON.parse(match.active_session_ids || '[]');
     ids.push(sessionId);
     // Upgrade stub fields with real devcontainer info where we now know better
@@ -127,6 +138,7 @@ function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: Dev
     ? (containerHostname !== 'unknown' ? `${sourceApp}:${containerHostname}` : `${sourceApp}:unknown`)
     : sourceApp;
 
+  console.log(`[ensureContainer] ${evCtx} → no match (tier 0), creating stub id=${newId}`);
   db.prepare(`
     INSERT OR IGNORE INTO containers
       (id, source_repo, machine_hostname, container_hostname, workspace_host_path, git_branch, active_session_ids, last_seen, connected)
@@ -164,6 +176,18 @@ export function broadcastAgentUpdate(data: {
   }
 
   if (status !== null) {
+    // Log which containers will be affected by this agent_update on the client side
+    // (client matches on source_repo + session_id in active_session_ids)
+    const claimants = (db.prepare(
+      'SELECT id, machine_hostname, container_hostname, workspace_host_path FROM containers WHERE source_repo = ?'
+    ).all(data.source_app) as any[]).filter((r: any) => {
+      const ids: string[] = JSON.parse(r.active_session_ids || '[]');
+      return ids.includes(data.session_id);
+    });
+    const claimantStr = claimants.length
+      ? claimants.map((r: any) => `${r.id}(host=${r.machine_hostname} workspace=${r.workspace_host_path ?? '-'})`).join(', ')
+      : 'none';
+    console.log(`[agent_update] source=${data.source_app} session=${data.session_id.slice(0,8)} event=${data.hook_event_type} status=${status} → will update containers: [${claimantStr}]`);
     broadcastDashboard({
       type: 'agent_update',
       data: {
@@ -197,7 +221,10 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
 
     // Cancel offline timer if pending
     const timer = offlineTimers.get(containerId);
-    if (timer) { clearTimeout(timer); offlineTimers.delete(containerId); }
+    if (timer) {
+      clearTimeout(timer);
+      offlineTimers.delete(containerId);
+    }
 
     // Register WS if not already
     if (!containerWsMap.has(containerId)) {
@@ -211,6 +238,8 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     const daemonSessionIds: string[] = Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [];
     const sourceRepo: string = msg.source_repo ?? containerId;
     const containerHostname: string = msg.container_hostname ?? '';
+    const hbCtx = `id=${containerId} host=${msg.machine_hostname ?? 'unknown'} container=${containerHostname || '-'} workspace=${msg.workspace_host_path ?? '-'}`;
+    if (timer) console.log(`[heartbeat] ${hbCtx}: cancelled pending offline timer (reconnected)`);
     const existingContainer = getContainer(containerId);
     let mergedSessionIds = daemonSessionIds;
     if (existingContainer) {
@@ -238,10 +267,16 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       for (const stubRow of sameContainerStubs) {
         sameContainerStubIds.push(stubRow.id);
         const stubIds: string[] = JSON.parse(stubRow.active_session_ids || '[]');
-        for (const id of stubIds) {
-          if (!mergedSessionIds.includes(id)) mergedSessionIds = [...mergedSessionIds, id];
+        const toAbsorb = stubIds.filter(id => !mergedSessionIds.includes(id));
+        if (toAbsorb.length > 0) {
+          console.log(`[heartbeat] ${hbCtx}: absorbing ${toAbsorb.length} session(s) from same-container stub ${stubRow.id}: [${toAbsorb.map(s => s.slice(0,8)).join(', ')}]`);
+          mergedSessionIds = [...mergedSessionIds, ...toAbsorb];
+        } else {
+          console.log(`[heartbeat] ${hbCtx}: will delete empty same-container stub ${stubRow.id}`);
         }
       }
+    } else {
+      console.log(`[heartbeat] ${hbCtx}: container_hostname=${JSON.stringify(containerHostname)}, skipping same-container stub search`);
     }
 
     // Upsert container row
@@ -281,6 +316,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     for (const stubId of sameContainerStubIds) {
       const deleted = db.prepare('DELETE FROM containers WHERE id = ?').run(stubId);
       if (deleted.changes > 0) {
+        console.log(`[heartbeat] ${hbCtx}: deleted same-container stub ${stubId}`);
         broadcastDashboard({ type: 'container_removed', data: { id: stubId } });
       }
     }
@@ -303,16 +339,20 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
               'DELETE FROM containers WHERE id = ? AND connected = 0'
             ).run(stubRow.id);
             if (deleted.changes > 0) {
+              console.log(`[heartbeat] ${hbCtx}: deleted emptied unknown stub ${stubRow.id}`);
               broadcastDashboard({ type: 'container_removed', data: { id: stubRow.id } });
               continue;
             }
           }
+          console.log(`[heartbeat] ${hbCtx}: removed ${stubIds.length - remaining.length} claimed session(s) from unknown stub ${stubRow.id}`);
           db.prepare('UPDATE containers SET active_session_ids = ? WHERE id = ?')
             .run(JSON.stringify(remaining), stubRow.id);
           const stub = getContainer(stubRow.id);
           if (stub) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(stub) });
         }
       }
+    } else if (mergedSessionIds.length === 0) {
+      console.log(`[heartbeat] ${hbCtx}: daemon reported 0 sessions, skipping unknown-stub cleanup`);
     }
 
     // Broadcast to dashboard clients
@@ -349,13 +389,22 @@ export function handleContainerClose(ws: any): void {
   if (!containerId) return;
   containerWsMap.delete(containerId);
 
+  const closedRow = getContainer(containerId);
+  const closeCtx = closedRow
+    ? `id=${containerId} host=${closedRow.machine_hostname} container=${closedRow.container_hostname || '-'} workspace=${closedRow.workspace_host_path ?? '-'}`
+    : `id=${containerId}`;
+  console.log(`[ws-close] ${closeCtx}: WS closed, starting 30s offline timer`);
   // Grace period before marking offline
   const timer = setTimeout(() => {
     offlineTimers.delete(containerId);
+    const offlineRow = getContainer(containerId);
+    const offCtx = offlineRow
+      ? `id=${containerId} host=${offlineRow.machine_hostname} container=${offlineRow.container_hostname || '-'} workspace=${offlineRow.workspace_host_path ?? '-'}`
+      : `id=${containerId}`;
+    console.log(`[offline] ${offCtx}: grace period expired, marking disconnected`);
     setContainerDisconnected(containerId);
-    const container = getContainer(containerId);
-    if (container) {
-      broadcastDashboard({ type: 'container_update', data: buildContainerWithState(container) });
+    if (offlineRow) {
+      broadcastDashboard({ type: 'container_update', data: buildContainerWithState(offlineRow) });
     }
   }, 30_000);
   offlineTimers.set(containerId, timer);
