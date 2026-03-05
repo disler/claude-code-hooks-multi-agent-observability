@@ -87,6 +87,29 @@ _find_next_task() {
     done < "$PLANQ_FILE"
 }
 
+# Outputs: line_number TAB task_line  for the task at visible position N (1-based)
+# Visible position counts all non-comment, non-blank lines (pending and done).
+_find_task_by_number() {
+    local target="$1"
+    [ ! -f "$PLANQ_FILE" ] && return
+    local n=0 i=0
+    while IFS= read -r line; do
+        n=$((n + 1))
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* ]] && continue  # skip regular comments
+        i=$((i + 1))
+        if [ "$i" -eq "$target" ]; then
+            # Strip the "# done: " prefix if present so we get the raw task line
+            if [[ "$trimmed" == "# done: "* ]]; then
+                trimmed="${trimmed#"# done: "}"
+            fi
+            printf '%d\t%s\n' "$n" "$trimmed"
+            return
+        fi
+    done < "$PLANQ_FILE"
+}
+
 _mark_done() {
     local line_num="$1" original_line="$2"
     local tmp
@@ -136,13 +159,26 @@ cmd_show_next() {
 }
 
 cmd_run_next() {
-    local dry_run="${1:-}"
-    local next
-    next="$(_find_next_task)"
+    local dry_run="" task_num=""
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run|-n) dry_run=1 ;;
+            [0-9]*)    task_num="$arg" ;;
+        esac
+    done
 
-    if [ -z "$next" ]; then
-        echo "No pending tasks in $PLANQ_FILE"
-        return 0
+    local next
+    if [ -n "$task_num" ]; then
+        next="$(_find_task_by_number "$task_num")"
+        if [ -z "$next" ]; then
+            echo "No task #$task_num in $PLANQ_FILE" >&2; return 1
+        fi
+    else
+        next="$(_find_next_task)"
+        if [ -z "$next" ]; then
+            echo "No pending tasks in $PLANQ_FILE"
+            return 0
+        fi
     fi
 
     local line_num task_line task_type task_value
@@ -150,7 +186,7 @@ cmd_run_next() {
     task_line="$(printf '%s' "$next" | cut -f2-)"
     _parse_task "$task_line"
 
-    echo "Next task: $task_line"
+    echo "Running task: $task_line"
 
     if [ -n "$dry_run" ]; then
         case "$task_type" in
@@ -192,7 +228,7 @@ cmd_run_next() {
             echo "━━━ Manual step required ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             printf "  Type: %s\n" "$task_type"
             printf "  Task: %s\n" "$task_value"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━§━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo ""
             read -r -p "Press Enter when done (or Ctrl+C to abort): "
             _mark_done "$line_num" "$task_line"
@@ -223,7 +259,7 @@ usage() {
     echo "Subcommands:"
     echo "  list-tasks    / l                       List all tasks with status"
     echo "  show-next-task / s                      Show next pending task (no execution)"
-    echo "  run-next-task  / r [--dry-run]          Execute next pending task"
+    echo "  run-next-task  / r [N] [--dry-run|-n]   Execute next pending task, or task #N"
     echo "  daemon / d <start|stop|restart|status>  Manage the planq WebSocket daemon"
     echo ""
     echo "Task line formats in planq file:"
@@ -241,13 +277,7 @@ shift || true
 case "$SUBCMD" in
     list-tasks|l)        cmd_list ;;
     show-next-task|s)    cmd_show_next ;;
-    run-next-task|r)
-        DRY=""
-        for arg in "$@"; do
-            [ "$arg" = "--dry-run" ] && DRY=1
-        done
-        cmd_run_next "$DRY"
-        ;;
+    run-next-task|r)     cmd_run_next "$@" ;;
     daemon|d)              cmd_daemon "$@" ;;
     --help|-h|help|"")   usage ;;
     *)
