@@ -7,7 +7,7 @@
     >
       <span>{{ open ? '▾' : '▸' }}</span>
       <span>Plan Queue</span>
-      <span class="text-slate-500">({{ pendingCount }} pending{{ doneCount > 0 ? `, ${doneCount} done` : '' }})</span>
+      <span class="text-slate-500">({{ pendingCount }} pending{{ underwayCount > 0 ? `, ${underwayCount} underway` : '' }}{{ doneCount > 0 ? `, ${doneCount} done` : '' }})</span>
     </button>
 
     <div v-if="open" class="mt-1 bg-slate-900/50 rounded-lg border border-slate-700 p-2">
@@ -25,7 +25,7 @@
           :position="i + 1"
           :container-id="containerId"
           @edit-file="editingFile = task"
-          @toggle-status="toggleStatus(task)"
+          @set-status="(t, s) => setStatus(t, s)"
           @delete="deleteTask(task.id)"
           @update-desc="(id, desc) => updateDesc(id, desc)"
           @dragstart="dragFrom = task.id"
@@ -85,7 +85,8 @@ const showAddDialog = ref(false)
 const editingFile = ref<PlanqTask | null>(null)
 const dragFrom = ref<number | null>(null)
 
-const pendingCount = computed(() => props.tasks.filter(t => t.status !== 'done').length)
+const pendingCount = computed(() => props.tasks.filter(t => t.status === 'pending').length)
+const underwayCount = computed(() => props.tasks.filter(t => t.status === 'underway').length)
 const doneCount = computed(() => props.tasks.filter(t => t.status === 'done').length)
 
 async function addTask(taskType: string, filename: string | null, description: string | null) {
@@ -93,9 +94,8 @@ async function addTask(taskType: string, filename: string | null, description: s
   emit('tasks-changed')
 }
 
-async function toggleStatus(task: PlanqTask) {
-  const newStatus = task.status === 'done' ? 'pending' : 'done'
-  await apiUpdate(props.containerId, task.id, { status: newStatus })
+async function setStatus(task: PlanqTask, status: 'pending' | 'done' | 'underway') {
+  await apiUpdate(props.containerId, task.id, { status })
   emit('tasks-changed')
 }
 

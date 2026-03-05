@@ -26,7 +26,7 @@ export interface PlanqTask {
   filename: string | null
   description: string | null
   position: number
-  status: 'pending' | 'done'
+  status: 'pending' | 'done' | 'underway'
 }
 
 export interface ContainerWithState {

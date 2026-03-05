@@ -1,7 +1,7 @@
 <template>
   <div
     class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-700/50 group"
-    :class="{ 'opacity-50': task.status === 'done' }"
+    :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway' }"
     draggable="true"
     @dragstart="emit('dragstart', task.id)"
     @dragover.prevent
@@ -13,8 +13,9 @@
     <!-- Position -->
     <span class="text-xs text-slate-500 w-4 text-right shrink-0">{{ position }}</span>
 
-    <!-- Done indicator -->
+    <!-- Status indicator -->
     <span v-if="task.status === 'done'" class="text-green-500 text-xs">✅</span>
+    <span v-else-if="task.status === 'underway'" class="text-yellow-400 text-xs">⏳</span>
     <span v-else class="text-slate-600 text-xs">▶</span>
 
     <!-- Type badge -->
@@ -52,9 +53,17 @@
         title="Edit description"
       >Edit</button>
 
+      <!-- Mark underway -->
+      <button
+        v-if="task.status === 'pending'"
+        @click="emit('set-status', task, 'underway')"
+        class="text-xs px-1 text-yellow-500 hover:text-yellow-300"
+        title="Mark underway"
+      >⏳</button>
+
       <!-- Mark done / pending -->
       <button
-        @click="emit('toggle-status', task)"
+        @click="emit('set-status', task, task.status === 'done' ? 'pending' : 'done')"
         class="text-xs px-1"
         :class="task.status === 'done' ? 'text-slate-400 hover:text-slate-200' : 'text-green-500 hover:text-green-300'"
         :title="task.status === 'done' ? 'Mark pending' : 'Mark done'"
@@ -81,7 +90,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'edit-file': [task: PlanqTask]
-  'toggle-status': [task: PlanqTask]
+  'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway']
   'delete': [id: number]
   'update-desc': [id: number, desc: string]
   'dragstart': [id: number]
