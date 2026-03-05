@@ -3,8 +3,7 @@
     :class="{
       'border-green-500': session.status === 'busy',
       'border-yellow-500': session.status === 'awaiting_input',
-      'border-slate-600': session.status === 'idle',
-      'border-red-900': session.status === 'terminated',
+      'border-slate-600': session.status === 'idle' || session.status === 'terminated',
     }"
   >
     <div class="flex items-center gap-2 flex-wrap">
