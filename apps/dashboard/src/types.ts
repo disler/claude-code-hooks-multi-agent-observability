@@ -26,14 +26,14 @@ export interface PlanqTask {
   filename: string | null
   description: string | null
   position: number
-  status: 'pending' | 'done' | 'underway'
+  status: 'pending' | 'done' | 'underway' | 'auto-queue'
 }
 
 export interface PlanqItem {
   task_type: string
   filename: string | null
   description: string | null
-  status: 'pending' | 'done' | 'underway'
+  status: 'pending' | 'done' | 'underway' | 'auto-queue'
 }
 
 export interface ContainerWithState {

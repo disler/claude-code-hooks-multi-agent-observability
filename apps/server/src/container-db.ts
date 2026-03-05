@@ -48,7 +48,7 @@ export interface PlanqItem {
   task_type: string;
   filename: string | null;
   description: string | null;
-  status: 'pending' | 'done' | 'underway';
+  status: 'pending' | 'done' | 'underway' | 'auto-queue';
 }
 
 export function initContainerDatabase(): void {
@@ -227,7 +227,7 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    let status: 'pending' | 'done' | 'underway' = 'pending';
+    let status: 'pending' | 'done' | 'underway' | 'auto-queue' = 'pending';
     let activeLine = trimmed;
     if (trimmed.startsWith('# done:')) {
       status = 'done';
@@ -235,6 +235,9 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
     } else if (trimmed.startsWith('# underway:')) {
       status = 'underway';
       activeLine = trimmed.slice('# underway:'.length).trim();
+    } else if (trimmed.startsWith('# auto-queue:')) {
+      status = 'auto-queue';
+      activeLine = trimmed.slice('# auto-queue:'.length).trim();
     } else if (trimmed.startsWith('#')) {
       continue; // regular comment
     }
@@ -263,6 +266,7 @@ export function serializePlanqOrder(tasks: PlanqTaskRow[]): string {
     let line = t.filename ? `${t.task_type}: ${t.filename}` : `${t.task_type}: ${t.description || ''}`;
     if (t.status === 'done') line = `# done: ${line}`;
     else if (t.status === 'underway') line = `# underway: ${line}`;
+    else if (t.status === 'auto-queue') line = `# auto-queue: ${line}`;
     lines.push(line);
   }
   return lines.join('\n') + '\n';

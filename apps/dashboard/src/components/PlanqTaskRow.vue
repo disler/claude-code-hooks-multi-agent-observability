@@ -2,7 +2,7 @@
   <div class="flex flex-col">
   <div
     class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-700/50 group"
-    :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway' }"
+    :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue' }"
     draggable="true"
     @dragstart="emit('dragstart', task.id)"
     @dragover.prevent
@@ -17,6 +17,7 @@
     <!-- Status indicator -->
     <span v-if="task.status === 'done'" class="text-green-500 text-xs">✅</span>
     <span v-else-if="task.status === 'underway'" class="text-yellow-400 text-xs">⏳</span>
+    <span v-else-if="task.status === 'auto-queue'" class="text-cyan-400 text-xs">⏱</span>
     <span v-else class="text-slate-600 text-xs">▶</span>
 
     <!-- Type badge -->
@@ -66,6 +67,15 @@
         class="text-xs text-slate-400 hover:text-slate-200 px-1"
         title="Edit description"
       >Edit</button>
+
+      <!-- Toggle auto-queue -->
+      <button
+        v-if="task.status === 'pending' || task.status === 'auto-queue'"
+        @click="emit('set-status', task, task.status === 'auto-queue' ? 'pending' : 'auto-queue')"
+        class="text-xs px-1"
+        :class="task.status === 'auto-queue' ? 'text-cyan-400 hover:text-cyan-200' : 'text-slate-500 hover:text-cyan-400'"
+        :title="task.status === 'auto-queue' ? 'Remove from auto-queue' : 'Add to auto-queue'"
+      >⏱</button>
 
       <!-- Mark underway / un-underway -->
       <button

@@ -19,31 +19,7 @@ PLANS_DIR="$WORKSPACE_ROOT/plans"
 # ── Determine planq file ──────────────────────────────────────────────────────
 
 _get_planq_file() {
-    local source_repo="${SOURCE_REPO:-}"
-    if [ -z "$source_repo" ]; then
-        source_repo="$(basename "$WORKSPACE_ROOT")"
-    fi
-
-    # Check if we're in a worktree by looking for any non-current entry
-    local worktree
-    worktree="$(git -C "$WORKSPACE_ROOT" worktree list --porcelain 2>/dev/null \
-        | awk -v ws="$WORKSPACE_ROOT" '
-            /^worktree / { wt=$2 }
-            /^HEAD/ && wt != ws { print wt; exit }
-        ')"
-
-    if [ -n "$worktree" ]; then
-        local basename container_id
-        basename="$(basename "$worktree")"
-        if [[ "$basename" == "${source_repo}."* ]]; then
-            container_id="${basename}"
-        else
-            container_id="${source_repo}.${basename}"
-        fi
-        echo "$PLANS_DIR/planq-order-${container_id}.txt"
-    else
-        echo "$PLANS_DIR/planq-order.txt"
-    fi
+    echo "$PLANS_DIR/planq-order.txt"
 }
 
 PLANQ_FILE="$(_get_planq_file)"
@@ -67,6 +43,9 @@ _list_tasks() {
         elif [[ "$trimmed" == "# underway:"* ]]; then
             i=$((i + 1))
             printf "  \033[33m⏳ %-3d  %s\033[0m\n" "$i" "${trimmed#"# underway: "}"
+        elif [[ "$trimmed" == "# auto-queue:"* ]]; then
+            i=$((i + 1))
+            printf "  \033[36m⏱  %-3d  %s\033[0m\n" "$i" "${trimmed#"# auto-queue: "}"
         elif [[ "$trimmed" == "#"* ]]; then
             continue  # regular comment — skip
         else
@@ -100,7 +79,7 @@ _find_task_by_number() {
         n=$((n + 1))
         local trimmed="${line#"${line%%[![:space:]]*}"}"
         [ -z "$trimmed" ] && continue
-        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* ]] && continue  # skip regular comments
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* && "$trimmed" != "# auto-queue:"* ]] && continue  # skip regular comments
         i=$((i + 1))
         if [ "$i" -eq "$target" ]; then
             # Strip status prefixes if present so we get the raw task line
@@ -108,6 +87,8 @@ _find_task_by_number() {
                 trimmed="${trimmed#"# done: "}"
             elif [[ "$trimmed" == "# underway: "* ]]; then
                 trimmed="${trimmed#"# underway: "}"
+            elif [[ "$trimmed" == "# auto-queue: "* ]]; then
+                trimmed="${trimmed#"# auto-queue: "}"
             fi
             printf '%d\t%s\n' "$n" "$trimmed"
             return
@@ -128,12 +109,14 @@ _find_task_by_identifier() {
         n=$((n + 1))
         local trimmed="${line#"${line%%[![:space:]]*}"}"
         [ -z "$trimmed" ] && continue
-        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* ]] && continue
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* && "$trimmed" != "# auto-queue:"* ]] && continue
         local task_line="$trimmed"
         if [[ "$task_line" == "# done: "* ]]; then
             task_line="${task_line#"# done: "}"
         elif [[ "$task_line" == "# underway: "* ]]; then
             task_line="${task_line#"# underway: "}"
+        elif [[ "$task_line" == "# auto-queue: "* ]]; then
+            task_line="${task_line#"# auto-queue: "}"
         fi
         local task_value="${task_line#*: }"
         if [ "$task_value" = "$ident" ]; then
@@ -171,6 +154,30 @@ _mark_inactive() {
         'NR == n { print orig; next } { print }' \
         "$PLANQ_FILE" > "$tmp"
     mv "$tmp" "$PLANQ_FILE"
+}
+
+_mark_auto_queue() {
+    local line_num="$1" original_line="$2"
+    local tmp
+    tmp="$(mktemp)"
+    awk -v n="$line_num" -v orig="$original_line" \
+        'NR == n { print "# auto-queue: " orig; next } { print }' \
+        "$PLANQ_FILE" > "$tmp"
+    mv "$tmp" "$PLANQ_FILE"
+}
+
+# Outputs: line_number TAB task_line  (first auto-queue task only)
+_find_next_auto_task() {
+    [ ! -f "$PLANQ_FILE" ] && return
+    local n=0
+    while IFS= read -r line; do
+        n=$((n + 1))
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "# auto-queue: "* ]] || continue
+        printf '%d\t%s\n' "$n" "${trimmed#"# auto-queue: "}"
+        return
+    done < "$PLANQ_FILE"
 }
 
 _delete_line() {
@@ -545,13 +552,14 @@ _notify_daemon() {
 cmd_mark() {
     local state="${1:-}" ident="${2:-}"
     if [ -z "$state" ] || [ -z "$ident" ]; then
-        echo "Usage: planq mark <done|d|underway|u|inactive|i> <N|filename|text>" >&2; return 1
+        echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q> <N|filename|text>" >&2; return 1
     fi
     case "$state" in
         done|d)         state=done ;;
         underway|u)     state=underway ;;
         inactive|i)     state=inactive ;;
-        *) echo "Error: state must be done/d, underway/u, or inactive/i; got: $state" >&2; return 1 ;;
+        queue|q)        state=queue ;;
+        *) echo "Error: state must be done/d, underway/u, inactive/i, or queue/q; got: $state" >&2; return 1 ;;
     esac
     local next
     next="$(_find_task_by_identifier "$ident")"
@@ -563,11 +571,115 @@ cmd_mark() {
     task_line="$(printf '%s' "$next" | cut -f2-)"
     echo "Task: $task_line"
     case "$state" in
-        done)     _mark_done     "$line_num" "$task_line"; echo "Marked as done." ;;
-        underway) _mark_underway "$line_num" "$task_line"; echo "Marked as underway." ;;
-        inactive) _mark_inactive "$line_num" "$task_line"; echo "Marked as inactive (pending)." ;;
+        done)     _mark_done       "$line_num" "$task_line"; echo "Marked as done." ;;
+        underway) _mark_underway   "$line_num" "$task_line"; echo "Marked as underway." ;;
+        inactive) _mark_inactive   "$line_num" "$task_line"; echo "Marked as inactive (pending)." ;;
+        queue)    _mark_auto_queue "$line_num" "$task_line"; echo "Marked as auto-queue." ;;
     esac
     _notify_daemon
+}
+
+_run_task_inline() {
+    # Run a task (already stripped of status prefix) and mark it done.
+    # $1 = line_num, $2 = task_line
+    local line_num="$1" task_line="$2"
+    local task_type task_value
+    _parse_task "$task_line"
+    echo "Auto-running: $task_line"
+    _mark_underway "$line_num" "$task_line"
+    _notify_daemon
+
+    case "$task_type" in
+        task)
+            local task_file="$PLANS_DIR/$task_value"
+            if [ ! -f "$task_file" ]; then
+                echo "Error: task file not found: $task_file" >&2
+                _mark_inactive "$line_num" "$task_line"
+                _notify_daemon
+                return 1
+            fi
+            claude "$(cat "$task_file")"
+            ;;
+        plan)
+            claude "Read plans/$task_value and implement the plan described in it."
+            ;;
+        make-plan)
+            local prompt_file="$PLANS_DIR/$task_value"
+            if [ ! -f "$prompt_file" ]; then
+                echo "Error: prompt file not found: $prompt_file" >&2
+                _mark_inactive "$line_num" "$task_line"
+                _notify_daemon
+                return 1
+            fi
+            local prompt target_plan
+            prompt="$(cat "$prompt_file")"
+            target_plan="${task_value/#make-plan-/plan-}"
+            claude "${prompt} Write the plan to plans/${target_plan}."
+            ;;
+        unnamed-task)
+            claude "$task_value"
+            ;;
+        manual-test|manual-commit|manual-task)
+            echo ""
+            echo "━━━ Manual step required ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            printf "  Type: %s\n" "$task_type"
+            printf "  Task: %s\n" "$task_value"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            read -r -p "Press Enter when done (or Ctrl+C to abort): "
+            ;;
+        *)
+            echo "Error: Unknown task type '$task_type' in: $task_line" >&2
+            _mark_inactive "$line_num" "$task_line"
+            _notify_daemon
+            return 1
+            ;;
+    esac
+    _mark_done "$line_num" "$task_line"
+    _notify_daemon
+}
+
+cmd_auto() {
+    local auto_pid_file="$HOME/.local/devcontainer-sandbox/planq/planq-auto.pid"
+    mkdir -p "$(dirname "$auto_pid_file")"
+
+    # Warn if another auto session appears to be running
+    if [ -f "$auto_pid_file" ]; then
+        local other_pid
+        other_pid="$(cat "$auto_pid_file" 2>/dev/null || true)"
+        if [ -n "$other_pid" ] && kill -0 "$other_pid" 2>/dev/null; then
+            echo "Warning: Another auto session is already running (PID $other_pid)." >&2
+            echo "Stop it first with: kill $other_pid" >&2
+            return 1
+        fi
+    fi
+
+    echo "$$" > "$auto_pid_file"
+    echo "Auto-queue started (PID $$). Monitoring $PLANQ_FILE ..."
+    echo "Press Ctrl+C to stop."
+    echo ""
+
+    # Cleanup PID file on exit
+    trap 'rm -f "$auto_pid_file"; echo ""; echo "Auto-queue stopped."' INT TERM EXIT
+
+    local idle_msg_shown=0
+    while true; do
+        local next
+        next="$(_find_next_auto_task)"
+        if [ -z "$next" ]; then
+            if [ "$idle_msg_shown" -eq 0 ]; then
+                echo "No auto-queue tasks. Waiting... (mark tasks with: planq mark queue <N>)"
+                idle_msg_shown=1
+            fi
+            sleep 5
+            continue
+        fi
+        idle_msg_shown=0
+        local line_num task_line
+        line_num="$(printf '%s' "$next" | cut -f1)"
+        task_line="$(printf '%s' "$next" | cut -f2-)"
+        _run_task_inline "$line_num" "$task_line"
+    done
 }
 
 cmd_delete() {
@@ -720,11 +832,19 @@ usage_create() {
     echo "    planq create -t make-plan -f make-plan-001.md 'Design a caching layer for the API'"
 }
 usage_mark()   {
-    echo "Usage: planq mark <done|d|underway|u|inactive|i> <N|filename|text>"
+    echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q> <N|filename|text>"
     echo "       planq mark:<state> <N|filename|text>"
     echo "  Mark a task with a status."
     echo "  Identify the task by number, by its filename (for task/plan/make-plan), or by its exact description text (for unnamed-task etc.)."
-    echo "  inactive/i restores a done/underway task to pending."
+    echo "  inactive/i restores a done/underway/auto-queue task to pending."
+    echo "  queue/q marks a task for automatic execution by 'planq auto'."
+}
+usage_auto()   {
+    echo "Usage: planq auto"
+    echo "  Monitor the queue for tasks with auto-queue status and run them one at a time."
+    echo "  Polls for new auto-queue tasks after each run. Press Ctrl+C to stop."
+    echo "  Mark tasks for auto-execution with: planq mark queue <N>"
+    echo "  Warns if another auto session is already running."
 }
 usage_delete() { echo "Usage: planq delete <N>"; echo "  Delete task #N from the planq file."; }
 usage_daemon() { echo "Usage: planq daemon [start|stop|restart|status]"; echo "  Manage the planq WebSocket daemon (default: status)."; }
@@ -736,8 +856,9 @@ usage() {
     echo "  list    / l                                     List all tasks with status"
     echo "  show    / s [-a] [N]                            Show next pending task, or task #N"
     echo "  run     / r [N] [--dry-run|-n]                 Run next pending task, or task #N"
+    echo "  auto    / A                                    Run auto-queued tasks continuously"
     echo "  create  / c [-t <type>] [-f <file>] [<desc>]   Add a task (default type: unnamed-task)"
-    echo "  mark    / m <done|underway|inactive> <N|…>     Mark a task (also: mark:<state> / m:<state>)"
+    echo "  mark    / m <done|underway|inactive|queue> <N|…>  Mark a task (also: mark:<state> / m:<state>)"
     echo "  delete  / x <N>                                Delete task #N"
     echo "  archive / a [N|…] [--unarchive|-U <N|…>]      Archive done tasks; -a flag on list/show for archive"
     echo "  daemon  / d [start|stop|restart|status]        Manage the planq WebSocket daemon"
@@ -776,6 +897,7 @@ if _has_help_flag "$@"; then
         list|l)      usage_list ;;
         show|s)      usage_show ;;
         run|r)       usage_run ;;
+        auto|A)      usage_auto ;;
         create|c)    usage_create ;;
         mark|m|mark:*|m:*) usage_mark ;;
         delete|x)    usage_delete ;;
@@ -790,6 +912,7 @@ case "$SUBCMD" in
     list|l)              cmd_list "$@" ;;
     show|s)              cmd_show "$@" ;;
     run|r)               cmd_run "$@" ;;
+    auto|A)              cmd_auto "$@" ;;
     create|c)            cmd_create "$@" ;;
     mark|m)              cmd_mark "$@" ;;
     mark:*|m:*)          cmd_mark "${SUBCMD#*:}" "$@" ;;

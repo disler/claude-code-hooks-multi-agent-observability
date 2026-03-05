@@ -7,13 +7,20 @@
     >
       <span>{{ open ? '▾' : '▸' }}</span>
       <span>Plan Queue</span>
-      <span class="text-slate-500">({{ pendingCount }} pending{{ underwayCount > 0 ? `, ${underwayCount} underway` : '' }}{{ doneCount > 0 ? `, ${doneCount} done` : '' }})</span>
+      <span class="text-slate-500">({{ pendingCount }} pending{{ autoQueueCount > 0 ? `, ${autoQueueCount} queued` : '' }}{{ underwayCount > 0 ? `, ${underwayCount} underway` : '' }}{{ doneCount > 0 ? `, ${doneCount} done` : '' }})</span>
     </button>
 
     <div v-if="open" class="mt-1 bg-slate-900/50 rounded-lg border border-slate-700 p-2">
       <!-- Offline notice -->
       <div v-if="!connected" class="text-xs text-slate-500 italic mb-2">
         Container offline — queue shown from last heartbeat; edits will fail.
+      </div>
+
+      <!-- Auto-queue notice -->
+      <div v-if="autoQueueCount > 0" class="text-xs text-cyan-400 mb-2 flex items-center gap-1">
+        <span>⏱</span>
+        <span>{{ autoQueueCount }} task{{ autoQueueCount > 1 ? 's' : '' }} queued for auto-run</span>
+        <span v-if="multipleAutoWarning" class="text-yellow-400 ml-1">⚠ multiple auto-queue sessions may be running</span>
       </div>
 
       <!-- Task list -->
@@ -134,6 +141,9 @@ async function toggleArchive() {
 const pendingCount = computed(() => props.tasks.filter(t => t.status === 'pending').length)
 const underwayCount = computed(() => props.tasks.filter(t => t.status === 'underway').length)
 const doneCount = computed(() => props.tasks.filter(t => t.status === 'done').length)
+const autoQueueCount = computed(() => props.tasks.filter(t => t.status === 'auto-queue').length)
+// Warn if there are multiple underway tasks alongside auto-queue tasks (suggests >1 auto runner)
+const multipleAutoWarning = computed(() => autoQueueCount.value > 0 && underwayCount.value > 1)
 
 function archiveBadgeClass(taskType: string): string {
   return ({
