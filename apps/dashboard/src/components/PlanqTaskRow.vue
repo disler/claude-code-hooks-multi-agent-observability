@@ -37,17 +37,19 @@
 
     <!-- Actions (shown on hover) -->
     <div class="hidden group-hover:flex items-center gap-1 shrink-0">
-      <!-- Edit file -->
       <button
         v-if="task.filename && task.status !== 'done'"
+      <!-- Edit file / prompt -->
+      <button
+        v-if="task.filename && task.status === 'pending'"
         @click="emit('edit-file', task)"
         class="text-xs text-slate-400 hover:text-slate-200 px-1"
-        title="Edit file"
-      >Edit</button>
+        :title="task.task_type === 'make-plan' ? 'Edit prompt' : 'Edit file'"
+      >{{ task.task_type === 'make-plan' ? 'Edit prompt' : 'Edit' }}</button>
 
       <!-- Edit description (manual tasks) -->
       <button
-        v-if="!task.filename && task.status !== 'done'"
+        v-if="!task.filename && task.status === 'pending'"
         @click="startEditDesc"
         class="text-xs text-slate-400 hover:text-slate-200 px-1"
         title="Edit description"
@@ -104,6 +106,7 @@ const editInput = ref<HTMLInputElement | null>(null)
 const typeBadgeClass = computed(() => ({
   'task': 'bg-blue-900/60 text-blue-300',
   'plan': 'bg-purple-900/60 text-purple-300',
+  'make-plan': 'bg-teal-900/60 text-teal-300',
   'manual-test': 'bg-yellow-900/60 text-yellow-300',
   'manual-commit': 'bg-orange-900/60 text-orange-300',
   'manual-task': 'bg-slate-700 text-slate-300',

@@ -14,6 +14,7 @@
         >
           <option value="task">task — run as Claude prompt</option>
           <option value="plan">plan — implement plan from file</option>
+          <option value="make-plan">make-plan — generate a plan file from a prompt</option>
           <option value="manual-test">manual-test — manual testing step</option>
           <option value="manual-commit">manual-commit — manual git commit</option>
           <option value="manual-task">manual-task — any manual step</option>
@@ -54,6 +55,28 @@
           placeholder="plan-001.md"
         />
       </div>
+
+      <!-- make-plan: filename (target) + description (prompt) -->
+      <template v-else-if="taskType === 'make-plan'">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-slate-400">Plan filename <span class="text-slate-500">(the file Claude will write)</span></label>
+          <input
+            v-model="planFilename"
+            type="text"
+            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400"
+            placeholder="plan-001.md"
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-slate-400">Prompt <span class="text-slate-500">(what kind of plan to create)</span></label>
+          <textarea
+            v-model="description"
+            rows="4"
+            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize-y"
+            placeholder="Design a caching layer for the API…"
+          />
+        </div>
+      </template>
 
       <!-- manual-*: description only -->
       <div v-else class="flex flex-col gap-1">
@@ -103,6 +126,9 @@ const isValid = computed(() => {
     return description.value.trim().length > 0 && isNameValid.value
   }
   if (taskType.value === 'plan') return planFilename.value.trim().length > 0
+  if (taskType.value === 'make-plan') {
+    return planFilename.value.trim().length > 0 && description.value.trim().length > 0
+  }
   return description.value.trim().length > 0
 })
 
@@ -117,6 +143,8 @@ function submit() {
     }
   } else if (taskType.value === 'plan') {
     emit('add', 'plan', planFilename.value.trim(), null)
+  } else if (taskType.value === 'make-plan') {
+    emit('add', 'make-plan', planFilename.value.trim(), description.value.trim())
   } else {
     emit('add', taskType.value, null, description.value.trim())
   }

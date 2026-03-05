@@ -110,7 +110,8 @@ def _write_status(state: str, detail: str = ''):
 
 ALLOWED_FILENAME = re.compile(
     r'^(?:planq-order(?:-[A-Za-z0-9._-]+)?\.txt'
-    r'|(?:plan|task)-[0-9]+(?:-[a-z0-9-]+)?\.md)$'
+    r'|(?:plan|task)-[0-9]+(?:-[a-z0-9-]+)?\.md'
+    r'|make-plan-[a-z0-9][a-z0-9-]*\.md)$'
 )
 
 def _validate_filename(filename: str) -> bool:

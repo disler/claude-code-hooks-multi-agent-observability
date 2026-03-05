@@ -53,7 +53,7 @@
     <PlanqFileEditor
       v-if="editingFile"
       :container-id="containerId"
-      :filename="editingFile.filename!"
+      :filename="editingFile.task_type === 'make-plan' ? `make-plan-${editingFile.filename}` : editingFile.filename!"
       @close="editingFile = null"
       @saved="editingFile = null"
     />
