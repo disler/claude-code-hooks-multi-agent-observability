@@ -393,9 +393,9 @@ _notify_daemon() {
 }
 
 cmd_mark() {
-    local ident="${1:-}" state="${2:-done}"
-    if [ -z "$ident" ]; then
-        echo "Usage: planq mark <N|filename|text> [done|d|underway|u|inactive|i]" >&2; return 1
+    local state="${1:-}" ident="${2:-}"
+    if [ -z "$state" ] || [ -z "$ident" ]; then
+        echo "Usage: planq mark <done|d|underway|u|inactive|i> <N|filename|text>" >&2; return 1
     fi
     case "$state" in
         done|d)         state=done ;;
@@ -462,8 +462,9 @@ usage_create() {
     echo "    planq create -t make-plan -f make-plan-001.md 'Design a caching layer for the API'"
 }
 usage_mark()   {
-    echo "Usage: planq mark <N|filename|text> [done|d|underway|u|inactive|i]"
-    echo "  Mark a task with a status (default: done)."
+    echo "Usage: planq mark <done|d|underway|u|inactive|i> <N|filename|text>"
+    echo "       planq mark:<state> <N|filename|text>"
+    echo "  Mark a task with a status."
     echo "  Identify the task by number, by its filename (for task/plan/make-plan), or by its exact description text (for unnamed-task etc.)."
     echo "  inactive/i restores a done/underway task to pending."
 }
@@ -478,7 +479,7 @@ usage() {
     echo "  show   / s [N]                                 Show next pending task, or task #N"
     echo "  run    / r [N] [--dry-run|-n]                  Run next pending task, or task #N"
     echo "  create / c [-t <type>] [-f <file>] [<desc>]    Add a task (default type: unnamed-task)"
-    echo "  mark   / m <N|filename|text> [done|underway|i]  Mark a task by number, filename, or text (default: done)"
+    echo "  mark   / m <done|underway|inactive> <N|filename|text>  Mark a task (also: mark:<state> / m:<state>)"
     echo "  delete / x <N>                                 Delete task #N"
     echo "  daemon / d [start|stop|restart|status]         Manage the planq WebSocket daemon"
     echo ""
@@ -513,14 +514,14 @@ shift || true
 # otherwise show general usage.
 if _has_help_flag "$@"; then
     case "$SUBCMD" in
-        list|l)    usage_list ;;
-        show|s)    usage_show ;;
-        run|r)     usage_run ;;
-        create|c)  usage_create ;;
-        mark|m)    usage_mark ;;
-        delete|x)  usage_delete ;;
-        daemon|d)  usage_daemon ;;
-        *)         usage ;;
+        list|l)      usage_list ;;
+        show|s)      usage_show ;;
+        run|r)       usage_run ;;
+        create|c)    usage_create ;;
+        mark|m|mark:*|m:*) usage_mark ;;
+        delete|x)    usage_delete ;;
+        daemon|d)    usage_daemon ;;
+        *)           usage ;;
     esac
     exit 0
 fi
@@ -531,6 +532,7 @@ case "$SUBCMD" in
     run|r)               cmd_run "$@" ;;
     create|c)            cmd_create "$@" ;;
     mark|m)              cmd_mark "$@" ;;
+    mark:*|m:*)          cmd_mark "${SUBCMD#*:}" "$@" ;;
     delete|x)            cmd_delete "$@" ;;
     daemon|d)            cmd_daemon "$@" ;;
     --help|-h|help|"")   usage ;;
