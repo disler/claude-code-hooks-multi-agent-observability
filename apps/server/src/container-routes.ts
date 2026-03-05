@@ -41,8 +41,13 @@ const offlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function initContainerRoutes(): void {
   initContainerDatabase();
-  // Mark all containers offline on server restart
-  db.prepare('UPDATE containers SET connected = 0').run();
+  // Only mark containers offline if they haven't been seen recently.
+  // Using a 60s window (4x the heartbeat interval) avoids the race condition
+  // where the dashboard loads during the brief window between server startup
+  // and the first heartbeat from each daemon — which happens on every hot-reload.
+  const cutoff = Date.now() - 60_000;
+  const result = db.prepare('UPDATE containers SET connected = 0 WHERE last_seen < ?').run(cutoff);
+  console.log(`[init] marked ${result.changes} stale container(s) offline (last_seen > 60s ago)`);
 }
 
 // ── Dashboard broadcast helpers ───────────────────────────────────────────────
