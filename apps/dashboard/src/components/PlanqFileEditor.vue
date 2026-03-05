@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="emit('close')">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="emit('close')" @keydown="onConfirmKey($event, save)">
     <div class="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-5 w-2/3 max-w-3xl flex flex-col gap-4 max-h-[80vh]">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-semibold text-slate-200 font-mono">{{ filename }}</h3>
@@ -32,6 +32,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
+import { useConfirmKey } from '../composables/useConfirmKey'
 
 const props = defineProps<{
   containerId: string
@@ -44,6 +45,7 @@ const emit = defineEmits<{
 }>()
 
 const { readFile, writeFile } = usePlanq()
+const { onConfirmKey } = useConfirmKey()
 const content = ref('')
 const loading = ref(true)
 const saving = ref(false)

@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="emit('close')">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="emit('close')" @keydown="onConfirmKey($event, submit)">
     <div class="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-5 w-[32rem] flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-semibold text-slate-200">Add Task</h3>
@@ -148,6 +148,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
+import { useConfirmKey } from '../composables/useConfirmKey'
 
 const props = defineProps<{ containerId: string }>()
 
@@ -157,6 +158,7 @@ const emit = defineEmits<{
 }>()
 
 const { readFile, listPlansFiles } = usePlanq()
+const { onConfirmKey } = useConfirmKey()
 
 const taskType = ref('task')
 const taskSlug = ref('')
