@@ -15,6 +15,8 @@
           <option value="task">task — run as Claude prompt</option>
           <option value="plan">plan — implement plan from file</option>
           <option value="make-plan">make-plan — generate a plan file from a prompt</option>
+          <option value="auto-test">auto-test — run shell command as automated test</option>
+          <option value="auto-commit">auto-commit — commit staged/unstaged changes</option>
           <option value="manual-test">manual-test — manual testing step</option>
           <option value="manual-commit">manual-commit — manual git commit</option>
           <option value="manual-task">manual-task — any manual step</option>
@@ -119,6 +121,32 @@
         </div>
       </template>
 
+      <!-- auto-test: command or file -->
+      <template v-else-if="taskType === 'auto-test'">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-slate-400">Shell command <span class="text-slate-500">(or leave blank and use a task file)</span></label>
+          <input
+            v-model="description"
+            type="text"
+            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400"
+            placeholder="npm test"
+          />
+        </div>
+      </template>
+
+      <!-- auto-commit: optional options -->
+      <template v-else-if="taskType === 'auto-commit'">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-slate-400">Options <span class="text-slate-500">(optional — e.g. description=prompt or title=My commit)</span></label>
+          <input
+            v-model="description"
+            type="text"
+            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400"
+            placeholder="description=prompt"
+          />
+        </div>
+      </template>
+
       <!-- manual-*: description only -->
       <div v-else class="flex flex-col gap-1">
         <label class="text-xs text-slate-400">Description</label>
@@ -129,6 +157,15 @@
           placeholder="What needs to be done manually?"
         />
       </div>
+
+      <!-- Auto-commit after checkbox (for non-auto-commit task types) -->
+      <label
+        v-if="taskType !== 'auto-commit' && taskType !== 'manual-commit'"
+        class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none"
+      >
+        <input type="checkbox" v-model="autoCommitAfter" class="rounded" />
+        <span>Auto-commit after this task</span>
+      </label>
 
       <div class="flex justify-end gap-2">
         <button
@@ -154,7 +191,7 @@ const props = defineProps<{ containerId: string }>()
 
 const emit = defineEmits<{
   close: []
-  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean]
+  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, autoCommitAfter?: boolean]
 }>()
 
 const { readFile, listPlansFiles } = usePlanq()
@@ -165,6 +202,7 @@ const taskSlug = ref('')
 const planSlug = ref('')
 const makePlanSlug = ref('')
 const description = ref('')
+const autoCommitAfter = ref(false)
 
 const plansFiles = ref<string[]>([])
 const filePreview = ref<string | null>(null)
@@ -228,25 +266,34 @@ const isValid = computed(() => {
   if (taskType.value === 'make-plan') {
     return !!makePlanFilename.value && description.value.trim().length > 0
   }
+  if (taskType.value === 'auto-commit') return true  // options are optional
+  if (taskType.value === 'auto-test') return description.value.trim().length > 0
   return description.value.trim().length > 0
 })
 
 function submit() {
   if (!isValid.value) return
 
+  const ac = autoCommitAfter.value
+
   if (taskType.value === 'task') {
     if (taskFilename.value) {
       const createFile = !isExistingTaskFile.value
-      emit('add', 'task', taskFilename.value, description.value.trim(), createFile)
+      emit('add', 'task', taskFilename.value, description.value.trim(), createFile, ac)
     } else {
-      emit('add', 'unnamed-task', null, description.value.trim(), false)
+      emit('add', 'unnamed-task', null, description.value.trim(), false, ac)
     }
   } else if (taskType.value === 'plan') {
-    emit('add', 'plan', planFilename.value, null, false)
+    emit('add', 'plan', planFilename.value, null, false, ac)
   } else if (taskType.value === 'make-plan') {
-    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false)
+    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, ac)
+  } else if (taskType.value === 'auto-commit') {
+    const opts = description.value.trim() || null
+    emit('add', 'auto-commit', null, opts, false, false)
+  } else if (taskType.value === 'auto-test') {
+    emit('add', 'auto-test', null, description.value.trim(), false, ac)
   } else {
-    emit('add', taskType.value, null, description.value.trim(), false)
+    emit('add', taskType.value, null, description.value.trim(), false, ac)
   }
   emit('close')
 }

@@ -108,7 +108,7 @@
       v-if="showAddDialog"
       :container-id="containerId"
       @close="showAddDialog = false"
-      @add="(type, fn, desc, createFile) => addTask(type, fn, desc, createFile)"
+      @add="(type, fn, desc, createFile, autoCommit) => addTask(type, fn, desc, createFile, autoCommit)"
     />
 
     <PlanqFileEditor
@@ -173,7 +173,9 @@ function archiveBadgeClass(taskType: string): string {
     'task': 'bg-blue-900/40 text-blue-400',
     'plan': 'bg-purple-900/40 text-purple-400',
     'make-plan': 'bg-teal-900/40 text-teal-400',
-    'manual-test': 'bg-yellow-900/40 text-yellow-400',
+    'auto-test': 'bg-yellow-900/40 text-yellow-400',
+    'auto-commit': 'bg-green-900/40 text-green-400',
+    'manual-test': 'bg-yellow-900/30 text-yellow-500',
     'manual-commit': 'bg-orange-900/40 text-orange-400',
     'manual-task': 'bg-slate-700/60 text-slate-400',
     'unnamed-task': 'bg-blue-900/30 text-blue-500',
@@ -182,9 +184,13 @@ function archiveBadgeClass(taskType: string): string {
 
 const cid = () => props.containerId
 
-async function addTask(taskType: string, filename: string | null, description: string | null, createFile = false) {
+async function addTask(taskType: string, filename: string | null, description: string | null, createFile = false, autoCommitAfter = false) {
   console.log(`[planq] add task type=${taskType} file=${filename ?? '—'} container=${cid()}`)
   await apiAdd(props.containerId, taskType, filename, description, createFile)
+  if (autoCommitAfter) {
+    console.log(`[planq] add auto-commit after container=${cid()}`)
+    await apiAdd(props.containerId, 'auto-commit', null, null, false)
+  }
   emit('tasks-changed')
 }
 

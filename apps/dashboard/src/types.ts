@@ -22,7 +22,7 @@ export interface SessionState {
 export interface PlanqTask {
   id: number
   container_id: string
-  task_type: 'task' | 'plan' | 'make-plan' | 'manual-test' | 'manual-commit' | 'manual-task' | 'unnamed-task'
+  task_type: 'task' | 'plan' | 'make-plan' | 'manual-test' | 'manual-commit' | 'manual-task' | 'unnamed-task' | 'auto-test' | 'auto-commit'
   filename: string | null
   description: string | null
   position: number

@@ -182,6 +182,7 @@ _find_next_auto_task() {
 
 _AUTO_TEST_PENDING="$PLANS_DIR/auto-test-pending.json"
 _AUTO_TEST_RESPONSE="$PLANS_DIR/auto-test-response.txt"
+_AUTO_COMMIT_CONFIG="$PLANS_DIR/auto-commit-config.txt"
 
 # Write an auto-test-pending record so the dashboard can prompt the user
 _write_auto_test_pending() {
@@ -534,6 +535,11 @@ cmd_run() {
             _mark_done "$line_num" "$task_line"
             ;;
 
+        auto-commit)
+            _run_auto_commit "$task_value" || { _mark_inactive "$line_num" "$task_line"; _notify_daemon; return 1; }
+            _mark_done "$line_num" "$task_line"
+            ;;
+
         manual-test|manual-commit|manual-task)
             echo ""
             echo "━━━ Manual step required ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -582,6 +588,189 @@ _run_auto_test() {
     fi
     echo "Auto-queue aborted by user."
     return 1
+}
+
+# ── Auto-commit helpers ──────────────────────────────────────────────────────
+
+# Get the last user prompt from the prompt log or most recent transcript.
+_get_last_session_prompt() {
+    local prompt_log="$WORKSPACE_ROOT/.claude/logs/user_prompt_submit.json"
+    [ -f "$prompt_log" ] || return
+    python3 - <<'PYEOF' 2>/dev/null
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+    if data:
+        print(data[-1].get('prompt', ''))
+except Exception:
+    pass
+PYEOF
+}
+
+# Get the last assistant response summary from the most recent transcript.
+_get_last_session_summary() {
+    local prompt_log="$WORKSPACE_ROOT/.claude/logs/user_prompt_submit.json"
+    [ -f "$prompt_log" ] || return
+    python3 - "$prompt_log" <<'PYEOF' 2>/dev/null
+import json, os, sys
+try:
+    data = json.load(open(sys.argv[1]))
+    if not data:
+        sys.exit(0)
+    transcript_path = data[-1].get('transcript_path', '')
+    if not transcript_path or not os.path.exists(transcript_path):
+        sys.exit(0)
+    with open(transcript_path) as f:
+        lines = f.readlines()
+    for line in reversed(lines):
+        try:
+            d = json.loads(line)
+            if d.get('type') != 'assistant':
+                continue
+            content = d.get('message', {}).get('content', [])
+            if isinstance(content, list):
+                for part in reversed(content):
+                    if isinstance(part, dict) and part.get('type') == 'text':
+                        text = part.get('text', '').strip()
+                        if text:
+                            print(text[:800])
+                            sys.exit(0)
+        except Exception:
+            pass
+except Exception:
+    pass
+PYEOF
+}
+
+# Run an auto-commit task.
+# $1 = task_value (optional: "description=prompt|summary|diff|all|none" and/or "title=<text>")
+# Returns 0 on success, 1 on error/abort.
+_run_auto_commit() {
+    local task_value="$1"
+
+    # Read defaults from config file
+    local title_format="" desc_source="diff"
+    if [ -f "$_AUTO_COMMIT_CONFIG" ]; then
+        local conf_title conf_desc
+        conf_title="$(grep '^title=' "$_AUTO_COMMIT_CONFIG" 2>/dev/null | head -1 | cut -d= -f2-)"
+        conf_desc="$(grep '^description=' "$_AUTO_COMMIT_CONFIG" 2>/dev/null | head -1 | cut -d= -f2-)"
+        [ -n "$conf_title" ] && title_format="$conf_title"
+        [ -n "$conf_desc" ] && desc_source="$conf_desc"
+    fi
+
+    # task_value may override: "description=prompt" or "title=My commit" etc.
+    if [ -n "$task_value" ]; then
+        local tv_title tv_desc
+        tv_title="$(printf '%s' "$task_value" | grep '^title=' | head -1 | cut -d= -f2- || true)"
+        tv_desc="$(printf '%s' "$task_value" | grep '^description=' | head -1 | cut -d= -f2- || true)"
+        [ -n "$tv_title" ] && title_format="$tv_title"
+        [ -n "$tv_desc" ] && desc_source="$tv_desc"
+    fi
+
+    # Check for git
+    if ! git -C "$WORKSPACE_ROOT" rev-parse --git-dir > /dev/null 2>&1; then
+        echo "auto-commit: not a git repository." >&2
+        return 1
+    fi
+
+    local staged_count unstaged_count untracked_count
+    staged_count="$(git -C "$WORKSPACE_ROOT" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
+    unstaged_count="$(git -C "$WORKSPACE_ROOT" diff --name-only 2>/dev/null | wc -l | tr -d ' ')"
+    untracked_count="$(git -C "$WORKSPACE_ROOT" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')"
+
+    if [ "$staged_count" -eq 0 ] && [ "$unstaged_count" -eq 0 ]; then
+        echo "auto-commit: nothing to commit (working tree clean)."
+        return 0
+    fi
+
+    # If nothing staged, stage all modified tracked files
+    if [ "$staged_count" -eq 0 ]; then
+        echo "auto-commit: staging $unstaged_count modified file(s)..."
+        git -C "$WORKSPACE_ROOT" add -u
+        staged_count="$(git -C "$WORKSPACE_ROOT" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
+    elif [ "$unstaged_count" -gt 0 ]; then
+        echo "auto-commit: $staged_count staged + $unstaged_count unstaged file(s)."
+        echo "  Staged:   $(git -C "$WORKSPACE_ROOT" diff --cached --name-only | head -5 | paste -sd, || true)"
+        echo "  Unstaged: $(git -C "$WORKSPACE_ROOT" diff --name-only | head -5 | paste -sd, || true)"
+        if [ -t 0 ]; then
+            local resp
+            printf "Stage all (including unstaged)? [yes/no/staged-only, default: yes]: "
+            read -r resp || true
+            case "${resp,,}" in
+                no|n|abort) echo "auto-commit aborted."; return 1 ;;
+                staged*|s) : ;;
+                *) git -C "$WORKSPACE_ROOT" add -u ;;
+            esac
+        else
+            git -C "$WORKSPACE_ROOT" add -u
+        fi
+    fi
+
+    # Warn about untracked files (not staged automatically)
+    if [ "$untracked_count" -gt 0 ]; then
+        echo "auto-commit: NOTE — $untracked_count untracked file(s) not staged:"
+        git -C "$WORKSPACE_ROOT" ls-files --others --exclude-standard | head -5 | sed 's/^/  /'
+    fi
+
+    staged_count="$(git -C "$WORKSPACE_ROOT" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
+    if [ "$staged_count" -eq 0 ]; then
+        echo "auto-commit: nothing staged."
+        return 1
+    fi
+
+    # Build commit title
+    local last_prompt last_summary
+    last_prompt="$(_get_last_session_prompt || true)"
+    last_summary="$(_get_last_session_summary || true)"
+
+    local commit_title
+    if [ -n "$title_format" ]; then
+        commit_title="$title_format"
+    elif [ -n "$last_prompt" ]; then
+        commit_title="$(printf '%s' "$last_prompt" | head -1 | cut -c1-72)"
+    else
+        commit_title="Auto-commit: changes from planq"
+    fi
+
+    # Build commit description
+    local commit_desc=""
+    case "${desc_source:-diff}" in
+        prompt)
+            [ -n "$last_prompt" ] && commit_desc="Prompt: $last_prompt"
+            ;;
+        summary)
+            [ -n "$last_summary" ] && commit_desc="$last_summary"
+            ;;
+        diff)
+            commit_desc="$(git -C "$WORKSPACE_ROOT" diff --cached --stat)"
+            ;;
+        all)
+            [ -n "$last_prompt" ] && commit_desc="Prompt: $last_prompt"
+            [ -n "$last_summary" ] && commit_desc="${commit_desc:+${commit_desc}
+
+}Summary: $last_summary"
+            local diffstat
+            diffstat="$(git -C "$WORKSPACE_ROOT" diff --cached --stat)"
+            commit_desc="${commit_desc:+${commit_desc}
+
+}${diffstat}"
+            ;;
+        none) : ;;
+    esac
+
+    echo "auto-commit: committing '$commit_title' ($staged_count file(s))..."
+    if [ -n "$commit_desc" ]; then
+        git -C "$WORKSPACE_ROOT" commit -m "$commit_title" -m "$commit_desc"
+    else
+        git -C "$WORKSPACE_ROOT" commit -m "$commit_title"
+    fi
+    local rc=$?
+    if [ $rc -ne 0 ]; then
+        echo "auto-commit: git commit failed (exit $rc)." >&2
+        return 1
+    fi
+    echo "auto-commit: committed successfully."
+    return 0
 }
 
 cmd_create() {
@@ -712,6 +901,13 @@ _run_task_inline() {
             ;;
         auto-test)
             if ! _run_auto_test "$task_value"; then
+                _mark_inactive "$line_num" "$task_line"
+                _notify_daemon
+                return 1
+            fi
+            ;;
+        auto-commit)
+            if ! _run_auto_commit "$task_value"; then
                 _mark_inactive "$line_num" "$task_line"
                 _notify_daemon
                 return 1
