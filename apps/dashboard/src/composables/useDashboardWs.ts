@@ -21,10 +21,10 @@ export function useDashboardWs(onMessage: (msg: DashboardMessage) => void) {
       try {
         const msg: DashboardMessage = JSON.parse(event.data)
         if (msg.type === 'initial') {
-          const summary = msg.data.map(c => `${c.id}(connected=${c.connected},status=${c.status})`).join(', ')
+          const summary = msg.data.map(c => `${c.id}(host=${c.machine_hostname},connected=${c.connected},status=${c.status})`).join(', ')
           console.log(`[dashboard-ws] initial: ${msg.data.length} container(s): [${summary}]`)
         } else if (msg.type === 'container_update') {
-          console.log(`[dashboard-ws] container_update: ${msg.data.id} connected=${msg.data.connected} status=${msg.data.status}`)
+          console.log(`[dashboard-ws] container_update: ${msg.data.id} host=${msg.data.machine_hostname} container=${msg.data.container_hostname} connected=${msg.data.connected} status=${msg.data.status}`)
         } else if (msg.type === 'container_removed') {
           console.log(`[dashboard-ws] container_removed: ${msg.data.id}`)
         } else if (msg.type === 'agent_update') {
