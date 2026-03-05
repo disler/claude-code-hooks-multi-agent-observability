@@ -228,8 +228,10 @@ export function broadcastAgentUpdate(data: {
 
 // ── Container WebSocket handlers ──────────────────────────────────────────────
 
-export function handleContainerOpen(_ws: any): void {
-  // Wait for first heartbeat to identify the container
+export function handleContainerOpen(ws: any): void {
+  const addr = (ws.data as any)?.addr ?? 'unknown';
+  ws.__wsLabel = `container@${addr}`;
+  console.log(`[ws-open] ${ws.__wsLabel}`);
 }
 
 export function handleContainerMessage(ws: any, raw: string | Buffer): void {
@@ -251,19 +253,20 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       offlineTimers.delete(containerId);
     }
 
-    // Register WS if not already
-    if (!containerWsMap.has(containerId)) {
-      containerWsMap.set(containerId, ws);
-      ws.__containerId = containerId; // store for close handler
-    }
-
-    // Merge daemon-detected sessions with existing server-side sessions that have recent
-    // hook events. This prevents heartbeats from wiping sessions added by hook events when
-    // the daemon can't detect them (e.g. logs in a different directory than expected).
+    // Register WS if not already and update its label with full identity
     const daemonSessionIds: string[] = Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [];
     const sourceRepo: string = msg.source_repo ?? containerId;
     const containerHostname: string = msg.container_hostname ?? '';
     const hbCtx = `id=${containerId} host=${msg.machine_hostname ?? 'unknown'} container=${containerHostname || '-'} workspace=${msg.workspace_host_path ?? '-'}`;
+
+    if (!containerWsMap.has(containerId)) {
+      containerWsMap.set(containerId, ws);
+      ws.__containerId = containerId;
+      const addr = (ws.data as any)?.addr ?? 'unknown';
+      ws.__wsLabel = `container@${addr} ${hbCtx}`;
+      console.log(`[ws-identified] ${ws.__wsLabel}`);
+    }
+
     if (timer) console.log(`[heartbeat] ${hbCtx}: cancelled pending offline timer (reconnected)`);
 
     // Warn if this heartbeat would overwrite an existing row's host/container identity
@@ -426,14 +429,12 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
 
 export function handleContainerClose(ws: any): void {
   const containerId: string = ws.__containerId;
-  if (!containerId) return;
+  if (!containerId) {
+    // WS closed before it ever sent a heartbeat
+    console.log(`[ws-close] ${ws.__wsLabel ?? `container@${(ws.data as any)?.addr ?? 'unknown'}`}: closed before identifying`);
+    return;
+  }
   containerWsMap.delete(containerId);
-
-  const closedRow = getContainer(containerId);
-  const closeCtx = closedRow
-    ? `id=${containerId} host=${closedRow.machine_hostname} container=${closedRow.container_hostname || '-'} workspace=${closedRow.workspace_host_path ?? '-'}`
-    : `id=${containerId}`;
-  console.log(`[ws-close] ${closeCtx}: WS closed, starting 30s offline timer`);
   // Grace period before marking offline
   const timer = setTimeout(() => {
     offlineTimers.delete(containerId);

@@ -426,17 +426,17 @@ const server = Bun.serve({
       });
     }
     
-    // WebSocket upgrades
+    // WebSocket upgrades — store type so handlers can identify the connection
     if (url.pathname === '/stream') {
-      const success = server.upgrade(req, { data: { type: 'stream' } });
+      const success = server.upgrade(req, { data: { type: 'stream', addr: '' } });
       if (success) return undefined;
     }
     if (url.pathname === '/container-heartbeat') {
-      const success = server.upgrade(req, { data: { type: 'container' } });
+      const success = server.upgrade(req, { data: { type: 'container', addr: '' } });
       if (success) return undefined;
     }
     if (url.pathname === '/dashboard/stream') {
-      const success = server.upgrade(req, { data: { type: 'dashboard' } });
+      const success = server.upgrade(req, { data: { type: 'dashboard', addr: '' } });
       if (success) return undefined;
     }
 
@@ -452,14 +452,16 @@ const server = Bun.serve({
   
   websocket: {
     open(ws) {
-      const type = (ws.data as any)?.type ?? 'stream';
+      // Capture remote address immediately — available on ws but not in fetch()
+      (ws.data as any).addr = ws.remoteAddress ?? 'unknown';
+      const { type, addr } = ws.data as any;
       if (type === 'container') {
         handleContainerOpen(ws);
       } else if (type === 'dashboard') {
+        console.log(`[ws-open] dashboard@${addr}`);
         handleDashboardOpen(ws);
       } else {
-        // Event stream client
-        console.log('WebSocket client connected');
+        console.log(`[ws-open] stream@${addr}`);
         wsClients.add(ws);
         const events = getRecentEvents(300);
         ws.send(JSON.stringify({ type: 'initial', data: events }));
@@ -474,20 +476,25 @@ const server = Bun.serve({
     },
 
     close(ws) {
-      const type = (ws.data as any)?.type ?? 'stream';
+      const { type, addr } = ws.data as any;
+      const label = (ws as any).__wsLabel ?? `${type}@${addr ?? 'unknown'}`;
       if (type === 'container') {
         handleContainerClose(ws);
       } else if (type === 'dashboard') {
+        console.log(`[ws-close] ${label}`);
         handleDashboardClose(ws);
       } else {
-        console.log('WebSocket client disconnected');
+        console.log(`[ws-close] ${label}`);
         wsClients.delete(ws);
       }
     },
 
     error(ws, error) {
-      console.error('WebSocket error:', error);
-      const type = (ws.data as any)?.type ?? 'stream';
+      const type = (ws.data as any)?.type ?? 'unknown';
+      const addr = (ws.data as any)?.addr ?? 'unknown';
+      const label = (ws as any).__wsLabel ?? `${type}@${addr}`;
+      const msg = error instanceof Error ? error.message : (error != null ? String(error) : 'no error details');
+      console.error(`[ws-error] ${label}: ${msg}`);
       if (type === 'container') {
         handleContainerClose(ws);
       } else if (type === 'dashboard') {
