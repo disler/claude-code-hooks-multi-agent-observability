@@ -93,12 +93,12 @@
         </div>
       </template>
 
-      <!-- make-plan: target filename + prompt -->
+      <!-- make-plan: prompt filename + prompt (target plan file is plan-*.md derived at run time) -->
       <template v-else-if="taskType === 'make-plan'">
         <div class="flex flex-col gap-1">
-          <label class="text-xs text-slate-400">Plan filename <span class="text-slate-500">(the file Claude will write)</span></label>
+          <label class="text-xs text-slate-400">Prompt filename <span class="text-slate-500">(Claude will write the plan to plan-*.md)</span></label>
           <div class="flex items-center gap-1">
-            <span class="text-xs text-slate-500 font-mono shrink-0">plan-</span>
+            <span class="text-xs text-slate-500 font-mono shrink-0">make-plan-</span>
             <input
               v-model="makePlanSlug"
               type="text"
@@ -184,7 +184,7 @@ const planSlugs = computed(() =>
 
 const taskFilename = computed(() => taskSlug.value ? `task-${taskSlug.value}.md` : null)
 const planFilename = computed(() => planSlug.value ? `plan-${planSlug.value}.md` : null)
-const makePlanFilename = computed(() => makePlanSlug.value ? `plan-${makePlanSlug.value}.md` : null)
+const makePlanFilename = computed(() => makePlanSlug.value ? `make-plan-${makePlanSlug.value}.md` : null)
 
 const isExistingTaskFile = computed(() => !!taskFilename.value && plansFiles.value.includes(taskFilename.value))
 const isExistingPlanFile = computed(() => !!planFilename.value && plansFiles.value.includes(planFilename.value))

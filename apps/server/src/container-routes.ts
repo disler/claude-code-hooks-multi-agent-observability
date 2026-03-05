@@ -548,6 +548,10 @@ async function relayFileRead(containerId: string, filename: string): Promise<str
   });
 }
 
+function ensureTrailingNewline(content: string): string {
+  return content.endsWith('\n') ? content : content + '\n';
+}
+
 async function relayFileWrite(containerId: string, filename: string, content: string): Promise<void> {
   const ws = containerWsMap.get(containerId);
   if (!ws) throw new Error('Container offline');
@@ -559,7 +563,7 @@ async function relayFileWrite(containerId: string, filename: string, content: st
       reject(new Error('File write timeout'));
     }, 10_000);
     pendingFileRequests.set(requestId, { resolve, reject, timer });
-    ws.send(JSON.stringify({ type: 'file_write', request_id: requestId, filename, content }));
+    ws.send(JSON.stringify({ type: 'file_write', request_id: requestId, filename, content: ensureTrailingNewline(content) }));
   });
 }
 
@@ -575,7 +579,7 @@ async function relayFileWriteNew(containerId: string, filename: string, content:
       reject(new Error('File write timeout'));
     }, 10_000);
     pendingFileRequests.set(requestId, { resolve, reject, timer });
-    ws.send(JSON.stringify({ type: 'file_write_new', request_id: requestId, filename, content }));
+    ws.send(JSON.stringify({ type: 'file_write_new', request_id: requestId, filename, content: ensureTrailingNewline(content) }));
   });
 }
 
@@ -771,9 +775,9 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null);
     touchPlanqServerModified(containerId);
-    // For make-plan, write the prompt to the sidecar file (make-plan-<filename>)
+    // For make-plan, write the prompt to the filename directly (filename IS make-plan-*.md)
     if (task_type === 'make-plan' && filename && description) {
-      await relayFileWrite(containerId, `make-plan-${filename}`, description).catch(() => {});
+      await relayFileWrite(containerId, filename, description).catch(() => {});
     }
 
     // Write updated planq file through daemon

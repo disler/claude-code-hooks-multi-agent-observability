@@ -236,17 +236,26 @@ const hiddenSessions = computed(() =>
 
 const hiddenSessionCount = computed(() => hiddenSessions.value.length)
 
+function byRecency(a: typeof props.container.sessions[0], b: typeof props.container.sessions[0]) {
+  return (b.last_event_at ?? 0) - (a.last_event_at ?? 0)
+}
+
 const visibleSessions = computed(() =>
-  showHidden.value
-    ? props.container.sessions
+  (showHidden.value
+    ? [...props.container.sessions]
     : props.container.sessions.filter(s => !isAutoHidden(s) && !isExplicitlyHidden(s.session_id))
+  ).sort(byRecency)
 )
 
+const cLabel = () => `${props.container.source_repo}@${props.container.container_hostname}`
+
 function hideSession(sessionId: string) {
+  console.log(`[dashboard] hide session=${sessionId.slice(0, 8)} container=${cLabel()}`)
   hide(sessionId)
 }
 
 function unhideSession(sessionId: string) {
+  console.log(`[dashboard] unhide session=${sessionId.slice(0, 8)} container=${cLabel()}`)
   show(sessionId)
 }
 
@@ -255,6 +264,7 @@ function unhideSession(sessionId: string) {
 async function discardContainer() {
   const label = `${props.container.source_repo}${props.container.workspace_host_path ? ' (' + props.container.workspace_host_path + ')' : ''}`
   if (!confirm(`Discard offline container ${label}?\n\nThis removes it from the dashboard. It will reappear if the planq daemon reconnects.`)) return
+  console.log(`[dashboard] discard container=${cLabel()}`)
   await fetch(`${API_BASE}/dashboard/containers/${encodeURIComponent(props.container.id)}`, { method: 'DELETE' })
   // Server broadcasts container_removed; no local state needed
 }

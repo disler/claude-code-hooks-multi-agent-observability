@@ -84,6 +84,14 @@
         :title="task.status === 'done' ? 'Mark pending' : 'Mark done'"
       >{{ task.status === 'done' ? '↩' : '✓' }}</button>
 
+      <!-- Add Plan (done make-plan when plan file exists) -->
+      <button
+        v-if="showAddPlan"
+        @click="emit('add-plan', derivedPlanFilename!)"
+        class="text-xs text-purple-400 hover:text-purple-200 px-1"
+        :title="`Add ${derivedPlanFilename} to task list`"
+      >+ plan</button>
+
       <!-- Delete -->
       <button
         @click="emit('delete', task.id)"
@@ -117,6 +125,7 @@ const props = defineProps<{
   task: PlanqTask
   position: number
   containerId: string
+  allTasks?: PlanqTask[]
 }>()
 
 const emit = defineEmits<{
@@ -126,6 +135,7 @@ const emit = defineEmits<{
   'update-desc': [id: number, desc: string]
   'dragstart': [id: number]
   'drop': [id: number]
+  'add-plan': [planFilename: string]
 }>()
 
 const { readFile } = usePlanq()
@@ -133,6 +143,19 @@ const { readFile } = usePlanq()
 const editingDesc = ref(false)
 const editDesc = ref('')
 const editInput = ref<HTMLInputElement | null>(null)
+
+// For done make-plan tasks: derive the target plan filename and check if it exists
+const derivedPlanFilename = computed(() => {
+  if (props.task.task_type !== 'make-plan' || !props.task.filename) return null
+  return props.task.filename.replace(/^make-plan-/, 'plan-')
+})
+
+const showAddPlan = computed(() =>
+  props.task.task_type === 'make-plan'
+  && props.task.status === 'done'
+  && !!derivedPlanFilename.value
+  && !(props.allTasks ?? []).some(t => t.task_type === 'plan' && t.filename === derivedPlanFilename.value)
+)
 
 const typeBadgeClass = computed(() => ({
   'task': 'bg-blue-900/60 text-blue-300',
@@ -211,12 +234,12 @@ async function copyToClipboard() {
       copying.value = false
     }
   } else if (props.task.task_type === 'make-plan') {
-    // make-plan: fetch sidecar prompt file and append the target filename instruction
+    // make-plan: filename IS the prompt file (make-plan-*.md); derive target plan filename
     copying.value = true
-    const sidecarFilename = `make-plan-${props.task.filename}`
-    const prompt = await readFile(props.containerId, sidecarFilename)
+    const prompt = await readFile(props.containerId, props.task.filename)
     copying.value = false
-    text = prompt ? `${prompt.trim()} Write the plan to plans/${props.task.filename}.` : ''
+    const targetPlan = props.task.filename!.replace(/^make-plan-/, 'plan-')
+    text = prompt ? `${prompt.trim()} Write the plan to plans/${targetPlan}.` : ''
   } else {
     text = props.task.filename ?? props.task.description ?? ''
   }
