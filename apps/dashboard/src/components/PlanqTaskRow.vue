@@ -67,12 +67,13 @@
         title="Edit description"
       >Edit</button>
 
-      <!-- Mark underway -->
+      <!-- Mark underway / un-underway -->
       <button
-        v-if="task.status === 'pending'"
-        @click="emit('set-status', task, 'underway')"
-        class="text-xs px-1 text-yellow-500 hover:text-yellow-300"
-        title="Mark underway"
+        v-if="task.status === 'pending' || task.status === 'underway'"
+        @click="emit('set-status', task, task.status === 'underway' ? 'pending' : 'underway')"
+        class="text-xs px-1"
+        :class="task.status === 'underway' ? 'text-slate-500 hover:text-slate-300' : 'text-yellow-500 hover:text-yellow-300'"
+        :title="task.status === 'underway' ? 'Mark inactive' : 'Mark underway'"
       >⏳</button>
 
       <!-- Mark done / pending -->
