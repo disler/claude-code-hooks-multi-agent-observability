@@ -379,7 +379,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       last_seen: Date.now(),
     });
 
-    console.log(`[heartbeat] ${hbCtx}: upserted connected=${container.connected} sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}]`);
+    console.log(`[heartbeat] ${hbCtx}: upserted connected=${container.connected} sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}] git: staged=${msg.git_staged_count ?? 'n/a'} unstaged=${msg.git_unstaged_count ?? 'n/a'} branch=${msg.git_branch ?? '-'}`);
 
     // Sync planq tasks from planq_order text — but only if the server hasn't made local
     // edits more recently (30s grace period avoids a race where the heartbeat file read

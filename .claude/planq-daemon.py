@@ -38,9 +38,16 @@ def _setup_logging(log_file: Path) -> logging.Logger:
 
 def _run(cmd, cwd=None):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=5, cwd=cwd)
-        return r.stdout.strip() if r.returncode == 0 else ''
-    except Exception:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10, cwd=cwd)
+        if r.returncode != 0:
+            log.debug('_run %s (cwd=%s) rc=%d stderr=%r', cmd[0], cwd, r.returncode, r.stderr[:200])
+            return ''
+        return r.stdout.strip()
+    except subprocess.TimeoutExpired:
+        log.warning('_run %s (cwd=%s) timed out', cmd[0], cwd)
+        return ''
+    except Exception as e:
+        log.debug('_run %s (cwd=%s) error: %s', cmd[0], cwd, e)
         return ''
 
 def _get_machine_hostname():
@@ -120,10 +127,13 @@ def _git_info():
     else:
         commit_hash, commit_msg = raw_log, ''
 
-    staged_count = len([l for l in _run(['git', 'diff', '--cached', '--name-only'], cwd=ws).splitlines() if l])
+    staged_names = [l for l in _run(['git', 'diff', '--cached', '--name-only'], cwd=ws).splitlines() if l]
+    staged_count = len(staged_names)
     staged_diffstat = _run(['git', 'diff', '--cached', '--stat'], cwd=ws)
-    unstaged_count = len([l for l in _run(['git', 'diff', '--name-only'], cwd=ws).splitlines() if l])
+    unstaged_names = [l for l in _run(['git', 'diff', '--name-only'], cwd=ws).splitlines() if l]
+    unstaged_count = len(unstaged_names)
     unstaged_diffstat = _run(['git', 'diff', '--stat'], cwd=ws)
+    log.debug('git_info cwd=%s branch=%s staged=%d unstaged=%d', ws, branch, staged_count, unstaged_count)
 
     # Determine worktree path
     worktree = ''
