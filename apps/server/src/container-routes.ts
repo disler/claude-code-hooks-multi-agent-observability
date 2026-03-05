@@ -457,8 +457,10 @@ export function handleContainerClose(ws: any): void {
 
 export function handleDashboardOpen(ws: any): void {
   dashboardWsClients.add(ws);
-  // Send initial state
   const containers = getAllContainers().map(buildContainerWithState);
+  const addr = (ws.data as any)?.addr ?? 'unknown';
+  const summary = containers.map(c => `${c.id}(connected=${c.connected},status=${c.status})`).join(', ');
+  console.log(`[dashboard-open] ${addr}: sending initial with ${containers.length} container(s): [${summary}]`);
   ws.send(JSON.stringify({ type: 'initial', data: containers }));
 }
 
@@ -511,23 +513,23 @@ interface SessionState {
 
 interface ContainerWithState extends ContainerRow {
   sessions: SessionState[];
-  overall_status: 'busy' | 'awaiting_input' | 'idle' | 'offline';
+  status: 'busy' | 'awaiting_input' | 'idle' | 'offline';
   planq_tasks: PlanqTaskRow[];
 }
 
 function buildContainerWithState(container: ContainerRow): ContainerWithState {
   const sessions = deriveSessionStates(container.source_repo, container.active_session_ids);
 
-  let overall_status: 'busy' | 'awaiting_input' | 'idle' | 'offline' = 'offline';
+  let status: 'busy' | 'awaiting_input' | 'idle' | 'offline' = 'offline';
   if (container.connected) {
-    if (sessions.some(s => s.status === 'busy')) overall_status = 'busy';
-    else if (sessions.some(s => s.status === 'awaiting_input')) overall_status = 'awaiting_input';
-    else overall_status = 'idle';
+    if (sessions.some(s => s.status === 'busy')) status = 'busy';
+    else if (sessions.some(s => s.status === 'awaiting_input')) status = 'awaiting_input';
+    else status = 'idle';
   }
 
   const planq_tasks = getPlanqTasks(container.id);
 
-  return { ...container, sessions, overall_status, planq_tasks };
+  return { ...container, sessions, status, planq_tasks };
 }
 
 function deriveSessionStates(sourceRepo: string, sessionIds: string[]): SessionState[] {
