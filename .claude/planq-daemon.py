@@ -430,11 +430,15 @@ def main():
     backoff = 5
     try:
         while True:
+            t_start = time.time()
             try:
                 _run_connection()
             except Exception as e:
                 log.error('Connection error: %s', e)
                 _write_status('disconnected', str(e))
+            # Reset backoff if the connection lasted long enough to be considered successful
+            if time.time() - t_start >= HEARTBEAT_INTERVAL:
+                backoff = 5
             log.info('Reconnecting in %ds...', backoff)
             time.sleep(backoff)
             backoff = min(backoff * 2, 60)
