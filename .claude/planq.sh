@@ -47,6 +47,8 @@ _get_planq_file() {
 }
 
 PLANQ_FILE="$(_get_planq_file)"
+ARCHIVE_DIR="$PLANS_DIR/archive"
+HISTORY_FILE="$ARCHIVE_DIR/planq-history.txt"
 
 # ── Parse helpers ─────────────────────────────────────────────────────────────
 
@@ -186,17 +188,186 @@ _parse_task() {
     task_value="${line#*: }"
 }
 
+# List entries in the archive history file
+_list_archive() {
+    if [ ! -f "$HISTORY_FILE" ]; then
+        echo "(no archive at $HISTORY_FILE)"
+        return
+    fi
+    local i=0
+    while IFS= read -r line; do
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        if [[ "$trimmed" == "# done:"* ]]; then
+            i=$((i + 1))
+            printf "  \033[2m✅ %-3d  %s\033[0m\n" "$i" "${trimmed#"# done: "}"
+        elif [[ "$trimmed" == "# underway:"* ]]; then
+            i=$((i + 1))
+            printf "  \033[33m⏳ %-3d  %s\033[0m\n" "$i" "${trimmed#"# underway: "}"
+        elif [[ "$trimmed" == "#"* ]]; then
+            continue  # regular comment — skip
+        else
+            i=$((i + 1))
+            printf "  ▶  %-3d  %s\n" "$i" "$trimmed"
+        fi
+    done < "$HISTORY_FILE"
+}
+
+# Outputs: line_number TAB task_line (stripped)  for the Nth entry in the archive (1-based)
+_find_archive_by_number() {
+    local target="$1"
+    [ ! -f "$HISTORY_FILE" ] && return
+    local n=0 i=0
+    while IFS= read -r line; do
+        n=$((n + 1))
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* ]] && continue
+        i=$((i + 1))
+        if [ "$i" -eq "$target" ]; then
+            local task_line="$trimmed"
+            if [[ "$task_line" == "# done: "* ]]; then
+                task_line="${task_line#"# done: "}"
+            elif [[ "$task_line" == "# underway: "* ]]; then
+                task_line="${task_line#"# underway: "}"
+            fi
+            printf '%d\t%s\n' "$n" "$task_line"
+            return
+        fi
+    done < "$HISTORY_FILE"
+}
+
+# Outputs: line_number TAB task_line (stripped)  for an archive entry by number or text
+_find_archive_by_identifier() {
+    local ident="$1"
+    if [[ "$ident" =~ ^[0-9]+$ ]]; then
+        _find_archive_by_number "$ident"
+        return
+    fi
+    [ ! -f "$HISTORY_FILE" ] && return
+    local n=0
+    while IFS= read -r line; do
+        n=$((n + 1))
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* ]] && continue
+        local task_line="$trimmed"
+        if [[ "$task_line" == "# done: "* ]]; then
+            task_line="${task_line#"# done: "}"
+        elif [[ "$task_line" == "# underway: "* ]]; then
+            task_line="${task_line#"# underway: "}"
+        fi
+        local task_value="${task_line#*: }"
+        if [ "$task_value" = "$ident" ] || [ "$task_line" = "$ident" ]; then
+            printf '%d\t%s\n' "$n" "$task_line"
+            return
+        fi
+    done < "$HISTORY_FILE"
+}
+
+# Archive one task: read original line (with status prefix) from planq, store in history,
+# move file if applicable, then remove from planq
+_archive_one_task() {
+    local line_num="$1" task_line="$2"
+    local task_type task_value
+    _parse_task "$task_line"
+
+    mkdir -p "$ARCHIVE_DIR"
+
+    if [ "$task_type" = "task" ] || [ "$task_type" = "plan" ] || [ "$task_type" = "make-plan" ]; then
+        if [ -f "$PLANS_DIR/$task_value" ]; then
+            mv "$PLANS_DIR/$task_value" "$ARCHIVE_DIR/$task_value"
+            echo "  Moved: plans/$task_value → plans/archive/$task_value"
+        fi
+    fi
+
+    # Read original line (preserving status prefix) before deleting
+    local original_line
+    original_line="$(awk -v n="$line_num" 'NR == n { print; exit }' "$PLANQ_FILE")"
+    original_line="${original_line#"${original_line%%[![:space:]]*}"}"
+    printf '%s\n' "$original_line" >> "$HISTORY_FILE"
+    _delete_line "$line_num"
+}
+
 # ── Subcommands ───────────────────────────────────────────────────────────────
 
 cmd_list() {
-    echo "Planq: $PLANQ_FILE"
-    _list_tasks
+    local archive=""
+    for arg in "$@"; do
+        case "$arg" in
+            --archive|-a) archive=1 ;;
+        esac
+    done
+
+    if [ -n "$archive" ]; then
+        echo "Archive: $HISTORY_FILE"
+        _list_archive
+    else
+        echo "Planq: $PLANQ_FILE"
+        _list_tasks
+    fi
+}
+
+_show_task_details() {
+    local label="$1" task_line="$2" plans_base="$3"
+    local task_type task_value
+    _parse_task "$task_line"
+
+    echo "${label}:"
+    printf "  Type:  %s\n" "$task_type"
+    if [ "$task_type" = "task" ] || [ "$task_type" = "plan" ]; then
+        printf "  File:  plans/%s\n" "$task_value"
+        if [ -f "$plans_base/$task_value" ]; then
+            echo "  --- preview ---"
+            head -5 "$plans_base/$task_value" | sed 's/^/  /'
+        fi
+    elif [ "$task_type" = "make-plan" ]; then
+        local target_plan="${task_value/#make-plan-/plan-}"
+        printf "  Prompt file: plans/%s\n" "$task_value"
+        printf "  Plan target: plans/%s\n" "$target_plan"
+        if [ -f "$plans_base/$task_value" ]; then
+            echo "  --- prompt preview ---"
+            head -5 "$plans_base/$task_value" | sed 's/^/  /'
+        else
+            echo "  (prompt file not found)"
+        fi
+    else
+        printf "  Desc:  %s\n" "$task_value"
+    fi
 }
 
 cmd_show() {
-    local task_num="${1:-}"
-    local next task_line task_type task_value label
+    local archive="" task_num=""
+    for arg in "$@"; do
+        case "$arg" in
+            --archive|-a) archive=1 ;;
+            [0-9]*)       task_num="$arg" ;;
+        esac
+    done
 
+    if [ -n "$archive" ]; then
+        local next
+        if [ -n "$task_num" ]; then
+            next="$(_find_archive_by_number "$task_num")"
+            if [ -z "$next" ]; then
+                echo "No archive entry #$task_num in $HISTORY_FILE" >&2; return 1
+            fi
+            local label="Archive #$task_num"
+        else
+            next="$(_find_archive_by_number 1)"
+            if [ -z "$next" ]; then
+                echo "No entries in archive $HISTORY_FILE"
+                return 0
+            fi
+            local label="Archive #1"
+        fi
+        local task_line
+        task_line="$(printf '%s' "$next" | cut -f2-)"
+        _show_task_details "$label" "$task_line" "$ARCHIVE_DIR"
+        return 0
+    fi
+
+    local next label
     if [ -n "$task_num" ]; then
         next="$(_find_task_by_number "$task_num")"
         if [ -z "$next" ]; then
@@ -212,30 +383,9 @@ cmd_show() {
         label="Next task"
     fi
 
+    local task_line
     task_line="$(printf '%s' "$next" | cut -f2-)"
-    _parse_task "$task_line"
-
-    echo "${label}:"
-    printf "  Type:  %s\n" "$task_type"
-    if [ "$task_type" = "task" ] || [ "$task_type" = "plan" ]; then
-        printf "  File:  plans/%s\n" "$task_value"
-        if [ -f "$PLANS_DIR/$task_value" ]; then
-            echo "  --- preview ---"
-            head -5 "$PLANS_DIR/$task_value" | sed 's/^/  /'
-        fi
-    elif [ "$task_type" = "make-plan" ]; then
-        local target_plan="${task_value/#make-plan-/plan-}"
-        printf "  Prompt file: plans/%s\n" "$task_value"
-        printf "  Plan target: plans/%s\n" "$target_plan"
-        if [ -f "$PLANS_DIR/$task_value" ]; then
-            echo "  --- prompt preview ---"
-            head -5 "$PLANS_DIR/$task_value" | sed 's/^/  /'
-        else
-            echo "  (prompt file not found: plans/$task_value)"
-        fi
-    else
-        printf "  Desc:  %s\n" "$task_value"
-    fi
+    _show_task_details "$label" "$task_line" "$PLANS_DIR"
 }
 
 cmd_run() {
@@ -439,6 +589,105 @@ cmd_delete() {
     _notify_daemon
 }
 
+cmd_archive() {
+    local unarchive=""
+    local identifiers=()
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --unarchive|-U) unarchive=1; shift ;;
+            *) identifiers+=("$1"); shift ;;
+        esac
+    done
+
+    if [ -n "$unarchive" ]; then
+        if [ ${#identifiers[@]} -eq 0 ]; then
+            echo "Error: --unarchive requires task identifier(s)" >&2; return 1
+        fi
+        for ident in "${identifiers[@]}"; do
+            local next
+            next="$(_find_archive_by_identifier "$ident")"
+            if [ -z "$next" ]; then
+                echo "No matching archive entry '$ident' in $HISTORY_FILE" >&2
+                continue
+            fi
+            local line_num task_line task_type task_value
+            line_num="$(printf '%s' "$next" | cut -f1)"
+            task_line="$(printf '%s' "$next" | cut -f2-)"
+            _parse_task "$task_line"
+
+            if [ "$task_type" = "task" ] || [ "$task_type" = "plan" ] || [ "$task_type" = "make-plan" ]; then
+                if [ -f "$ARCHIVE_DIR/$task_value" ]; then
+                    mv "$ARCHIVE_DIR/$task_value" "$PLANS_DIR/$task_value"
+                    echo "  Moved: plans/archive/$task_value → plans/$task_value"
+                fi
+            fi
+
+            # Read original line (with status prefix) from history before removing
+            local original_line
+            original_line="$(awk -v n="$line_num" 'NR == n { print; exit }' "$HISTORY_FILE")"
+            original_line="${original_line#"${original_line%%[![:space:]]*}"}"
+
+            local tmp
+            tmp="$(mktemp)"
+            awk -v n="$line_num" 'NR != n { print }' "$HISTORY_FILE" > "$tmp"
+            mv "$tmp" "$HISTORY_FILE"
+
+            mkdir -p "$(dirname "$PLANQ_FILE")"
+            printf '%s\n' "$original_line" >> "$PLANQ_FILE"
+            echo "Unarchived: $task_line"
+        done
+        _notify_daemon
+        return
+    fi
+
+    if [ ! -f "$PLANQ_FILE" ]; then
+        echo "(no planq file at $PLANQ_FILE)"
+        return
+    fi
+
+    if [ ${#identifiers[@]} -gt 0 ]; then
+        local tmp_tasks
+        tmp_tasks="$(mktemp)"
+        for ident in "${identifiers[@]}"; do
+            local next
+            next="$(_find_task_by_identifier "$ident")"
+            if [ -z "$next" ]; then
+                echo "No matching task '$ident' in planq" >&2
+                continue
+            fi
+            printf '%s\n' "$next" >> "$tmp_tasks"
+        done
+    else
+        local tmp_tasks
+        tmp_tasks="$(mktemp)"
+        local n=0
+        while IFS= read -r line; do
+            n=$((n + 1))
+            local trimmed="${line#"${line%%[![:space:]]*}"}"
+            [ -z "$trimmed" ] && continue
+            if [[ "$trimmed" == "# done:"* ]]; then
+                local task_line="${trimmed#"# done: "}"
+                printf '%d\t%s\n' "$n" "$task_line" >> "$tmp_tasks"
+            fi
+        done < "$PLANQ_FILE"
+    fi
+
+    if [ ! -s "$tmp_tasks" ]; then
+        rm -f "$tmp_tasks"
+        echo "No done tasks to archive."
+        return
+    fi
+
+    # Process in reverse line order to preserve validity of line numbers
+    while IFS=$'\t' read -r line_num task_line; do
+        echo "Archiving: $task_line"
+        _archive_one_task "$line_num" "$task_line"
+    done < <(sort -t$'\t' -k1 -rn "$tmp_tasks")
+    rm -f "$tmp_tasks"
+    _notify_daemon
+}
+
 cmd_daemon() {
     local daemon_sh="$SCRIPT_DIR/planq-daemon.sh"
     if [ ! -x "$daemon_sh" ]; then
@@ -448,8 +697,17 @@ cmd_daemon() {
     "$daemon_sh" "${1:-status}" "${@:2}"
 }
 
-usage_list()   { echo "Usage: planq list"; echo "  List all tasks with status."; }
-usage_show()   { echo "Usage: planq show [N]"; echo "  Show the next pending task, or task #N if given."; }
+usage_list()   { echo "Usage: planq list [-a|--archive]"; echo "  List all tasks with status, or list the archive with -a."; }
+usage_show()   { echo "Usage: planq show [-a|--archive] [N]"; echo "  Show the next pending task, or task #N if given. Use -a for archive entries."; }
+usage_archive() {
+    echo "Usage: planq archive [N|filename|text ...]"
+    echo "       planq archive --unarchive|-U <N|filename|text> ..."
+    echo "  Archive done tasks, removing them from the planq and appending to plans/archive/planq-history.txt."
+    echo "  With no arguments: archives all done tasks."
+    echo "  With identifiers: archives specific tasks (by number, filename, or text)."
+    echo "  Associated task files are moved to plans/archive/."
+    echo "  --unarchive/-U: restore archived tasks back to the planq."
+}
 usage_run()    { echo "Usage: planq run [N] [--dry-run|-n]"; echo "  Run the next pending task, or task #N if given, then mark it done."; }
 usage_create() {
     echo "Usage: planq create [-t <type>] [-f <file>] [<desc>]"
@@ -475,13 +733,14 @@ usage() {
     echo "Usage: planq.sh <subcommand> [options]"
     echo ""
     echo "Subcommands:"
-    echo "  list   / l                                     List all tasks with status"
-    echo "  show   / s [N]                                 Show next pending task, or task #N"
-    echo "  run    / r [N] [--dry-run|-n]                  Run next pending task, or task #N"
-    echo "  create / c [-t <type>] [-f <file>] [<desc>]    Add a task (default type: unnamed-task)"
-    echo "  mark   / m <done|underway|inactive> <N|filename|text>  Mark a task (also: mark:<state> / m:<state>)"
-    echo "  delete / x <N>                                 Delete task #N"
-    echo "  daemon / d [start|stop|restart|status]         Manage the planq WebSocket daemon"
+    echo "  list    / l                                     List all tasks with status"
+    echo "  show    / s [-a] [N]                            Show next pending task, or task #N"
+    echo "  run     / r [N] [--dry-run|-n]                 Run next pending task, or task #N"
+    echo "  create  / c [-t <type>] [-f <file>] [<desc>]   Add a task (default type: unnamed-task)"
+    echo "  mark    / m <done|underway|inactive> <N|…>     Mark a task (also: mark:<state> / m:<state>)"
+    echo "  delete  / x <N>                                Delete task #N"
+    echo "  archive / a [N|…] [--unarchive|-U <N|…>]      Archive done tasks; -a flag on list/show for archive"
+    echo "  daemon  / d [start|stop|restart|status]        Manage the planq WebSocket daemon"
     echo ""
     echo "Task types:"
     echo "  unnamed-task               Pass description directly to claude as a prompt (default)"
@@ -520,6 +779,7 @@ if _has_help_flag "$@"; then
         create|c)    usage_create ;;
         mark|m|mark:*|m:*) usage_mark ;;
         delete|x)    usage_delete ;;
+        archive|a)   usage_archive ;;
         daemon|d)    usage_daemon ;;
         *)           usage ;;
     esac
@@ -527,13 +787,14 @@ if _has_help_flag "$@"; then
 fi
 
 case "$SUBCMD" in
-    list|l)              cmd_list ;;
+    list|l)              cmd_list "$@" ;;
     show|s)              cmd_show "$@" ;;
     run|r)               cmd_run "$@" ;;
     create|c)            cmd_create "$@" ;;
     mark|m)              cmd_mark "$@" ;;
     mark:*|m:*)          cmd_mark "${SUBCMD#*:}" "$@" ;;
     delete|x)            cmd_delete "$@" ;;
+    archive|a)           cmd_archive "$@" ;;
     daemon|d)            cmd_daemon "$@" ;;
     --help|-h|help|"")   usage ;;
     *)
