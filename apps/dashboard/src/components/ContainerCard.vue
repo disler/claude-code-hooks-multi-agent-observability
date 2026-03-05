@@ -212,7 +212,7 @@ const emit = defineEmits<{
 
 // ── Session hiding ────────────────────────────────────────────────────────────
 
-const { hide, showAll, isExplicitlyHidden } = useHiddenSessions()
+const { hide, isExplicitlyHidden } = useHiddenSessions()
 const showHidden = ref(false)
 
 const now = ref(Date.now())
