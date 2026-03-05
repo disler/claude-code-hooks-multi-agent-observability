@@ -4,6 +4,7 @@ import {
   upsertContainer,
   setContainerDisconnected,
   getAllContainers,
+  deleteContainer,
   getContainer,
   parsePlanqOrder,
   serializePlanqOrder,
@@ -667,6 +668,18 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   if (pathname === '/dashboard/containers' && method === 'GET') {
     const containers = getAllContainers().map(buildContainerWithState);
     return json(containers);
+  }
+
+  // DELETE /dashboard/containers/:id — discard a container (e.g. stale offline entry)
+  if (pathname.startsWith('/dashboard/containers/') && method === 'DELETE') {
+    const containerId = decodeURIComponent(pathname.slice('/dashboard/containers/'.length));
+    const container = getContainer(containerId);
+    if (!container) return err('Container not found', 404);
+    if (container.connected) return err('Cannot delete a connected container', 409);
+    deleteContainer(containerId);
+    console.log(`[dashboard] deleted offline container id=${containerId}`);
+    broadcastDashboard({ type: 'container_removed', data: { id: containerId } });
+    return json({ ok: true });
   }
 
   // GET /planq/:id

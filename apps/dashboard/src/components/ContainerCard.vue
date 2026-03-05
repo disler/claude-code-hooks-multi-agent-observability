@@ -153,9 +153,14 @@
         </template>
       </div>
 
-      <!-- Last seen (offline) -->
-      <div v-if="!container.connected" class="text-xs text-slate-500 shrink-0">
-        {{ relativeTime }}
+      <!-- Last seen (offline) + discard button -->
+      <div v-if="!container.connected" class="flex flex-col items-end gap-1 shrink-0">
+        <span class="text-xs text-slate-500">{{ relativeTime }}</span>
+        <button
+          class="text-xs text-slate-600 hover:text-red-400 transition-colors"
+          title="Discard this offline container"
+          @click="discardContainer"
+        >discard</button>
       </div>
     </div>
 
@@ -185,6 +190,7 @@ import AgentStatusBadge from './AgentStatusBadge.vue'
 import GitDiffstatPopover from './GitDiffstatPopover.vue'
 import SessionRow from './SessionRow.vue'
 import PlanqPanel from './PlanqPanel.vue'
+import { API_BASE } from '../config'
 import type { ContainerWithState, GitSubmoduleInfo } from '../types'
 
 const props = defineProps<{
@@ -194,6 +200,13 @@ const props = defineProps<{
 const emit = defineEmits<{
   'tasks-changed': []
 }>()
+
+async function discardContainer() {
+  const label = `${props.container.source_repo}${props.container.workspace_host_path ? ' (' + props.container.workspace_host_path + ')' : ''}`
+  if (!confirm(`Discard offline container ${label}?\n\nThis removes it from the dashboard. It will reappear if the planq daemon reconnects.`)) return
+  await fetch(`${API_BASE}/dashboard/containers/${encodeURIComponent(props.container.id)}`, { method: 'DELETE' })
+  // Server broadcasts container_removed; no local state needed
+}
 
 const firstSub = computed<GitSubmoduleInfo | null>(() => props.container.git_submodules?.[0] ?? null)
 const extraSubs = computed<GitSubmoduleInfo[]>(() => props.container.git_submodules?.slice(1) ?? [])

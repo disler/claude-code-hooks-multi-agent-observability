@@ -177,6 +177,11 @@ export function getContainer(id: string): ContainerRow | null {
   return row ? rowToContainer(row) : null;
 }
 
+export function deleteContainer(id: string): boolean {
+  const result = db.prepare('DELETE FROM containers WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
 export function getAllContainers(): ContainerRow[] {
   const rows = db.prepare('SELECT * FROM containers ORDER BY machine_hostname, source_repo').all() as any[];
   return rows.map(rowToContainer);
