@@ -236,10 +236,15 @@ const hiddenSessions = computed(() =>
 
 const hiddenSessionCount = computed(() => hiddenSessions.value.length)
 
+function byRecency(a: typeof props.container.sessions[0], b: typeof props.container.sessions[0]) {
+  return (b.last_event_at ?? 0) - (a.last_event_at ?? 0)
+}
+
 const visibleSessions = computed(() =>
-  showHidden.value
-    ? props.container.sessions
+  (showHidden.value
+    ? [...props.container.sessions]
     : props.container.sessions.filter(s => !isAutoHidden(s) && !isExplicitlyHidden(s.session_id))
+  ).sort(byRecency)
 )
 
 function hideSession(sessionId: string) {
