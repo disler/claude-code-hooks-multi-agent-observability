@@ -64,6 +64,9 @@ _list_tasks() {
         if [[ "$trimmed" == "# done:"* ]]; then
             i=$((i + 1))
             printf "  \033[2m✅ %-3d  %s\033[0m\n" "$i" "${trimmed#"# done: "}"
+        elif [[ "$trimmed" == "# underway:"* ]]; then
+            i=$((i + 1))
+            printf "  \033[33m⏳ %-3d  %s\033[0m\n" "$i" "${trimmed#"# underway: "}"
         elif [[ "$trimmed" == "#"* ]]; then
             continue  # regular comment — skip
         else
@@ -97,12 +100,14 @@ _find_task_by_number() {
         n=$((n + 1))
         local trimmed="${line#"${line%%[![:space:]]*}"}"
         [ -z "$trimmed" ] && continue
-        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* ]] && continue  # skip regular comments
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* ]] && continue  # skip regular comments
         i=$((i + 1))
         if [ "$i" -eq "$target" ]; then
-            # Strip the "# done: " prefix if present so we get the raw task line
+            # Strip status prefixes if present so we get the raw task line
             if [[ "$trimmed" == "# done: "* ]]; then
                 trimmed="${trimmed#"# done: "}"
+            elif [[ "$trimmed" == "# underway: "* ]]; then
+                trimmed="${trimmed#"# underway: "}"
             fi
             printf '%d\t%s\n' "$n" "$trimmed"
             return
@@ -117,6 +122,34 @@ _mark_done() {
     awk -v n="$line_num" -v orig="$original_line" \
         'NR == n { print "# done: " orig; next } { print }' \
         "$PLANQ_FILE" > "$tmp"
+    mv "$tmp" "$PLANQ_FILE"
+}
+
+_mark_underway() {
+    local line_num="$1" original_line="$2"
+    local tmp
+    tmp="$(mktemp)"
+    awk -v n="$line_num" -v orig="$original_line" \
+        'NR == n { print "# underway: " orig; next } { print }' \
+        "$PLANQ_FILE" > "$tmp"
+    mv "$tmp" "$PLANQ_FILE"
+}
+
+_mark_inactive() {
+    local line_num="$1" original_line="$2"
+    local tmp
+    tmp="$(mktemp)"
+    awk -v n="$line_num" -v orig="$original_line" \
+        'NR == n { print orig; next } { print }' \
+        "$PLANQ_FILE" > "$tmp"
+    mv "$tmp" "$PLANQ_FILE"
+}
+
+_delete_line() {
+    local line_num="$1"
+    local tmp
+    tmp="$(mktemp)"
+    awk -v n="$line_num" 'NR != n { print }' "$PLANQ_FILE" > "$tmp"
     mv "$tmp" "$PLANQ_FILE"
 }
 
@@ -240,9 +273,101 @@ cmd_run_next() {
             return 1
             ;;
     esac
+    _notify_daemon
 }
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
+
+cmd_mark() {
+    local task_num="${1:-}" state="${2:-done}"
+    if [ -z "$task_num" ]; then
+        echo "Usage: planq mark <N> [done|d|underway|u|inactive|i]" >&2; return 1
+    fi
+    case "$state" in
+        done|d)         state=done ;;
+        underway|u)     state=underway ;;
+        inactive|i)     state=inactive ;;
+        *) echo "Error: state must be done/d, underway/u, or inactive/i; got: $state" >&2; return 1 ;;
+    esac
+    local next
+    next="$(_find_task_by_number "$task_num")"
+    if [ -z "$next" ]; then
+        echo "No task #$task_num in $PLANQ_FILE" >&2; return 1
+    fi
+    local line_num task_line
+    line_num="$(printf '%s' "$next" | cut -f1)"
+    task_line="$(printf '%s' "$next" | cut -f2-)"
+    echo "Task #$task_num: $task_line"
+    case "$state" in
+        done)     _mark_done     "$line_num" "$task_line"; echo "Marked as done." ;;
+        underway) _mark_underway "$line_num" "$task_line"; echo "Marked as underway." ;;
+        inactive) _mark_inactive "$line_num" "$task_line"; echo "Marked as inactive." ;;
+    esac
+    _notify_daemon
+}
+
+cmd_delete() {
+    local task_num="${1:-}"
+    if [ -z "$task_num" ]; then
+        echo "Usage: planq delete <N>" >&2; return 1
+    fi
+    local next
+    next="$(_find_task_by_number "$task_num")"
+    if [ -z "$next" ]; then
+        echo "No task #$task_num in $PLANQ_FILE" >&2; return 1
+    fi
+    local line_num task_line
+    line_num="$(printf '%s' "$next" | cut -f1)"
+    task_line="$(printf '%s' "$next" | cut -f2-)"
+    echo "Deleting task #$task_num: $task_line"
+    _delete_line "$line_num"
+    echo "Deleted."
+    _notify_daemon
+}
+
+cmd_create() {
+    local task_type="unnamed-task" filename="" description=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --type|-t) task_type="${2:-}"; shift 2 ;;
+            --file|-f) filename="${2:-}"; shift 2 ;;
+            *) description="$1"; shift ;;
+        esac
+    done
+
+    local task_line
+    case "$task_type" in
+        task|plan)
+            if [ -z "$filename" ]; then
+                echo "Error: --file required for task type '$task_type'" >&2; return 1
+            fi
+            task_line="${task_type}: ${filename}"
+            ;;
+        unnamed-task|manual-test|manual-commit|manual-task)
+            if [ -z "$description" ]; then
+                echo "Error: description required for task type '$task_type'" >&2; return 1
+            fi
+            task_line="${task_type}: ${description}"
+            ;;
+        *)
+            echo "Error: unknown task type '$task_type'" >&2; return 1 ;;
+    esac
+
+    mkdir -p "$PLANS_DIR"
+    printf '%s\n' "$task_line" >> "$PLANQ_FILE"
+    echo "Created: $task_line"
+    _notify_daemon
+}
+
+_notify_daemon() {
+    local sandbox_dir="${HOME}/.local/devcontainer-sandbox"
+    local pid_file="$sandbox_dir/planq/planq-daemon.pid"
+    if [ -f "$pid_file" ]; then
+        local pid
+        pid="$(cat "$pid_file")"
+        kill -USR1 "$pid" 2>/dev/null || true
+    fi
+}
 
 cmd_daemon() {
     local daemon_sh="$SCRIPT_DIR/planq-daemon.sh"
@@ -260,6 +385,9 @@ usage() {
     echo "  list-tasks    / l                       List all tasks with status"
     echo "  show-next-task / s                      Show next pending task (no execution)"
     echo "  run-next-task  / r [N] [--dry-run|-n]   Execute next pending task, or task #N"
+    echo "  create / c [--type|-t <type>] [--file|-f <file>] [<desc>]  Add a task"
+    echo "  mark / m <N> [done|d|underway|u|inactive|i]            Mark task #N (default: done)"
+    echo "  delete / x <N>                  Delete task #N"
     echo "  daemon / d <start|stop|restart|status>  Manage the planq WebSocket daemon"
     echo ""
     echo "Task line formats in planq file:"
@@ -278,7 +406,10 @@ case "$SUBCMD" in
     list-tasks|l)        cmd_list ;;
     show-next-task|s)    cmd_show_next ;;
     run-next-task|r)     cmd_run_next "$@" ;;
-    daemon|d)              cmd_daemon "$@" ;;
+    create|c)            cmd_create "$@" ;;
+    mark|m)              cmd_mark "$@" ;;
+    delete|x)            cmd_delete "$@" ;;
+    daemon|d)            cmd_daemon "$@" ;;
     --help|-h|help|"")   usage ;;
     *)
         echo "Unknown subcommand: $SUBCMD" >&2

@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -81,6 +82,15 @@ _LOG_FILE = _SANDBOX_DIR / 'logs' / 'planq-daemon.log'
 _STATUS_FILE = _SANDBOX_DIR / 'planq' / 'planq-daemon.status'
 
 log = _setup_logging(_LOG_FILE)
+
+# Set by SIGUSR1 to trigger an immediate heartbeat
+_immediate_heartbeat = threading.Event()
+
+def _handle_sigusr1(signum, frame):
+    log.debug('Received SIGUSR1 — scheduling immediate heartbeat')
+    _immediate_heartbeat.set()
+
+signal.signal(signal.SIGUSR1, _handle_sigusr1)
 
 # ── Status file ───────────────────────────────────────────────────────────────
 
@@ -393,7 +403,8 @@ def _run_connection():
     last_beat = time.time()
     while not stop_event.is_set():
         time.sleep(1)
-        if time.time() - last_beat >= HEARTBEAT_INTERVAL:
+        if _immediate_heartbeat.is_set() or time.time() - last_beat >= HEARTBEAT_INTERVAL:
+            _immediate_heartbeat.clear()
             _send_heartbeat(ws_app)
             last_beat = time.time()
 
