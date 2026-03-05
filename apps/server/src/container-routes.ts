@@ -62,61 +62,86 @@ interface DevcontainerInfo {
 }
 
 function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: DevcontainerInfo): void {
+  const machineHostname = (dc?.host && dc.host !== 'unknown') ? dc.host : 'unknown';
+  const containerHostname = dc?.container_id || 'unknown';
+  const hasExplicitHost = machineHostname !== 'unknown' || containerHostname !== 'unknown';
+  const evCtx = `source=${sourceApp} host=${machineHostname} container=${containerHostname} workspace=${dc?.workspace ?? '-'} session=${sessionId.slice(0,8)}`;
+
   const rows = db.prepare(
     'SELECT id, machine_hostname, container_hostname, active_session_ids FROM containers WHERE source_repo = ?'
   ).all(sourceApp) as any[];
 
-  // If any container already claims this session, nothing to do
+  // Check if a container already claims this session. If so, verify it's the right one.
+  // If the event has explicit host info and the claimant doesn't match, strip and re-assign.
   for (const row of rows) {
     const ids: string[] = JSON.parse(row.active_session_ids || '[]');
-    if (ids.includes(sessionId)) {
-      console.log(`[ensureContainer] source=${sourceApp} session=${sessionId.slice(0,8)}: already claimed by id=${row.id} host=${row.machine_hostname} container=${row.container_hostname}`);
+    if (!ids.includes(sessionId)) continue;
+
+    const containerMatches = containerHostname !== 'unknown' && row.container_hostname === containerHostname;
+    const machineMatches = machineHostname !== 'unknown' && row.machine_hostname === machineHostname;
+
+    if (containerMatches || machineMatches || !hasExplicitHost) {
+      console.log(`[ensureContainer] ${evCtx}: correctly claimed by id=${row.id} host=${row.machine_hostname} container=${row.container_hostname}`);
       return;
+    }
+
+    // Explicit host info contradicts the claimant — strip and re-assign
+    console.log(`[ensureContainer] ${evCtx}: MISMATCH — claimed by id=${row.id} host=${row.machine_hostname} container=${row.container_hostname} — stripping and re-assigning`);
+    const corrected = ids.filter(id => id !== sessionId);
+    db.prepare('UPDATE containers SET active_session_ids = ? WHERE id = ?')
+      .run(JSON.stringify(corrected), row.id);
+    const wrongContainer = getContainer(row.id);
+    if (wrongContainer) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(wrongContainer) });
+    break;
+  }
+
+  // Re-fetch after any strip above
+  const freshRows = db.prepare(
+    'SELECT id, machine_hostname, container_hostname, active_session_ids FROM containers WHERE source_repo = ?'
+  ).all(sourceApp) as any[];
+
+  console.log(`[ensureContainer] ${evCtx}: finding container among [${freshRows.map((r: any) => `${r.id}(host=${r.machine_hostname} container=${r.container_hostname})`).join(', ')}]`);
+
+  let match: any = null;
+  let matchDesc = '';
+
+  if (hasExplicitHost) {
+    // Event carries real host info — only match on that, never fall back to unknown stubs
+    if (containerHostname !== 'unknown') {
+      match = freshRows.find((r: any) => r.container_hostname === containerHostname) ?? null;
+      if (match) matchDesc = `container_hostname=${containerHostname}`;
+    }
+    if (!match && machineHostname !== 'unknown') {
+      match = freshRows.find((r: any) => r.machine_hostname === machineHostname && (r.container_hostname === 'unknown' || r.container_hostname === '')) ?? null;
+      if (match) matchDesc = `machine_hostname=${machineHostname} (container unknown in DB)`;
+    }
+    if (!match) {
+      console.log(`[ensureContainer] ${evCtx}: no container matched explicit host info — creating new row`);
+    }
+  } else {
+    // No host info in payload — fall back to heuristics, log clearly
+    match = freshRows.find((r: any) => r.machine_hostname === 'unknown' && r.container_hostname === 'unknown') ?? null;
+    if (match) {
+      matchDesc = `unknown stub id=${match.id}`;
+      console.log(`[ensureContainer] ${evCtx}: payload has no host info — using unknown stub id=${match.id}`);
+    } else if (freshRows.length === 1) {
+      match = freshRows[0];
+      matchDesc = `sole container id=${match.id} host=${match.machine_hostname}`;
+      console.log(`[ensureContainer] ${evCtx}: payload has no host info — only one container, using id=${match.id} host=${match.machine_hostname} (heuristic)`);
+    } else {
+      console.log(`[ensureContainer] ${evCtx}: payload has no host info and ${freshRows.length} containers exist — creating stub`);
     }
   }
 
-  const machineHostname = (dc?.host && dc.host !== 'unknown') ? dc.host : 'unknown';
-  const containerHostname = dc?.container_id || 'unknown';
-
-  const existingIds = rows.map((r: any) => r.id);
-  const evCtx = `source=${sourceApp} host=${machineHostname} container=${containerHostname} workspace=${dc?.workspace ?? '-'} session=${sessionId.slice(0,8)}`;
-  console.log(`[ensureContainer] ${evCtx} existing=[${existingIds.join(', ')}]`);
-
-  // Find the best matching existing container to add this session to:
-  // 1. Exact match on (machine_hostname, container_hostname) — same physical container
-  // 2. Container hostname match alone — Docker container ID is unique, safe even if
-  //    machine_hostname is 'unknown' in the hook event (common when DEVCONTAINER_HOST unset)
-  // 3. Machine hostname match with unknown container hostname
-  // 4. Any existing unknown stub
-  // 5. If only one container exists for this source_repo, use it — covers the common case
-  //    where HOSTNAME env var is unset so both hostnames are 'unknown' in hook events
-  let matchTier = 0;
-  let match: any =
-    (++matchTier && machineHostname !== 'unknown' && containerHostname !== 'unknown'
-      ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === containerHostname)
-      : null) ??
-    (++matchTier && containerHostname !== 'unknown'
-      ? rows.find((r: any) => r.container_hostname === containerHostname)
-      : null) ??
-    (++matchTier && machineHostname !== 'unknown'
-      ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === 'unknown')
-      : null) ??
-    (++matchTier ? rows.find((r: any) => r.machine_hostname === 'unknown') : null) ??
-    (++matchTier && rows.length === 1 ? rows[0] : null) ??
-    null;
-
-  if (!match) matchTier = 0;
-
   if (match) {
-    console.log(`[ensureContainer] ${evCtx} → tier ${matchTier} matched id=${match.id} host=${match.machine_hostname} container=${match.container_hostname}`);
+    console.log(`[ensureContainer] ${evCtx}: → matched ${matchDesc}`);
     const ids: string[] = JSON.parse(match.active_session_ids || '[]');
-    ids.push(sessionId);
-    // Upgrade stub fields with real devcontainer info where we now know better
+    if (!ids.includes(sessionId)) ids.push(sessionId);
     db.prepare(`
       UPDATE containers SET
         active_session_ids = ?, last_seen = ?,
-        machine_hostname  = CASE WHEN machine_hostname  = 'unknown' AND ? != 'unknown' THEN ? ELSE machine_hostname  END,
-        container_hostname = CASE WHEN container_hostname = 'unknown' AND ? != 'unknown' THEN ? ELSE container_hostname END,
+        machine_hostname   = CASE WHEN machine_hostname  = 'unknown' AND ? != 'unknown' THEN ? ELSE machine_hostname  END,
+        container_hostname = CASE WHEN (container_hostname = 'unknown' OR container_hostname = '') AND ? != 'unknown' THEN ? ELSE container_hostname END,
         workspace_host_path = COALESCE(workspace_host_path, ?),
         git_branch          = COALESCE(git_branch, ?)
       WHERE id = ?
@@ -132,13 +157,13 @@ function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: Dev
     return;
   }
 
-  // No existing container — create one using whatever devcontainer info we have
-  const idTaken = rows.some((r: any) => r.id === sourceApp);
+  // No match — create new row with whatever info we have
+  const idTaken = freshRows.some((r: any) => r.id === sourceApp);
   const newId = idTaken
     ? (containerHostname !== 'unknown' ? `${sourceApp}:${containerHostname}` : `${sourceApp}:unknown`)
     : sourceApp;
 
-  console.log(`[ensureContainer] ${evCtx} → no match (tier 0), creating stub id=${newId}`);
+  console.log(`[ensureContainer] ${evCtx}: creating new row id=${newId}`);
   db.prepare(`
     INSERT OR IGNORE INTO containers
       (id, source_repo, machine_hostname, container_hostname, workspace_host_path, git_branch, active_session_ids, last_seen, connected)
@@ -240,6 +265,21 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     const containerHostname: string = msg.container_hostname ?? '';
     const hbCtx = `id=${containerId} host=${msg.machine_hostname ?? 'unknown'} container=${containerHostname || '-'} workspace=${msg.workspace_host_path ?? '-'}`;
     if (timer) console.log(`[heartbeat] ${hbCtx}: cancelled pending offline timer (reconnected)`);
+
+    // Warn if this heartbeat would overwrite an existing row's host/container identity
+    if (existingContainer) {
+      const hostChanging = existingContainer.machine_hostname !== 'unknown'
+        && msg.machine_hostname
+        && existingContainer.machine_hostname !== msg.machine_hostname;
+      const containerChanging = existingContainer.container_hostname
+        && existingContainer.container_hostname !== 'unknown'
+        && containerHostname
+        && containerHostname !== 'unknown'
+        && existingContainer.container_hostname !== containerHostname;
+      if (hostChanging || containerChanging) {
+        console.log(`[heartbeat] ${hbCtx}: WARNING — overwriting existing row identity: was host=${existingContainer.machine_hostname} container=${existingContainer.container_hostname} workspace=${existingContainer.workspace_host_path ?? '-'}`);
+      }
+    }
     const existingContainer = getContainer(containerId);
     let mergedSessionIds = daemonSessionIds;
     if (existingContainer) {
