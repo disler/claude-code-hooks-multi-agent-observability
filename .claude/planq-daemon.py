@@ -7,6 +7,7 @@ requests from the server to the local workspace.
 """
 
 import json
+import logging
 import os
 import re
 import subprocess

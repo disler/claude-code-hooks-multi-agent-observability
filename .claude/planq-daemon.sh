@@ -45,7 +45,7 @@ cmd_start() {
     fi
     _setup_venv
     mkdir -p "$(dirname "$PID_FILE")" "$(dirname "$LOG_FILE")"
-    "$VENV/bin/python3" -u "$SCRIPT_DIR/planq-daemon.py" >> "$LOG_FILE" 2>&1 &
+    "$VENV/bin/python3" -u "$SCRIPT_DIR/planq-daemon.py" >/dev/null 2>&1 &
     echo $! > "$PID_FILE"
     echo "planq-daemon started (pid $(_get_pid)), log: $LOG_FILE"
 }
