@@ -37,8 +37,13 @@
 
     <!-- Actions (shown on hover) -->
     <div class="hidden group-hover:flex items-center gap-1 shrink-0">
+      <!-- Copy to clipboard -->
       <button
-        v-if="task.filename && task.status !== 'done'"
+        @click.stop="copyToClipboard"
+        class="text-xs text-slate-400 hover:text-slate-200 px-1"
+        :title="copyTitle"
+      >{{ copying ? '…' : copied ? '✓' : '⧉' }}</button>
+
       <!-- Edit file / prompt -->
       <button
         v-if="task.filename && task.status === 'pending'"
@@ -83,11 +88,13 @@
 
 <script setup lang="ts">
 import { ref, nextTick, computed } from 'vue'
+import { usePlanq } from '../composables/usePlanq'
 import type { PlanqTask } from '../types'
 
 const props = defineProps<{
   task: PlanqTask
   position: number
+  containerId: string
 }>()
 
 const emit = defineEmits<{
@@ -98,6 +105,8 @@ const emit = defineEmits<{
   'dragstart': [id: number]
   'drop': [id: number]
 }>()
+
+const { readFile } = usePlanq()
 
 const editingDesc = ref(false)
 const editDesc = ref('')
@@ -125,5 +134,53 @@ function saveDesc() {
     emit('update-desc', props.task.id, editDesc.value.trim())
   }
   editingDesc.value = false
+}
+
+// ── Clipboard copy ────────────────────────────────────────────────────────────
+
+const copied = ref(false)
+const copying = ref(false)
+
+const copyTitle = computed(() => {
+  if (!props.task.filename) return 'Copy prompt to clipboard'
+  if (props.task.task_type === 'plan') return 'Copy plan instruction to clipboard'
+  if (props.task.task_type === 'task') return 'Copy task file contents to clipboard'
+  if (props.task.task_type === 'make-plan') return 'Copy make-plan prompt to clipboard'
+  return 'Copy to clipboard'
+})
+
+async function copyToClipboard() {
+  let text = ''
+
+  if (!props.task.filename) {
+    // unnamed-task and manual tasks: description is the prompt
+    text = props.task.description ?? ''
+  } else if (props.task.task_type === 'plan') {
+    // plan: claude is told to read and implement the file
+    text = `Read plans/${props.task.filename} and implement the plan described in it.`
+  } else if (props.task.task_type === 'task') {
+    // task: file contents are passed directly as the prompt — fetch them
+    copying.value = true
+    const content = await readFile(props.containerId, props.task.filename)
+    copying.value = false
+    text = content ?? ''
+  } else if (props.task.task_type === 'make-plan') {
+    // make-plan: fetch sidecar prompt file and append the target filename instruction
+    copying.value = true
+    const sidecarFilename = `make-plan-${props.task.filename}`
+    const prompt = await readFile(props.containerId, sidecarFilename)
+    copying.value = false
+    text = prompt ? `${prompt.trim()} Write the plan to plans/${props.task.filename}.` : ''
+  } else {
+    text = props.task.filename ?? props.task.description ?? ''
+  }
+
+  if (!text) return
+
+  try {
+    await navigator.clipboard.writeText(text)
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 1500)
+  } catch {}
 }
 </script>
