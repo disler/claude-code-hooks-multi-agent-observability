@@ -543,6 +543,7 @@ interface SessionState {
   last_response_summary: string | null;
   model_name: string | null;
   subagent_count: number;
+  last_event_at: number | null;
 }
 
 interface ContainerWithState extends ContainerRow {
@@ -620,14 +621,15 @@ function deriveSessionStates(sourceRepo: string, sessionIds: string[]): SessionS
     const subagent_count = Math.max(0, subagentStarts - subagentStops);
 
     const model_name = events.find(e => e.model_name)?.model_name ?? null;
+    const last_event_at: number | null = latest.timestamp ?? null;
 
-    states.push({ session_id: sessionId, status, last_prompt, last_response_summary, model_name, subagent_count });
+    states.push({ session_id: sessionId, status, last_prompt, last_response_summary, model_name, subagent_count, last_event_at });
   }
 
   // Also include session IDs from the list that have no events yet — show as idle until hooks say otherwise
   for (const id of sessionIds) {
     if (!bySession.has(id)) {
-      states.push({ session_id: id, status: 'idle', last_prompt: null, last_response_summary: null, model_name: null, subagent_count: 0 });
+      states.push({ session_id: id, status: 'idle', last_prompt: null, last_response_summary: null, model_name: null, subagent_count: 0, last_event_at: null });
     }
   }
 
