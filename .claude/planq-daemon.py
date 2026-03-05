@@ -72,7 +72,7 @@ SOURCE_REPO = os.environ.get('SOURCE_REPO', Path.cwd().name)
 # WORKSPACE_HOST_PATH is the host-side path sent to the server for display only.
 WORKSPACE_ROOT = Path(os.environ.get('WORKSPACE_PATH', str(Path.cwd())))
 WORKSPACE_HOST_PATH = os.environ.get('WORKSPACE_HOST_PATH', str(WORKSPACE_ROOT))
-MACHINE_HOSTNAME = os.environ.get('DEVCONTAINER_HOST', '') or _get_machine_hostname()
+MACHINE_HOSTNAME = _get_machine_hostname()
 CONTAINER_HOSTNAME = os.environ.get('HOSTNAME', '')
 HEARTBEAT_INTERVAL = int(os.environ.get('OBSERVABILITY_HEARTBEAT_INTERVAL', '15'))
 

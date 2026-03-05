@@ -99,16 +99,11 @@ def main():
     _workspace = os.environ.get('DEVCONTAINER_WORKSPACE', '')
     if _workspace:
         _dc['workspace'] = _workspace
-    _host = os.environ.get('DEVCONTAINER_HOST', '')
-    if not _host:
-        # ${localEnv:HOSTNAME} is not exported on all host platforms (e.g. macOS).
-        # Fall back to the file written by setup_git_worktree_on_host.py.
-        try:
-            _host_file = Path('/workspace/.devcontainer/.sandbox-host-machine')
-            if _host_file.exists():
-                _host = _host_file.read_text().strip()
-        except Exception:
-            pass
+    try:
+        _host_file = Path('/workspace/.devcontainer/.sandbox-host-machine')
+        _host = _host_file.read_text().strip() if _host_file.exists() else ''
+    except Exception:
+        _host = ''
     _dc['host'] = _host or 'unknown'
     _dc['container_id'] = os.environ.get('HOSTNAME', 'unknown')
     try:
