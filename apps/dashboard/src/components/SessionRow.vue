@@ -19,6 +19,21 @@
       <span v-if="session.subagent_count > 0" class="text-xs text-purple-400">
         + {{ session.subagent_count }} subagent{{ session.subagent_count > 1 ? 's' : '' }}
       </span>
+      <!-- hide controls -->
+      <template v-if="isHideable">
+        <span v-if="!confirmingHide" class="ml-auto">
+          <button
+            @click="confirmingHide = true"
+            class="text-xs text-slate-700 hover:text-slate-500 transition-colors"
+            title="Hide this session"
+          >hide</button>
+        </span>
+        <span v-else class="ml-auto flex items-center gap-1.5">
+          <span class="text-xs text-slate-500">Hide?</span>
+          <button @click="doHide" class="text-xs text-slate-400 hover:text-slate-200">yes</button>
+          <button @click="confirmingHide = false" class="text-xs text-slate-600 hover:text-slate-400">no</button>
+        </span>
+      </template>
     </div>
 
     <div v-if="session.last_prompt" class="text-xs text-slate-300 truncate max-w-prose">
@@ -36,14 +51,31 @@ import AgentStatusBadge from './AgentStatusBadge.vue'
 import type { SessionState } from '../types'
 
 const props = defineProps<{ session: SessionState }>()
+const emit = defineEmits<{ hide: [] }>()
 
 const shortId = computed(() => props.session.session_id.slice(0, 8))
 
-// Reactive now-tick so relative time updates live
+// Reactive now-tick so relative time and hideability update live
 const now = ref(Date.now())
 let ticker: ReturnType<typeof setInterval> | null = null
 onMounted(() => { ticker = setInterval(() => { now.value = Date.now() }, 10_000) })
 onUnmounted(() => { if (ticker) clearInterval(ticker) })
+
+const ONE_HOUR = 3_600_000
+
+const isHideable = computed(() => {
+  const s = props.session
+  if (s.status === 'terminated') return true
+  if (s.status === 'idle' && s.last_event_at !== null && s.last_event_at < now.value - ONE_HOUR) return true
+  return false
+})
+
+const confirmingHide = ref(false)
+
+function doHide() {
+  confirmingHide.value = false
+  emit('hide')
+}
 
 const isoTime = computed(() => {
   if (!props.session.last_event_at) return ''

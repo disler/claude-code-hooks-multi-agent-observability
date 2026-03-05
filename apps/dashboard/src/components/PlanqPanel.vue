@@ -23,6 +23,7 @@
           :key="task.id"
           :task="task"
           :position="i + 1"
+          :container-id="containerId"
           @edit-file="editingFile = task"
           @toggle-status="toggleStatus(task)"
           @delete="deleteTask(task.id)"
