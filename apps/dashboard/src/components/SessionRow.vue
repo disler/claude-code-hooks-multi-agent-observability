@@ -20,20 +20,12 @@
         + {{ session.subagent_count }} subagent{{ session.subagent_count > 1 ? 's' : '' }}
       </span>
       <!-- hide controls -->
-      <template v-if="isHideable">
-        <span v-if="!confirmingHide" class="ml-auto">
-          <button
-            @click="confirmingHide = true"
-            class="text-xs text-slate-700 hover:text-slate-500 transition-colors"
-            title="Hide this session"
-          >hide</button>
-        </span>
-        <span v-else class="ml-auto flex items-center gap-1.5">
-          <span class="text-xs text-slate-500">Hide?</span>
-          <button @click="doHide" class="text-xs text-slate-400 hover:text-slate-200">yes</button>
-          <button @click="confirmingHide = false" class="text-xs text-slate-600 hover:text-slate-400">no</button>
-        </span>
-      </template>
+      <button
+        v-if="isHideable"
+        @click="emit('hide')"
+        class="ml-auto text-xs text-slate-700 hover:text-slate-500 transition-colors"
+        title="Hide this session"
+      >hide</button>
     </div>
 
     <div v-if="session.last_prompt" class="text-xs text-slate-300 truncate max-w-prose">
@@ -69,13 +61,6 @@ const isHideable = computed(() => {
   if (s.status === 'idle' && s.last_event_at !== null && s.last_event_at < now.value - ONE_HOUR) return true
   return false
 })
-
-const confirmingHide = ref(false)
-
-function doHide() {
-  confirmingHide.value = false
-  emit('hide')
-}
 
 const isoTime = computed(() => {
   if (!props.session.last_event_at) return ''

@@ -170,7 +170,9 @@
         v-for="session in visibleSessions"
         :key="session.session_id"
         :session="session"
+        :explicitly-hidden="isExplicitlyHidden(session.session_id)"
         @hide="hideSession(session.session_id)"
+        @unhide="unhideSession(session.session_id)"
       />
       <!-- show/hide hidden sessions toggle -->
       <div v-if="hiddenSessionCount > 0" class="mt-0.5 pl-3">
@@ -212,7 +214,7 @@ const emit = defineEmits<{
 
 // ── Session hiding ────────────────────────────────────────────────────────────
 
-const { hide, isExplicitlyHidden } = useHiddenSessions()
+const { hide, show, isExplicitlyHidden } = useHiddenSessions()
 const showHidden = ref(false)
 
 const now = ref(Date.now())
@@ -242,6 +244,10 @@ const visibleSessions = computed(() =>
 
 function hideSession(sessionId: string) {
   hide(sessionId)
+}
+
+function unhideSession(sessionId: string) {
+  show(sessionId)
 }
 
 // ── Container actions ─────────────────────────────────────────────────────────
