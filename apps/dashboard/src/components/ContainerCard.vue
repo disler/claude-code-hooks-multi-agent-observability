@@ -189,6 +189,7 @@
       :container-id="container.id"
       :tasks="container.planq_tasks ?? []"
       :connected="container.connected"
+      :auto-test-pending="container.auto_test_pending ?? null"
       @tasks-changed="emit('tasks-changed')"
     />
   </div>

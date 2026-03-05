@@ -110,5 +110,18 @@ export function usePlanq() {
     }
   }
 
-  return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile, listPlansFiles, fetchArchive }
+  async function respondToAutoTest(containerId: string, response: 'continue' | 'abort'): Promise<boolean> {
+    try {
+      const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/auto-test/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ response }),
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile, listPlansFiles, fetchArchive, respondToAutoTest }
 }

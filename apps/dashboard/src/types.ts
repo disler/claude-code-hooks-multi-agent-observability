@@ -36,6 +36,12 @@ export interface PlanqItem {
   status: 'pending' | 'done' | 'underway' | 'auto-queue'
 }
 
+export interface AutoTestPending {
+  command: string
+  output: string
+  exit_code: number
+}
+
 export interface ContainerWithState {
   id: string
   source_repo: string
@@ -59,6 +65,7 @@ export interface ContainerWithState {
   sessions: SessionState[]
   status: 'busy' | 'idle' | 'awaiting_input' | 'offline'
   planq_tasks: PlanqTask[]
+  auto_test_pending: AutoTestPending | null
 }
 
 export type DashboardMessage =

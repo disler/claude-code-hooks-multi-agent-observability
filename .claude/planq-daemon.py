@@ -110,6 +110,7 @@ def _write_status(state: str, detail: str = ''):
 
 ALLOWED_FILENAME = re.compile(
     r'^(?:planq-order(?:-[A-Za-z0-9._-]+)?\.txt'
+    r'|auto-test-response\.txt'
     r'|[A-Za-z0-9][A-Za-z0-9._-]*\.md)$'
 )
 
@@ -295,6 +296,17 @@ def _planq_history() -> str:
             pass
     return ''
 
+def _auto_test_pending() -> dict | None:
+    """Read the auto-test-pending.json file if present."""
+    pending_file = WORKSPACE_ROOT / 'plans' / 'auto-test-pending.json'
+    if pending_file.exists():
+        try:
+            import json as _json
+            return _json.loads(pending_file.read_text())
+        except Exception:
+            pass
+    return None
+
 # ── File relay handlers ───────────────────────────────────────────────────────
 
 def _handle_file_read(ws, msg: dict):
@@ -472,6 +484,8 @@ def _send_heartbeat(ws_app):
         if sid not in active_ids:
             active_ids.append(sid)
 
+    auto_test = _auto_test_pending()
+
     heartbeat = {
         'type': 'heartbeat',
         'source_repo': source_repo,
@@ -481,6 +495,7 @@ def _send_heartbeat(ws_app):
         'workspace_host_path': WORKSPACE_HOST_PATH,
         'planq_order': planq,
         'planq_history': history,
+        'auto_test_pending': auto_test,
         'active_session_ids': active_ids,
         'running_session_ids': running_ids,
         **git,

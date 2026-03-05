@@ -180,6 +180,62 @@ _find_next_auto_task() {
     done < "$PLANQ_FILE"
 }
 
+_AUTO_TEST_PENDING="$PLANS_DIR/auto-test-pending.json"
+_AUTO_TEST_RESPONSE="$PLANS_DIR/auto-test-response.txt"
+
+# Write an auto-test-pending record so the dashboard can prompt the user
+_write_auto_test_pending() {
+    local command="$1" output="$2" exit_code="$3"
+    # Escape for JSON
+    local escaped_output
+    escaped_output="$(printf '%s' "$output" | head -c 4096 | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '""')"
+    printf '{"command":%s,"output":%s,"exit_code":%d}\n' \
+        "$(printf '%s' "$command" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '""')" \
+        "$escaped_output" \
+        "$exit_code" \
+        > "$_AUTO_TEST_PENDING"
+}
+
+_clear_auto_test_pending() {
+    rm -f "$_AUTO_TEST_PENDING" "$_AUTO_TEST_RESPONSE"
+}
+
+# Wait for a response via dashboard or terminal. Returns 0=continue, 1=abort.
+_wait_auto_test_response() {
+    rm -f "$_AUTO_TEST_RESPONSE"
+    # If we're in a terminal, allow local input too
+    if [ -t 0 ]; then
+        echo ""
+        echo "Tests failed. Waiting for response (or press Enter to continue, Ctrl+C to abort):"
+        echo "  (dashboard users can also respond via the Plan Queue panel)"
+        local resp=""
+        read -r -t 60 resp || true
+        _clear_auto_test_pending
+        case "${resp,,}" in
+            abort|a|no|n) return 1 ;;
+            *) return 0 ;;
+        esac
+    fi
+    # Non-interactive: poll for response file (written by dashboard via daemon relay)
+    echo "Tests failed. Waiting for dashboard response..."
+    local waited=0
+    while [ "$waited" -lt 3600 ]; do
+        sleep 2
+        waited=$((waited + 2))
+        if [ -f "$_AUTO_TEST_RESPONSE" ]; then
+            local resp
+            resp="$(cat "$_AUTO_TEST_RESPONSE" 2>/dev/null || true)"
+            _clear_auto_test_pending
+            case "${resp,,}" in
+                abort|a|no|n) return 1 ;;
+                *) return 0 ;;
+            esac
+        fi
+    done
+    _clear_auto_test_pending
+    return 1  # Timed out — abort
+}
+
 _delete_line() {
     local line_num="$1"
     local tmp
@@ -473,6 +529,11 @@ cmd_run() {
             _mark_done "$line_num" "$task_line"
             ;;
 
+        auto-test)
+            _run_auto_test "$task_value" || { _mark_inactive "$line_num" "$task_line"; _notify_daemon; return 1; }
+            _mark_done "$line_num" "$task_line"
+            ;;
+
         manual-test|manual-commit|manual-task)
             echo ""
             echo "━━━ Manual step required ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -491,6 +552,36 @@ cmd_run() {
             ;;
     esac
     _notify_daemon
+}
+
+# Run an auto-test: execute the command and handle failure.
+# $1 = task_value (command or filename)
+# Returns 0 on success/continue, 1 on abort.
+_run_auto_test() {
+    local task_value="$1"
+    local cmd="$task_value"
+    # If task_value is a file in plans/, read the command from it
+    if [ -f "$PLANS_DIR/$task_value" ]; then
+        cmd="$(cat "$PLANS_DIR/$task_value")"
+    fi
+    echo "Running tests: $cmd"
+    local output exit_code
+    output="$(eval "$cmd" 2>&1)" || exit_code=$?
+    exit_code="${exit_code:-0}"
+    echo "$output"
+    if [ "$exit_code" -eq 0 ]; then
+        echo "Tests passed."
+        return 0
+    fi
+    echo ""
+    echo "Tests FAILED (exit code $exit_code)."
+    _write_auto_test_pending "$cmd" "$output" "$exit_code"
+    _notify_daemon
+    if _wait_auto_test_response; then
+        return 0
+    fi
+    echo "Auto-queue aborted by user."
+    return 1
 }
 
 cmd_create() {
@@ -618,6 +709,13 @@ _run_task_inline() {
             ;;
         unnamed-task)
             claude "$task_value"
+            ;;
+        auto-test)
+            if ! _run_auto_test "$task_value"; then
+                _mark_inactive "$line_num" "$task_line"
+                _notify_daemon
+                return 1
+            fi
             ;;
         manual-test|manual-commit|manual-task)
             echo ""

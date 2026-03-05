@@ -378,6 +378,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       git_submodules: Array.isArray(msg.git_submodules) ? msg.git_submodules : [],
       planq_order: msg.planq_order ?? null,
       planq_history: msg.planq_history ?? null,
+      auto_test_pending: msg.auto_test_pending ?? null,
       active_session_ids: mergedSessionIds,
       running_session_ids: Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [],
       last_seen: Date.now(),
@@ -617,6 +618,7 @@ interface ContainerWithState extends ContainerRow {
   sessions: SessionState[];
   status: 'busy' | 'awaiting_input' | 'idle' | 'offline';
   planq_tasks: PlanqTaskRow[];
+  // auto_test_pending is already in ContainerRow via the spread
 }
 
 function buildContainerWithState(container: ContainerRow): ContainerWithState {
@@ -845,6 +847,20 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     await writePlanqFile(containerId, container).catch(() => {});
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
     return json({ ok: true });
+  }
+
+  // POST /planq/:id/auto-test/respond
+  if (pathname.match(/^\/planq\/[^/]+\/auto-test\/respond$/) && method === 'POST') {
+    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    if (!containerWsMap.has(containerId)) return err('Container offline', 503);
+    const body = await req.json() as any;
+    const response: string = body.response === 'abort' ? 'abort' : 'continue';
+    try {
+      await relayFileWrite(containerId, 'auto-test-response.txt', response);
+      return json({ ok: true });
+    } catch (e: any) {
+      return err(e.message || 'Write failed', 503);
+    }
   }
 
   // GET /planq/:id/plans-files

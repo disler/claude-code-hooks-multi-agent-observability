@@ -28,6 +28,7 @@ export interface ContainerRow {
   git_submodules: GitSubmoduleInfo[]; // parsed from JSON
   planq_order: string | null;
   planq_history: string | null;
+  auto_test_pending: { command: string; output: string; exit_code: number } | null;
   active_session_ids: string[]; // parsed from JSON
   running_session_ids: string[]; // parsed from JSON — sessions with live claude processes
   last_seen: number;
@@ -70,6 +71,7 @@ export function initContainerDatabase(): void {
       git_submodules TEXT DEFAULT '[]',
       planq_order TEXT,
       planq_history TEXT,
+      auto_test_pending TEXT,
       active_session_ids TEXT DEFAULT '[]',
       running_session_ids TEXT DEFAULT '[]',
       last_seen INTEGER NOT NULL,
@@ -109,6 +111,9 @@ export function initContainerDatabase(): void {
   if (!columns.includes('planq_history')) {
     db.exec('ALTER TABLE containers ADD COLUMN planq_history TEXT');
   }
+  if (!columns.includes('auto_test_pending')) {
+    db.exec('ALTER TABLE containers ADD COLUMN auto_test_pending TEXT');
+  }
 }
 
 export function touchPlanqServerModified(containerId: string): void {
@@ -126,8 +131,8 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       (id, source_repo, machine_hostname, container_hostname, workspace_host_path,
        git_branch, git_worktree, git_commit_hash, git_commit_message,
        git_staged_count, git_staged_diffstat, git_unstaged_count, git_unstaged_diffstat,
-       git_submodules, planq_order, planq_history, active_session_ids, running_session_ids, last_seen, connected)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+       git_submodules, planq_order, planq_history, auto_test_pending, active_session_ids, running_session_ids, last_seen, connected)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
     ON CONFLICT(id) DO UPDATE SET
       source_repo=excluded.source_repo,
       machine_hostname=excluded.machine_hostname,
@@ -144,6 +149,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       git_submodules=excluded.git_submodules,
       planq_order=excluded.planq_order,
       planq_history=COALESCE(excluded.planq_history, planq_history),
+      auto_test_pending=excluded.auto_test_pending,
       active_session_ids=excluded.active_session_ids,
       running_session_ids=excluded.running_session_ids,
       last_seen=excluded.last_seen,
@@ -167,6 +173,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
     JSON.stringify(data.git_submodules ?? []),
     data.planq_order ?? null,
     data.planq_history ?? null,
+    data.auto_test_pending ? JSON.stringify(data.auto_test_pending) : null,
     JSON.stringify(data.active_session_ids),
     JSON.stringify(data.running_session_ids ?? []),
     data.last_seen
@@ -212,6 +219,7 @@ function rowToContainer(row: any): ContainerRow {
     git_submodules: JSON.parse(row.git_submodules || '[]'),
     planq_order: row.planq_order,
     planq_history: row.planq_history ?? null,
+    auto_test_pending: row.auto_test_pending ? JSON.parse(row.auto_test_pending) : null,
     active_session_ids: JSON.parse(row.active_session_ids || '[]'),
     running_session_ids: JSON.parse(row.running_session_ids || '[]'),
     last_seen: row.last_seen,

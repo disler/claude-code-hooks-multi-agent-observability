@@ -23,6 +23,28 @@
         <span v-if="multipleAutoWarning" class="text-yellow-400 ml-1">⚠ multiple auto-queue sessions may be running</span>
       </div>
 
+      <!-- Auto-test pending prompt -->
+      <div v-if="autoTestPending" class="mb-2 rounded border border-red-700 bg-red-950/40 p-2">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-red-400 text-xs font-semibold">⚠ Auto-test failed</span>
+          <span class="text-red-500 text-xs font-mono">(exit {{ autoTestPending.exit_code }})</span>
+        </div>
+        <div class="text-xs text-slate-400 font-mono mb-1">$ {{ autoTestPending.command }}</div>
+        <pre class="text-xs text-red-300 font-mono whitespace-pre-wrap break-words overflow-y-auto max-h-32 mb-2 bg-black/30 rounded p-1">{{ autoTestPending.output }}</pre>
+        <div class="flex gap-2">
+          <button
+            @click="respondAutoTest('continue')"
+            :disabled="respondingAutoTest"
+            class="text-xs px-2 py-1 rounded bg-green-800 hover:bg-green-700 text-green-200 disabled:opacity-50"
+          >Continue auto-queue</button>
+          <button
+            @click="respondAutoTest('abort')"
+            :disabled="respondingAutoTest"
+            class="text-xs px-2 py-1 rounded bg-red-800 hover:bg-red-700 text-red-200 disabled:opacity-50"
+          >Abort</button>
+        </div>
+      </div>
+
       <!-- Task list -->
       <div v-if="tasks.length > 0">
         <PlanqTaskRow
@@ -105,19 +127,20 @@ import { usePlanq } from '../composables/usePlanq'
 import PlanqTaskRow from './PlanqTaskRow.vue'
 import AddTaskDialog from './AddTaskDialog.vue'
 import PlanqFileEditor from './PlanqFileEditor.vue'
-import type { PlanqTask, PlanqItem } from '../types'
+import type { PlanqTask, PlanqItem, AutoTestPending } from '../types'
 
 const props = defineProps<{
   containerId: string
   tasks: PlanqTask[]
   connected: boolean
+  autoTestPending?: AutoTestPending | null
 }>()
 
 const emit = defineEmits<{
   'tasks-changed': []
 }>()
 
-const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder, fetchArchive: apiFetchArchive } = usePlanq()
+const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder, fetchArchive: apiFetchArchive, respondToAutoTest: apiRespondAutoTest } = usePlanq()
 
 const open = ref(true)
 const showAddDialog = ref(false)
@@ -182,6 +205,14 @@ async function updateDesc(id: number, desc: string) {
   console.log(`[planq] update desc task=${id} container=${cid()}`)
   await apiUpdate(props.containerId, id, { description: desc })
   emit('tasks-changed')
+}
+
+const respondingAutoTest = ref(false)
+
+async function respondAutoTest(response: 'continue' | 'abort') {
+  respondingAutoTest.value = true
+  await apiRespondAutoTest(props.containerId, response)
+  respondingAutoTest.value = false
 }
 
 async function addPlanFromMakePlan(planFilename: string) {
