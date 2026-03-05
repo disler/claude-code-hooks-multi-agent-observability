@@ -27,6 +27,10 @@ export function useContainers() {
       const updated = new Map(containers.value)
       updated.set(msg.data.id, msg.data)
       containers.value = updated
+    } else if (msg.type === 'container_removed') {
+      const updated = new Map(containers.value)
+      updated.delete(msg.data.id)
+      containers.value = updated
     } else if (msg.type === 'planq_update') {
       const updated = new Map(containers.value)
       const c = updated.get(msg.data.container_id)

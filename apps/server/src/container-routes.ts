@@ -77,11 +77,16 @@ function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: Dev
 
   // Find the best matching existing container to add this session to:
   // 1. Exact match on (machine_hostname, container_hostname) — same physical container
-  // 2. Hostname-only match — same host, unknown container
-  // 3. Any existing unknown stub
+  // 2. Container hostname match alone — Docker container ID is unique, safe even if
+  //    machine_hostname is 'unknown' in the hook event (common when DEVCONTAINER_HOST unset)
+  // 3. Machine hostname match with unknown container hostname
+  // 4. Any existing unknown stub
   let match: any =
     (machineHostname !== 'unknown' && containerHostname !== 'unknown'
       ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === containerHostname)
+      : null) ??
+    (containerHostname !== 'unknown'
+      ? rows.find((r: any) => r.container_hostname === containerHostname)
       : null) ??
     (machineHostname !== 'unknown'
       ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === 'unknown')
@@ -202,6 +207,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     // the daemon can't detect them (e.g. logs in a different directory than expected).
     const daemonSessionIds: string[] = Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [];
     const sourceRepo: string = msg.source_repo ?? containerId;
+    const containerHostname: string = msg.container_hostname ?? '';
     const existingContainer = getContainer(containerId);
     let mergedSessionIds = daemonSessionIds;
     if (existingContainer) {
@@ -214,6 +220,24 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
         ).all(sourceRepo, ...toCheck, cutoff) as any[];
         const recentIds = recentRows.map((r: any) => r.session_id);
         if (recentIds.length > 0) mergedSessionIds = [...daemonSessionIds, ...recentIds];
+      }
+    }
+
+    // Find stubs for the same physical container (same Docker container_hostname) and absorb
+    // ALL their sessions. These stubs were created by hook events that arrived before the
+    // heartbeat established the real container row, and must be deleted unconditionally.
+    const sameContainerStubIds: string[] = [];
+    if (containerHostname && containerHostname !== 'unknown') {
+      const sameContainerStubs = db.prepare(`
+        SELECT id, active_session_ids FROM containers
+        WHERE source_repo = ? AND id != ? AND container_hostname = ?
+      `).all(sourceRepo, containerId, containerHostname) as any[];
+      for (const stubRow of sameContainerStubs) {
+        sameContainerStubIds.push(stubRow.id);
+        const stubIds: string[] = JSON.parse(stubRow.active_session_ids || '[]');
+        for (const id of stubIds) {
+          if (!mergedSessionIds.includes(id)) mergedSessionIds = [...mergedSessionIds, id];
+        }
       }
     }
 
@@ -250,21 +274,36 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       }
     }
 
-    // Remove sessions now claimed by this real container from any event-derived records
-    // (stubs matched by unknown hostname, or by the same container_hostname)
+    // Delete same-container stubs — same physical Docker container absorbed into heartbeat container.
+    for (const stubId of sameContainerStubIds) {
+      const deleted = db.prepare('DELETE FROM containers WHERE id = ?').run(stubId);
+      if (deleted.changes > 0) {
+        broadcastDashboard({ type: 'container_removed', data: { id: stubId } });
+      }
+    }
+
+    // Also remove claimed sessions from any remaining unknown-hostname stubs.
     const claimedIds: string[] = Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [];
     if (claimedIds.length > 0) {
-      const sourceRepo: string = msg.source_repo ?? containerId;
-      const containerHostname: string = msg.container_hostname ?? '';
-      const stubs = db.prepare(`
+      const unknownStubs = db.prepare(`
         SELECT id, active_session_ids FROM containers
         WHERE source_repo = ? AND id != ?
-          AND (machine_hostname = 'unknown' OR container_hostname = ? OR container_hostname = 'unknown')
-      `).all(sourceRepo, containerId, containerHostname) as any[];
-      for (const stubRow of stubs) {
+          AND (machine_hostname = 'unknown' OR container_hostname = 'unknown')
+      `).all(sourceRepo, containerId) as any[];
+      for (const stubRow of unknownStubs) {
+        if (sameContainerStubIds.includes(stubRow.id)) continue; // already deleted
         const stubIds: string[] = JSON.parse(stubRow.active_session_ids || '[]');
         const remaining = stubIds.filter((id: string) => !claimedIds.includes(id));
         if (remaining.length !== stubIds.length) {
+          if (remaining.length === 0) {
+            const deleted = db.prepare(
+              'DELETE FROM containers WHERE id = ? AND connected = 0'
+            ).run(stubRow.id);
+            if (deleted.changes > 0) {
+              broadcastDashboard({ type: 'container_removed', data: { id: stubRow.id } });
+              continue;
+            }
+          }
           db.prepare('UPDATE containers SET active_session_ids = ? WHERE id = ?')
             .run(JSON.stringify(remaining), stubRow.id);
           const stub = getContainer(stubRow.id);
