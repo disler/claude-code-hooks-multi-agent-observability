@@ -21,7 +21,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import ContainerCard from './ContainerCard.vue'
 import type { ContainerWithState } from '../types'
 
@@ -37,4 +37,9 @@ const emit = defineEmits<{
 const hasActive = computed(() => props.containers.some(c => c.status === 'busy' || c.status === 'awaiting_input'))
 const allOffline = computed(() => props.containers.every(c => !c.connected))
 const open = ref(!allOffline.value || hasActive.value)
+
+// Auto-open the group when containers come back online after being all offline
+watch(allOffline, (nowAllOffline) => {
+  if (!nowAllOffline) open.value = true
+})
 </script>
