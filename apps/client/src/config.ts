@@ -3,5 +3,9 @@
 
 const SERVER_PORT = import.meta.env.VITE_API_PORT || '4000';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || `http://localhost:${SERVER_PORT}`;
-export const WS_URL = import.meta.env.VITE_WS_URL || `ws://localhost:${SERVER_PORT}/stream`;
+// Derive host from window.location so remote browsers connect to the right host,
+// not their own localhost. Falls back to localhost for SSR/test environments.
+const _host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+
+export const API_BASE_URL = import.meta.env.VITE_API_URL || `http://${_host}:${SERVER_PORT}`;
+export const WS_URL = import.meta.env.VITE_WS_URL || `ws://${_host}:${SERVER_PORT}/stream`;

@@ -5,6 +5,12 @@
 #   list-tasks    / l   Print queue with status
 #   show-next-task / s  Show next pending task (does not run it)
 #   run-next-task  / r  Execute next pending task and mark it done
+#
+# Task line formats:
+#   task: <file>          Read file from plans/ and pass its contents to claude
+#   plan: <file>          Ask claude to read and implement plans/<file>
+#   unnamed-task: <text>  Pass the text directly to claude as a prompt
+#   manual-*: <desc>      Pause for a manual step, then continue
 
 set -u
 
@@ -148,10 +154,11 @@ cmd_run_next() {
 
     if [ -n "$dry_run" ]; then
         case "$task_type" in
-            task)   echo "[dry-run] Would run: claude \"\$(cat $PLANS_DIR/$task_value)\"" ;;
-            plan)   echo "[dry-run] Would run: claude \"Read plans/$task_value and implement the plan\"" ;;
+            task)          echo "[dry-run] Would run: claude \"\$(cat $PLANS_DIR/$task_value)\"" ;;
+            plan)          echo "[dry-run] Would run: claude \"Read plans/$task_value and implement the plan\"" ;;
+            unnamed-task)  echo "[dry-run] Would run: claude \"$task_value\"" ;;
             manual-*) echo "[dry-run] Would prompt for manual step: $task_value" ;;
-            *)      echo "[dry-run] Unknown task type: $task_type" ;;
+            *)        echo "[dry-run] Unknown task type: $task_type" ;;
         esac
         return 0
     fi
@@ -172,6 +179,11 @@ cmd_run_next() {
                 echo "Error: plan file not found: $task_file" >&2; return 1
             fi
             claude "Read plans/$task_value and implement the plan described in it."
+            _mark_done "$line_num" "$task_line"
+            ;;
+
+        unnamed-task)
+            claude "$task_value"
             _mark_done "$line_num" "$task_line"
             ;;
 
@@ -196,13 +208,29 @@ cmd_run_next() {
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
+cmd_daemon() {
+    local daemon_sh="$SCRIPT_DIR/planq-daemon.sh"
+    if [ ! -x "$daemon_sh" ]; then
+        echo "Error: planq-daemon.sh not found at $daemon_sh" >&2
+        exit 1
+    fi
+    "$daemon_sh" "${1:-status}" "${@:2}"
+}
+
 usage() {
     echo "Usage: planq.sh <subcommand> [options]"
     echo ""
     echo "Subcommands:"
-    echo "  list-tasks    / l           List all tasks with status"
-    echo "  show-next-task / s          Show next pending task (no execution)"
-    echo "  run-next-task  / r [--dry-run]  Execute next pending task"
+    echo "  list-tasks    / l                       List all tasks with status"
+    echo "  show-next-task / s                      Show next pending task (no execution)"
+    echo "  run-next-task  / r [--dry-run]          Execute next pending task"
+    echo "  daemon / d <start|stop|restart|status>  Manage the planq WebSocket daemon"
+    echo ""
+    echo "Task line formats in planq file:"
+    echo "  task: <file>          Read plans/<file> and pass contents to claude"
+    echo "  plan: <file>          Ask claude to read and implement plans/<file>"
+    echo "  unnamed-task: <text>  Pass text directly to claude as a prompt"
+    echo "  manual-*: <desc>      Pause for a manual step"
     echo ""
     echo "Planq file: $PLANQ_FILE"
 }
@@ -220,6 +248,7 @@ case "$SUBCMD" in
         done
         cmd_run_next "$DRY"
         ;;
+    daemon|d)              cmd_daemon "$@" ;;
     --help|-h|help|"")   usage ;;
     *)
         echo "Unknown subcommand: $SUBCMD" >&2

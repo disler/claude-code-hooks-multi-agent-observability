@@ -13,6 +13,8 @@ import {
   updatePlanqTask,
   deletePlanqTask,
   reorderPlanqTasks,
+  touchPlanqServerModified,
+  getPlanqServerModifiedAt,
   type ContainerRow,
   type PlanqTaskRow,
 } from './container-db';
@@ -39,8 +41,13 @@ const offlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function initContainerRoutes(): void {
   initContainerDatabase();
-  // Mark all containers offline on server restart
-  db.prepare('UPDATE containers SET connected = 0').run();
+  // Only mark containers offline if they haven't been seen recently.
+  // Using a 60s window (4x the heartbeat interval) avoids the race condition
+  // where the dashboard loads during the brief window between server startup
+  // and the first heartbeat from each daemon — which happens on every hot-reload.
+  const cutoff = Date.now() - 60_000;
+  const result = db.prepare('UPDATE containers SET connected = 0 WHERE last_seen < ?').run(cutoff);
+  console.log(`[init] marked ${result.changes} stale container(s) offline (last_seen > 60s ago)`);
 }
 
 // ── Dashboard broadcast helpers ───────────────────────────────────────────────
@@ -60,42 +67,86 @@ interface DevcontainerInfo {
 }
 
 function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: DevcontainerInfo): void {
+  const machineHostname = (dc?.host && dc.host !== 'unknown') ? dc.host : 'unknown';
+  const containerHostname = dc?.container_id || 'unknown';
+  const hasExplicitHost = machineHostname !== 'unknown' || containerHostname !== 'unknown';
+  const evCtx = `source=${sourceApp} host=${machineHostname} container=${containerHostname} workspace=${dc?.workspace ?? '-'} session=${sessionId.slice(0,8)}`;
+
   const rows = db.prepare(
     'SELECT id, machine_hostname, container_hostname, active_session_ids FROM containers WHERE source_repo = ?'
   ).all(sourceApp) as any[];
 
-  // If any container already claims this session, nothing to do
+  // Check if a container already claims this session. If so, verify it's the right one.
+  // If the event has explicit host info and the claimant doesn't match, strip and re-assign.
   for (const row of rows) {
     const ids: string[] = JSON.parse(row.active_session_ids || '[]');
-    if (ids.includes(sessionId)) return;
+    if (!ids.includes(sessionId)) continue;
+
+    const containerMatches = containerHostname !== 'unknown' && row.container_hostname === containerHostname;
+    const machineMatches = machineHostname !== 'unknown' && row.machine_hostname === machineHostname;
+
+    if (containerMatches || machineMatches || !hasExplicitHost) {
+      console.log(`[ensureContainer] ${evCtx}: correctly claimed by id=${row.id} host=${row.machine_hostname} container=${row.container_hostname}`);
+      return;
+    }
+
+    // Explicit host info contradicts the claimant — strip and re-assign
+    console.log(`[ensureContainer] ${evCtx}: MISMATCH — claimed by id=${row.id} host=${row.machine_hostname} container=${row.container_hostname} — stripping and re-assigning`);
+    const corrected = ids.filter(id => id !== sessionId);
+    db.prepare('UPDATE containers SET active_session_ids = ? WHERE id = ?')
+      .run(JSON.stringify(corrected), row.id);
+    const wrongContainer = getContainer(row.id);
+    if (wrongContainer) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(wrongContainer) });
+    break;
   }
 
-  const machineHostname = (dc?.host && dc.host !== 'unknown') ? dc.host : 'unknown';
-  const containerHostname = dc?.container_id || 'unknown';
+  // Re-fetch after any strip above
+  const freshRows = db.prepare(
+    'SELECT id, machine_hostname, container_hostname, active_session_ids FROM containers WHERE source_repo = ?'
+  ).all(sourceApp) as any[];
 
-  // Find the best matching existing container to add this session to:
-  // 1. Exact match on (machine_hostname, container_hostname) — same physical container
-  // 2. Hostname-only match — same host, unknown container
-  // 3. Any existing unknown stub
-  let match: any =
-    (machineHostname !== 'unknown' && containerHostname !== 'unknown'
-      ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === containerHostname)
-      : null) ??
-    (machineHostname !== 'unknown'
-      ? rows.find((r: any) => r.machine_hostname === machineHostname && r.container_hostname === 'unknown')
-      : null) ??
-    rows.find((r: any) => r.machine_hostname === 'unknown') ??
-    null;
+  console.log(`[ensureContainer] ${evCtx}: finding container among [${freshRows.map((r: any) => `${r.id}(host=${r.machine_hostname} container=${r.container_hostname})`).join(', ')}]`);
+
+  let match: any = null;
+  let matchDesc = '';
+
+  if (hasExplicitHost) {
+    // Event carries real host info — only match on that, never fall back to unknown stubs
+    if (containerHostname !== 'unknown') {
+      match = freshRows.find((r: any) => r.container_hostname === containerHostname) ?? null;
+      if (match) matchDesc = `container_hostname=${containerHostname}`;
+    }
+    if (!match && machineHostname !== 'unknown') {
+      match = freshRows.find((r: any) => r.machine_hostname === machineHostname && (r.container_hostname === 'unknown' || r.container_hostname === '')) ?? null;
+      if (match) matchDesc = `machine_hostname=${machineHostname} (container unknown in DB)`;
+    }
+    if (!match) {
+      console.log(`[ensureContainer] ${evCtx}: no container matched explicit host info — creating new row`);
+    }
+  } else {
+    // No host info in payload — fall back to heuristics, log clearly
+    match = freshRows.find((r: any) => r.machine_hostname === 'unknown' && r.container_hostname === 'unknown') ?? null;
+    if (match) {
+      matchDesc = `unknown stub id=${match.id}`;
+      console.log(`[ensureContainer] ${evCtx}: payload has no host info — using unknown stub id=${match.id}`);
+    } else if (freshRows.length === 1) {
+      match = freshRows[0];
+      matchDesc = `sole container id=${match.id} host=${match.machine_hostname}`;
+      console.log(`[ensureContainer] ${evCtx}: payload has no host info — only one container, using id=${match.id} host=${match.machine_hostname} (heuristic)`);
+    } else {
+      console.log(`[ensureContainer] ${evCtx}: payload has no host info and ${freshRows.length} containers exist — creating stub`);
+    }
+  }
 
   if (match) {
+    console.log(`[ensureContainer] ${evCtx}: → matched ${matchDesc}`);
     const ids: string[] = JSON.parse(match.active_session_ids || '[]');
-    ids.push(sessionId);
-    // Upgrade stub fields with real devcontainer info where we now know better
+    if (!ids.includes(sessionId)) ids.push(sessionId);
     db.prepare(`
       UPDATE containers SET
         active_session_ids = ?, last_seen = ?,
-        machine_hostname  = CASE WHEN machine_hostname  = 'unknown' AND ? != 'unknown' THEN ? ELSE machine_hostname  END,
-        container_hostname = CASE WHEN container_hostname = 'unknown' AND ? != 'unknown' THEN ? ELSE container_hostname END,
+        machine_hostname   = CASE WHEN machine_hostname  = 'unknown' AND ? != 'unknown' THEN ? ELSE machine_hostname  END,
+        container_hostname = CASE WHEN (container_hostname = 'unknown' OR container_hostname = '') AND ? != 'unknown' THEN ? ELSE container_hostname END,
         workspace_host_path = COALESCE(workspace_host_path, ?),
         git_branch          = COALESCE(git_branch, ?)
       WHERE id = ?
@@ -111,12 +162,13 @@ function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: Dev
     return;
   }
 
-  // No existing container — create one using whatever devcontainer info we have
-  const idTaken = rows.some((r: any) => r.id === sourceApp);
+  // No match — create new row with whatever info we have
+  const idTaken = freshRows.some((r: any) => r.id === sourceApp);
   const newId = idTaken
     ? (containerHostname !== 'unknown' ? `${sourceApp}:${containerHostname}` : `${sourceApp}:unknown`)
     : sourceApp;
 
+  console.log(`[ensureContainer] ${evCtx}: creating new row id=${newId}`);
   db.prepare(`
     INSERT OR IGNORE INTO containers
       (id, source_repo, machine_hostname, container_hostname, workspace_host_path, git_branch, active_session_ids, last_seen, connected)
@@ -154,6 +206,18 @@ export function broadcastAgentUpdate(data: {
   }
 
   if (status !== null) {
+    // Log which containers will be affected by this agent_update on the client side
+    // (client matches on source_repo + session_id in active_session_ids)
+    const claimants = (db.prepare(
+      'SELECT id, machine_hostname, container_hostname, workspace_host_path, active_session_ids FROM containers WHERE source_repo = ?'
+    ).all(data.source_app) as any[]).filter((r: any) => {
+      const ids: string[] = JSON.parse(r.active_session_ids || '[]');
+      return ids.includes(data.session_id);
+    });
+    const claimantStr = claimants.length
+      ? claimants.map((r: any) => `${r.id}(host=${r.machine_hostname} workspace=${r.workspace_host_path ?? '-'})`).join(', ')
+      : 'none';
+    console.log(`[agent_update] source=${data.source_app} session=${data.session_id.slice(0,8)} event=${data.hook_event_type} status=${status} → will update containers: [${claimantStr}]`);
     broadcastDashboard({
       type: 'agent_update',
       data: {
@@ -169,8 +233,10 @@ export function broadcastAgentUpdate(data: {
 
 // ── Container WebSocket handlers ──────────────────────────────────────────────
 
-export function handleContainerOpen(_ws: any): void {
-  // Wait for first heartbeat to identify the container
+export function handleContainerOpen(ws: any): void {
+  const addr = (ws.data as any)?.addr ?? 'unknown';
+  ws.__wsLabel = `container@${addr}`;
+  console.log(`[ws-open] ${ws.__wsLabel}`);
 }
 
 export function handleContainerMessage(ws: any, raw: string | Buffer): void {
@@ -182,17 +248,112 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
   }
 
   if (msg.type === 'heartbeat') {
-    const containerId: string = msg.container_id;
-    if (!containerId) return;
+    const claimedId: string = msg.container_id;
+    if (!claimedId) return;
+
+    const daemonSessionIds: string[] = Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [];
+    const sourceRepo: string = msg.source_repo ?? claimedId;
+    const containerHostname: string = msg.container_hostname ?? '';
+
+    // Resolve effective container ID.
+    // Multiple physical containers can report the same container_id (same repo on different
+    // machines, or multiple worktrees). Use container_hostname to give each its own stable row.
+    let containerId = claimedId;
+    if (containerHostname && containerHostname !== 'unknown') {
+      // Check if a row already exists for this exact physical container
+      const byHostname = db.prepare(
+        'SELECT id FROM containers WHERE source_repo = ? AND container_hostname = ?'
+      ).get(sourceRepo, containerHostname) as { id: string } | null;
+
+      if (byHostname) {
+        // Reuse the existing row (may be source_repo:hex from a prior stub or heartbeat)
+        containerId = byHostname.id;
+      } else {
+        // Check whether the claimed row is already owned by a different container_hostname
+        const claimedRow = db.prepare(
+          'SELECT container_hostname FROM containers WHERE id = ?'
+        ).get(claimedId) as { container_hostname: string } | null;
+        const takenByOther = claimedRow?.container_hostname
+          && claimedRow.container_hostname !== 'unknown'
+          && claimedRow.container_hostname !== containerHostname;
+        if (takenByOther) {
+          containerId = `${sourceRepo}:${containerHostname}`;
+          console.log(`[heartbeat] claimed id=${claimedId} already owned by container=${claimedRow!.container_hostname} — using id=${containerId}`);
+        }
+      }
+    }
+
+    const hbCtx = `id=${containerId} host=${msg.machine_hostname ?? 'unknown'} container=${containerHostname || '-'} workspace=${msg.workspace_host_path ?? '-'}`;
 
     // Cancel offline timer if pending
     const timer = offlineTimers.get(containerId);
-    if (timer) { clearTimeout(timer); offlineTimers.delete(containerId); }
+    if (timer) {
+      clearTimeout(timer);
+      offlineTimers.delete(containerId);
+      console.log(`[heartbeat] ${hbCtx}: cancelled pending offline timer (reconnected)`);
+    }
 
-    // Register WS if not already
+    // Register WS if not already and update its label with full identity
     if (!containerWsMap.has(containerId)) {
       containerWsMap.set(containerId, ws);
-      ws.__containerId = containerId; // store for close handler
+      ws.__containerId = containerId;
+      const addr = (ws.data as any)?.addr ?? 'unknown';
+      ws.__wsLabel = `container@${addr} ${hbCtx}`;
+      console.log(`[ws-identified] ${ws.__wsLabel}`);
+    }
+
+    const existingContainer = getContainer(containerId);
+
+    // Warn if this heartbeat would overwrite an existing row's host/container identity
+    if (existingContainer) {
+      const hostChanging = existingContainer.machine_hostname !== 'unknown'
+        && msg.machine_hostname
+        && existingContainer.machine_hostname !== msg.machine_hostname;
+      const containerChanging = existingContainer.container_hostname
+        && existingContainer.container_hostname !== 'unknown'
+        && containerHostname
+        && containerHostname !== 'unknown'
+        && existingContainer.container_hostname !== containerHostname;
+      if (hostChanging || containerChanging) {
+        console.log(`[heartbeat] ${hbCtx}: WARNING — overwriting existing row identity: was host=${existingContainer.machine_hostname} container=${existingContainer.container_hostname} workspace=${existingContainer.workspace_host_path ?? '-'}`);
+      }
+    }
+    let mergedSessionIds = daemonSessionIds;
+    if (existingContainer) {
+      const toCheck = existingContainer.active_session_ids.filter(id => !daemonSessionIds.includes(id));
+      if (toCheck.length > 0) {
+        const cutoff = Date.now() - 4 * 60 * 60 * 1000;
+        const placeholders = toCheck.map(() => '?').join(',');
+        const recentRows = db.prepare(
+          `SELECT DISTINCT session_id FROM events WHERE source_app = ? AND session_id IN (${placeholders}) AND timestamp >= ?`
+        ).all(sourceRepo, ...toCheck, cutoff) as any[];
+        const recentIds = recentRows.map((r: any) => r.session_id);
+        if (recentIds.length > 0) mergedSessionIds = [...daemonSessionIds, ...recentIds];
+      }
+    }
+
+    // Find stubs for the same physical container (same Docker container_hostname) and absorb
+    // ALL their sessions. These stubs were created by hook events that arrived before the
+    // heartbeat established the real container row, and must be deleted unconditionally.
+    const sameContainerStubIds: string[] = [];
+    if (containerHostname && containerHostname !== 'unknown') {
+      const sameContainerStubs = db.prepare(`
+        SELECT id, active_session_ids FROM containers
+        WHERE source_repo = ? AND id != ? AND container_hostname = ?
+      `).all(sourceRepo, containerId, containerHostname) as any[];
+      for (const stubRow of sameContainerStubs) {
+        sameContainerStubIds.push(stubRow.id);
+        const stubIds: string[] = JSON.parse(stubRow.active_session_ids || '[]');
+        const toAbsorb = stubIds.filter(id => !mergedSessionIds.includes(id));
+        if (toAbsorb.length > 0) {
+          console.log(`[heartbeat] ${hbCtx}: absorbing ${toAbsorb.length} session(s) from same-container stub ${stubRow.id}: [${toAbsorb.map(s => s.slice(0,8)).join(', ')}]`);
+          mergedSessionIds = [...mergedSessionIds, ...toAbsorb];
+        } else {
+          console.log(`[heartbeat] ${hbCtx}: will delete empty same-container stub ${stubRow.id}`);
+        }
+      }
+    } else {
+      console.log(`[heartbeat] ${hbCtx}: container_hostname=${JSON.stringify(containerHostname)}, skipping same-container stub search`);
     }
 
     // Upsert container row
@@ -212,38 +373,65 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       git_unstaged_diffstat: msg.git_unstaged_diffstat ?? null,
       git_submodules: Array.isArray(msg.git_submodules) ? msg.git_submodules : [],
       planq_order: msg.planq_order ?? null,
-      active_session_ids: Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [],
+      active_session_ids: mergedSessionIds,
       running_session_ids: Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [],
       last_seen: Date.now(),
     });
 
-    // Sync planq tasks from planq_order text
+    console.log(`[heartbeat] ${hbCtx}: upserted connected=${container.connected} sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}]`);
+
+    // Sync planq tasks from planq_order text — but only if the server hasn't made local
+    // edits more recently (30s grace period avoids a race where the heartbeat file read
+    // predates a server-initiated file write, which would revert server-side changes).
     if (msg.planq_order) {
-      const items = parsePlanqOrder(msg.planq_order);
-      syncPlanqTasksFromParsed(containerId, items);
+      const lastServerEdit = getPlanqServerModifiedAt(containerId);
+      if (Date.now() - lastServerEdit > 30_000) {
+        const items = parsePlanqOrder(msg.planq_order);
+        syncPlanqTasksFromParsed(containerId, items);
+      }
     }
 
-    // Remove sessions now claimed by this real container from any event-derived records
-    // (stubs matched by unknown hostname, or by the same container_hostname)
+    // Delete same-container stubs — same physical Docker container absorbed into heartbeat container.
+    for (const stubId of sameContainerStubIds) {
+      const deleted = db.prepare('DELETE FROM containers WHERE id = ?').run(stubId);
+      if (deleted.changes > 0) {
+        console.log(`[heartbeat] ${hbCtx}: deleted same-container stub ${stubId}`);
+        broadcastDashboard({ type: 'container_removed', data: { id: stubId } });
+      }
+    }
+
+    // Also remove claimed sessions from any remaining unknown-hostname stubs.
     const claimedIds: string[] = Array.isArray(msg.active_session_ids) ? msg.active_session_ids : [];
     if (claimedIds.length > 0) {
-      const sourceRepo: string = msg.source_repo ?? containerId;
-      const containerHostname: string = msg.container_hostname ?? '';
-      const stubs = db.prepare(`
+      const unknownStubs = db.prepare(`
         SELECT id, active_session_ids FROM containers
         WHERE source_repo = ? AND id != ?
-          AND (machine_hostname = 'unknown' OR container_hostname = ? OR container_hostname = 'unknown')
-      `).all(sourceRepo, containerId, containerHostname) as any[];
-      for (const stubRow of stubs) {
+          AND (machine_hostname = 'unknown' OR container_hostname = 'unknown')
+      `).all(sourceRepo, containerId) as any[];
+      for (const stubRow of unknownStubs) {
+        if (sameContainerStubIds.includes(stubRow.id)) continue; // already deleted
         const stubIds: string[] = JSON.parse(stubRow.active_session_ids || '[]');
         const remaining = stubIds.filter((id: string) => !claimedIds.includes(id));
         if (remaining.length !== stubIds.length) {
+          if (remaining.length === 0) {
+            const deleted = db.prepare(
+              'DELETE FROM containers WHERE id = ? AND connected = 0'
+            ).run(stubRow.id);
+            if (deleted.changes > 0) {
+              console.log(`[heartbeat] ${hbCtx}: deleted emptied unknown stub ${stubRow.id}`);
+              broadcastDashboard({ type: 'container_removed', data: { id: stubRow.id } });
+              continue;
+            }
+          }
+          console.log(`[heartbeat] ${hbCtx}: removed ${stubIds.length - remaining.length} claimed session(s) from unknown stub ${stubRow.id}`);
           db.prepare('UPDATE containers SET active_session_ids = ? WHERE id = ?')
             .run(JSON.stringify(remaining), stubRow.id);
           const stub = getContainer(stubRow.id);
           if (stub) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(stub) });
         }
       }
+    } else if (mergedSessionIds.length === 0) {
+      console.log(`[heartbeat] ${hbCtx}: daemon reported 0 sessions, skipping unknown-stub cleanup`);
     }
 
     // Broadcast to dashboard clients
@@ -277,16 +465,23 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
 
 export function handleContainerClose(ws: any): void {
   const containerId: string = ws.__containerId;
-  if (!containerId) return;
+  if (!containerId) {
+    // WS closed before it ever sent a heartbeat
+    console.log(`[ws-close] ${ws.__wsLabel ?? `container@${(ws.data as any)?.addr ?? 'unknown'}`}: closed before identifying`);
+    return;
+  }
   containerWsMap.delete(containerId);
-
   // Grace period before marking offline
   const timer = setTimeout(() => {
     offlineTimers.delete(containerId);
+    const offlineRow = getContainer(containerId);
+    const offCtx = offlineRow
+      ? `id=${containerId} host=${offlineRow.machine_hostname} container=${offlineRow.container_hostname || '-'} workspace=${offlineRow.workspace_host_path ?? '-'}`
+      : `id=${containerId}`;
+    console.log(`[offline] ${offCtx}: grace period expired, marking disconnected`);
     setContainerDisconnected(containerId);
-    const container = getContainer(containerId);
-    if (container) {
-      broadcastDashboard({ type: 'container_update', data: buildContainerWithState(container) });
+    if (offlineRow) {
+      broadcastDashboard({ type: 'container_update', data: buildContainerWithState(offlineRow) });
     }
   }, 30_000);
   offlineTimers.set(containerId, timer);
@@ -296,8 +491,10 @@ export function handleContainerClose(ws: any): void {
 
 export function handleDashboardOpen(ws: any): void {
   dashboardWsClients.add(ws);
-  // Send initial state
   const containers = getAllContainers().map(buildContainerWithState);
+  const addr = (ws.data as any)?.addr ?? 'unknown';
+  const summary = containers.map(c => `${c.id}(connected=${c.connected},status=${c.status})`).join(', ');
+  console.log(`[dashboard-open] ${addr}: sending initial with ${containers.length} container(s): [${summary}]`);
   ws.send(JSON.stringify({ type: 'initial', data: containers }));
 }
 
@@ -346,27 +543,28 @@ interface SessionState {
   last_response_summary: string | null;
   model_name: string | null;
   subagent_count: number;
+  last_event_at: number | null;
 }
 
 interface ContainerWithState extends ContainerRow {
   sessions: SessionState[];
-  overall_status: 'busy' | 'awaiting_input' | 'idle' | 'offline';
+  status: 'busy' | 'awaiting_input' | 'idle' | 'offline';
   planq_tasks: PlanqTaskRow[];
 }
 
 function buildContainerWithState(container: ContainerRow): ContainerWithState {
   const sessions = deriveSessionStates(container.source_repo, container.active_session_ids);
 
-  let overall_status: 'busy' | 'awaiting_input' | 'idle' | 'offline' = 'offline';
+  let status: 'busy' | 'awaiting_input' | 'idle' | 'offline' = 'offline';
   if (container.connected) {
-    if (sessions.some(s => s.status === 'busy')) overall_status = 'busy';
-    else if (sessions.some(s => s.status === 'awaiting_input')) overall_status = 'awaiting_input';
-    else overall_status = 'idle';
+    if (sessions.some(s => s.status === 'busy')) status = 'busy';
+    else if (sessions.some(s => s.status === 'awaiting_input')) status = 'awaiting_input';
+    else status = 'idle';
   }
 
   const planq_tasks = getPlanqTasks(container.id);
 
-  return { ...container, sessions, overall_status, planq_tasks };
+  return { ...container, sessions, status, planq_tasks };
 }
 
 function deriveSessionStates(sourceRepo: string, sessionIds: string[]): SessionState[] {
@@ -423,14 +621,15 @@ function deriveSessionStates(sourceRepo: string, sessionIds: string[]): SessionS
     const subagent_count = Math.max(0, subagentStarts - subagentStops);
 
     const model_name = events.find(e => e.model_name)?.model_name ?? null;
+    const last_event_at: number | null = latest.timestamp ?? null;
 
-    states.push({ session_id: sessionId, status, last_prompt, last_response_summary, model_name, subagent_count });
+    states.push({ session_id: sessionId, status, last_prompt, last_response_summary, model_name, subagent_count, last_event_at });
   }
 
   // Also include session IDs from the list that have no events yet — show as idle until hooks say otherwise
   for (const id of sessionIds) {
     if (!bySession.has(id)) {
-      states.push({ session_id: id, status: 'idle', last_prompt: null, last_response_summary: null, model_name: null, subagent_count: 0 });
+      states.push({ session_id: id, status: 'idle', last_prompt: null, last_response_summary: null, model_name: null, subagent_count: 0, last_event_at: null });
     }
   }
 
@@ -488,6 +687,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!task_type) return err('task_type required');
 
     const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null);
+    touchPlanqServerModified(containerId);
 
     // For named tasks, write the description content to the file in the container
     if (task_type === 'task' && filename && description) {
@@ -512,6 +712,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const body = await req.json() as any;
     const task = updatePlanqTask(taskId, { description: body.description, status: body.status });
     if (!task) return err('Task not found', 404);
+    touchPlanqServerModified(containerId);
 
     await writePlanqFile(containerId, container).catch(() => {});
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
@@ -528,6 +729,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     const deleted = deletePlanqTask(taskId);
     if (!deleted) return err('Task not found', 404);
+    touchPlanqServerModified(containerId);
 
     await writePlanqFile(containerId, container).catch(() => {});
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
@@ -543,6 +745,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const body = await req.json() as any;
     if (!Array.isArray(body)) return err('Body must be array of {id, position}');
     reorderPlanqTasks(body);
+    touchPlanqServerModified(containerId);
 
     await writePlanqFile(containerId, container).catch(() => {});
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
