@@ -11,7 +11,7 @@ export interface GitSubmoduleInfo {
 
 export interface SessionState {
   session_id: string
-  status: 'busy' | 'idle' | 'awaiting_input'
+  status: 'busy' | 'idle' | 'awaiting_input' | 'terminated'
   last_prompt: string | null
   last_response_summary: string | null
   subagent_count: number

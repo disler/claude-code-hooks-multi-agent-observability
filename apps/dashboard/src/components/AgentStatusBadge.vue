@@ -16,7 +16,7 @@
 import { computed } from 'vue'
 
 const props = defineProps<{
-  status: 'busy' | 'idle' | 'awaiting_input' | 'offline'
+  status: 'busy' | 'idle' | 'awaiting_input' | 'offline' | 'terminated'
 }>()
 
 const dotColor = computed(() => ({
@@ -24,6 +24,7 @@ const dotColor = computed(() => ({
   idle: 'bg-slate-400',
   awaiting_input: 'bg-yellow-400',
   offline: 'bg-slate-600',
+  terminated: 'bg-red-700',
 }[props.status]))
 
 const textColor = computed(() => ({
@@ -31,6 +32,7 @@ const textColor = computed(() => ({
   idle: 'text-slate-400',
   awaiting_input: 'text-yellow-400',
   offline: 'text-slate-600',
+  terminated: 'text-red-700',
 }[props.status]))
 
 const label = computed(() => ({
@@ -38,5 +40,6 @@ const label = computed(() => ({
   idle: 'IDLE',
   awaiting_input: 'AWAITING INPUT',
   offline: 'OFFLINE',
+  terminated: 'TERMINATED',
 }[props.status]))
 </script>

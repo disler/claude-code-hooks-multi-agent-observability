@@ -200,6 +200,8 @@ export function broadcastAgentUpdate(data: {
   } else if (data.hook_event_type === 'Stop') {
     status = 'idle';
     last_response_summary = data.summary ?? null;
+  } else if (data.hook_event_type === 'SessionEnd') {
+    status = 'terminated';
   } else if (data.hook_event_type === 'Notification') {
     const ntype = data.payload?.notification_type as string;
     if (ntype === 'permission_prompt') status = 'awaiting_input';
@@ -539,7 +541,7 @@ async function relayFileWrite(containerId: string, filename: string, content: st
 
 interface SessionState {
   session_id: string;
-  status: 'busy' | 'awaiting_input' | 'idle';
+  status: 'busy' | 'awaiting_input' | 'idle' | 'terminated';
   last_prompt: string | null;
   last_response_summary: string | null;
   model_name: string | null;
@@ -591,13 +593,15 @@ function deriveSessionStates(sourceRepo: string, sessionIds: string[]): SessionS
     // Events are already sorted desc; first is most recent
     const latest = events[0];
 
-    let status: 'busy' | 'awaiting_input' | 'idle' = 'idle';
+    let status: 'busy' | 'awaiting_input' | 'idle' | 'terminated' = 'idle';
     if (['UserPromptSubmit', 'PreToolUse', 'PostToolUse'].includes(latest.hook_event_type)) {
       // Check if there's a subsequent Stop/SessionEnd
       const hasStop = events.some(e => ['Stop', 'SessionEnd'].includes(e.hook_event_type)
         && e.timestamp > latest.timestamp);
       status = hasStop ? 'idle' : 'busy';
-    } else if (latest.hook_event_type === 'Stop' || latest.hook_event_type === 'SessionEnd') {
+    } else if (latest.hook_event_type === 'SessionEnd') {
+      status = 'terminated';
+    } else if (latest.hook_event_type === 'Stop') {
       status = 'idle';
     } else if (latest.hook_event_type === 'Notification') {
       const payload = typeof latest.payload === 'string' ? JSON.parse(latest.payload) : latest.payload;
