@@ -92,27 +92,35 @@ const pendingCount = computed(() => props.tasks.filter(t => t.status === 'pendin
 const underwayCount = computed(() => props.tasks.filter(t => t.status === 'underway').length)
 const doneCount = computed(() => props.tasks.filter(t => t.status === 'done').length)
 
+const cid = () => props.containerId
+
 async function addTask(taskType: string, filename: string | null, description: string | null, createFile = false) {
+  console.log(`[planq] add task type=${taskType} file=${filename ?? '—'} container=${cid()}`)
   await apiAdd(props.containerId, taskType, filename, description, createFile)
   emit('tasks-changed')
 }
 
 async function setStatus(task: PlanqTask, status: 'pending' | 'done' | 'underway') {
+  console.log(`[planq] set status ${task.status}→${status} task=${task.filename ?? task.description} container=${cid()}`)
   await apiUpdate(props.containerId, task.id, { status })
   emit('tasks-changed')
 }
 
 async function deleteTask(id: number) {
+  const task = props.tasks.find(t => t.id === id)
+  console.log(`[planq] delete task=${task?.filename ?? task?.description ?? id} container=${cid()}`)
   await apiDelete(props.containerId, id)
   emit('tasks-changed')
 }
 
 async function updateDesc(id: number, desc: string) {
+  console.log(`[planq] update desc task=${id} container=${cid()}`)
   await apiUpdate(props.containerId, id, { description: desc })
   emit('tasks-changed')
 }
 
 async function addPlanFromMakePlan(planFilename: string) {
+  console.log(`[planq] add plan from make-plan file=${planFilename} container=${cid()}`)
   await apiAdd(props.containerId, 'plan', planFilename, null, false)
   emit('tasks-changed')
 }
