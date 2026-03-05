@@ -29,6 +29,13 @@ export interface PlanqTask {
   status: 'pending' | 'done' | 'underway'
 }
 
+export interface PlanqItem {
+  task_type: string
+  filename: string | null
+  description: string | null
+  status: 'pending' | 'done' | 'underway'
+}
+
 export interface ContainerWithState {
   id: string
   source_repo: string

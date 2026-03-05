@@ -5,6 +5,7 @@ import {
   setContainerDisconnected,
   getAllContainers,
   deleteContainer,
+  getArchiveTasks,
   getContainer,
   parsePlanqOrder,
   serializePlanqOrder,
@@ -376,6 +377,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       git_unstaged_diffstat: msg.git_unstaged_diffstat ?? null,
       git_submodules: Array.isArray(msg.git_submodules) ? msg.git_submodules : [],
       planq_order: msg.planq_order ?? null,
+      planq_history: msg.planq_history ?? null,
       active_session_ids: mergedSessionIds,
       running_session_ids: Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [],
       last_seen: Date.now(),
@@ -752,6 +754,13 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   if (pathname.match(/^\/planq\/[^/]+$/) && method === 'GET') {
     const containerId = decodeURIComponent(pathname.split('/')[2]);
     const tasks = getPlanqTasks(containerId);
+    return json(tasks);
+  }
+
+  // GET /planq/:id/archive
+  if (pathname.match(/^\/planq\/[^/]+\/archive$/) && method === 'GET') {
+    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const tasks = getArchiveTasks(containerId);
     return json(tasks);
   }
 

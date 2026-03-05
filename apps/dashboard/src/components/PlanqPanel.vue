@@ -43,6 +43,35 @@
           class="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300"
         >+ Add task</button>
       </div>
+
+      <!-- Archive section -->
+      <div class="mt-2 pt-2 border-t border-slate-700/50">
+        <button
+          @click="toggleArchive"
+          class="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-400 w-full text-left py-0.5"
+        >
+          <span>{{ archiveOpen ? '▾' : '▸' }}</span>
+          <span>Archive</span>
+        </button>
+        <div v-if="archiveOpen" class="mt-1">
+          <div v-if="archiveLoading" class="text-xs text-slate-500 italic py-1">Loading…</div>
+          <div v-else-if="archiveTasks.length === 0" class="text-xs text-slate-500 italic py-1">No archived tasks.</div>
+          <div v-else>
+            <div
+              v-for="(item, i) in archiveTasks"
+              :key="i"
+              class="flex items-center gap-2 py-1 px-2 rounded text-xs opacity-60"
+            >
+              <span class="text-green-600">✓</span>
+              <span
+                class="px-1 py-0.5 rounded font-mono shrink-0"
+                :class="archiveBadgeClass(item.task_type)"
+              >{{ item.task_type }}</span>
+              <span class="text-slate-400 truncate font-mono">{{ item.filename ?? item.description }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Dialogs -->
@@ -69,7 +98,7 @@ import { usePlanq } from '../composables/usePlanq'
 import PlanqTaskRow from './PlanqTaskRow.vue'
 import AddTaskDialog from './AddTaskDialog.vue'
 import PlanqFileEditor from './PlanqFileEditor.vue'
-import type { PlanqTask } from '../types'
+import type { PlanqTask, PlanqItem } from '../types'
 
 const props = defineProps<{
   containerId: string
@@ -81,16 +110,42 @@ const emit = defineEmits<{
   'tasks-changed': []
 }>()
 
-const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder } = usePlanq()
+const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder, fetchArchive: apiFetchArchive } = usePlanq()
 
 const open = ref(true)
 const showAddDialog = ref(false)
 const editingFile = ref<PlanqTask | null>(null)
 const dragFrom = ref<number | null>(null)
 
+// Archive
+const archiveOpen = ref(false)
+const archiveTasks = ref<PlanqItem[]>([])
+const archiveLoading = ref(false)
+
+async function toggleArchive() {
+  archiveOpen.value = !archiveOpen.value
+  if (archiveOpen.value && archiveTasks.value.length === 0) {
+    archiveLoading.value = true
+    archiveTasks.value = await apiFetchArchive(props.containerId)
+    archiveLoading.value = false
+  }
+}
+
 const pendingCount = computed(() => props.tasks.filter(t => t.status === 'pending').length)
 const underwayCount = computed(() => props.tasks.filter(t => t.status === 'underway').length)
 const doneCount = computed(() => props.tasks.filter(t => t.status === 'done').length)
+
+function archiveBadgeClass(taskType: string): string {
+  return ({
+    'task': 'bg-blue-900/40 text-blue-400',
+    'plan': 'bg-purple-900/40 text-purple-400',
+    'make-plan': 'bg-teal-900/40 text-teal-400',
+    'manual-test': 'bg-yellow-900/40 text-yellow-400',
+    'manual-commit': 'bg-orange-900/40 text-orange-400',
+    'manual-task': 'bg-slate-700/60 text-slate-400',
+    'unnamed-task': 'bg-blue-900/30 text-blue-500',
+  } as Record<string, string>)[taskType] ?? 'bg-slate-700/60 text-slate-400'
+}
 
 const cid = () => props.containerId
 

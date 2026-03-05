@@ -294,6 +294,16 @@ def _planq_order(container_id: str, source_repo: str, git_worktree: str) -> str:
             pass
     return ''
 
+def _planq_history() -> str:
+    """Read the planq archive history file."""
+    history_file = WORKSPACE_ROOT / 'plans' / 'archive' / 'planq-history.txt'
+    if history_file.exists():
+        try:
+            return history_file.read_text()
+        except OSError:
+            pass
+    return ''
+
 # ── File relay handlers ───────────────────────────────────────────────────────
 
 def _handle_file_read(ws, msg: dict):
@@ -463,6 +473,7 @@ def _send_heartbeat(ws_app):
     source_repo = SOURCE_REPO
     container_id = _compute_container_id(source_repo, git['git_worktree'])
     planq = _planq_order(container_id, source_repo, git['git_worktree'])
+    history = _planq_history()
     running_ids = _running_session_ids()
     # Merge running sessions into the active list so the server always sees them
     active_ids = _active_session_ids()
@@ -478,6 +489,7 @@ def _send_heartbeat(ws_app):
         'container_hostname': CONTAINER_HOSTNAME,
         'workspace_host_path': WORKSPACE_HOST_PATH,
         'planq_order': planq,
+        'planq_history': history,
         'active_session_ids': active_ids,
         'running_session_ids': running_ids,
         **git,

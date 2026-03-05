@@ -100,5 +100,15 @@ export function usePlanq() {
     }
   }
 
-  return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile, listPlansFiles }
+  async function fetchArchive(containerId: string): Promise<import('../types').PlanqItem[]> {
+    try {
+      const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/archive`)
+      if (!res.ok) return []
+      return await res.json()
+    } catch {
+      return []
+    }
+  }
+
+  return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile, listPlansFiles, fetchArchive }
 }

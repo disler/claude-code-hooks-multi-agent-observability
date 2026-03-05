@@ -27,6 +27,7 @@ export interface ContainerRow {
   git_unstaged_diffstat: string | null;
   git_submodules: GitSubmoduleInfo[]; // parsed from JSON
   planq_order: string | null;
+  planq_history: string | null;
   active_session_ids: string[]; // parsed from JSON
   running_session_ids: string[]; // parsed from JSON — sessions with live claude processes
   last_seen: number;
@@ -68,6 +69,7 @@ export function initContainerDatabase(): void {
       git_unstaged_diffstat TEXT,
       git_submodules TEXT DEFAULT '[]',
       planq_order TEXT,
+      planq_history TEXT,
       active_session_ids TEXT DEFAULT '[]',
       running_session_ids TEXT DEFAULT '[]',
       last_seen INTEGER NOT NULL,
@@ -104,6 +106,9 @@ export function initContainerDatabase(): void {
   if (!columns.includes('planq_server_modified_at')) {
     db.exec('ALTER TABLE containers ADD COLUMN planq_server_modified_at INTEGER');
   }
+  if (!columns.includes('planq_history')) {
+    db.exec('ALTER TABLE containers ADD COLUMN planq_history TEXT');
+  }
 }
 
 export function touchPlanqServerModified(containerId: string): void {
@@ -121,8 +126,8 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       (id, source_repo, machine_hostname, container_hostname, workspace_host_path,
        git_branch, git_worktree, git_commit_hash, git_commit_message,
        git_staged_count, git_staged_diffstat, git_unstaged_count, git_unstaged_diffstat,
-       git_submodules, planq_order, active_session_ids, running_session_ids, last_seen, connected)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+       git_submodules, planq_order, planq_history, active_session_ids, running_session_ids, last_seen, connected)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
     ON CONFLICT(id) DO UPDATE SET
       source_repo=excluded.source_repo,
       machine_hostname=excluded.machine_hostname,
@@ -138,6 +143,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       git_unstaged_diffstat=excluded.git_unstaged_diffstat,
       git_submodules=excluded.git_submodules,
       planq_order=excluded.planq_order,
+      planq_history=COALESCE(excluded.planq_history, planq_history),
       active_session_ids=excluded.active_session_ids,
       running_session_ids=excluded.running_session_ids,
       last_seen=excluded.last_seen,
@@ -160,6 +166,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
     data.git_unstaged_diffstat ?? null,
     JSON.stringify(data.git_submodules ?? []),
     data.planq_order ?? null,
+    data.planq_history ?? null,
     JSON.stringify(data.active_session_ids),
     JSON.stringify(data.running_session_ids ?? []),
     data.last_seen
@@ -204,6 +211,7 @@ function rowToContainer(row: any): ContainerRow {
     git_unstaged_diffstat: row.git_unstaged_diffstat,
     git_submodules: JSON.parse(row.git_submodules || '[]'),
     planq_order: row.planq_order,
+    planq_history: row.planq_history ?? null,
     active_session_ids: JSON.parse(row.active_session_ids || '[]'),
     running_session_ids: JSON.parse(row.running_session_ids || '[]'),
     last_seen: row.last_seen,
@@ -317,4 +325,10 @@ export function reorderPlanqTasks(reorder: Array<{ id: number; position: number 
   for (const { id, position } of reorder) {
     stmt.run(position, id);
   }
+}
+
+export function getArchiveTasks(containerId: string): PlanqItem[] {
+  const row = db.prepare('SELECT planq_history FROM containers WHERE id = ?').get(containerId) as any;
+  if (!row?.planq_history) return [];
+  return parsePlanqOrder(row.planq_history);
 }
