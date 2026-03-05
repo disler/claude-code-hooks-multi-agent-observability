@@ -19,9 +19,15 @@
       <span v-if="session.subagent_count > 0" class="text-xs text-purple-400">
         + {{ session.subagent_count }} subagent{{ session.subagent_count > 1 ? 's' : '' }}
       </span>
-      <!-- hide controls -->
+      <!-- hide / unhide controls -->
       <button
-        v-if="isHideable"
+        v-if="explicitlyHidden"
+        @click="emit('unhide')"
+        class="ml-auto text-xs text-slate-600 hover:text-slate-400 transition-colors"
+        title="Unhide this session"
+      >unhide</button>
+      <button
+        v-else-if="isHideable"
         @click="emit('hide')"
         class="ml-auto text-xs text-slate-700 hover:text-slate-500 transition-colors"
         title="Hide this session"
@@ -42,8 +48,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import AgentStatusBadge from './AgentStatusBadge.vue'
 import type { SessionState } from '../types'
 
-const props = defineProps<{ session: SessionState }>()
-const emit = defineEmits<{ hide: [] }>()
+const props = defineProps<{ session: SessionState; explicitlyHidden?: boolean }>()
+const emit = defineEmits<{ hide: []; unhide: [] }>()
 
 const shortId = computed(() => props.session.session_id.slice(0, 8))
 
