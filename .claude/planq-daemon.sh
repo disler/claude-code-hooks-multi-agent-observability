@@ -8,9 +8,11 @@
 #   planq-daemon.sh [--]status    Show whether daemon is running and connected
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV="$SCRIPT_DIR/.venv"
-
+# Venv lives in the container's home dir so it can be pre-built in the
+# Dockerfile and doesn't require network access at container startup.
 SANDBOX_DIR="${HOME}/.local/devcontainer-sandbox"
+VENV="${SANDBOX_DIR}/planq-venv"
+
 PID_FILE="$SANDBOX_DIR/planq/planq-daemon.pid"
 STATUS_FILE="$SANDBOX_DIR/planq/planq-daemon.status"
 LOG_FILE="$SANDBOX_DIR/logs/planq-daemon.log"
