@@ -7,8 +7,6 @@
 #   planq-daemon.sh [--]restart   Stop then start
 #   planq-daemon.sh [--]status    Show whether daemon is running and connected
 
-set -u
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$SCRIPT_DIR/.venv"
 
@@ -19,9 +17,15 @@ LOG_FILE="$SANDBOX_DIR/logs/planq-daemon.log"
 
 _setup_venv() {
     if [ ! -x "$VENV/bin/python3" ]; then
-        python3 -m venv "$VENV"
+        python3 -m venv "$VENV" >>"$LOG_FILE" 2>&1 || {
+            echo "$(date '+%Y-%m-%dT%H:%M:%S') ERROR planq-daemon: python3 -m venv failed" >> "$LOG_FILE"
+            return 1
+        }
     fi
-    "$VENV/bin/pip" install -q -r "$SCRIPT_DIR/requirements.txt"
+    "$VENV/bin/pip" install -q -r "$SCRIPT_DIR/requirements.txt" >>"$LOG_FILE" 2>&1 || {
+        echo "$(date '+%Y-%m-%dT%H:%M:%S') ERROR planq-daemon: pip install failed" >> "$LOG_FILE"
+        return 1
+    }
 }
 
 _get_pid() {
@@ -43,9 +47,9 @@ cmd_start() {
         echo "planq-daemon already running (pid $(_get_pid))"
         return 0
     fi
-    _setup_venv
     mkdir -p "$(dirname "$PID_FILE")" "$(dirname "$LOG_FILE")"
-    "$VENV/bin/python3" -u "$SCRIPT_DIR/planq-daemon.py" >/dev/null 2>&1 &
+    _setup_venv || { echo "planq-daemon venv setup failed; see $LOG_FILE" >&2; return 1; }
+    setsid "$VENV/bin/python3" -u "$SCRIPT_DIR/planq-daemon.py" </dev/null >>"$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     echo "planq-daemon started (pid $(_get_pid)), log: $LOG_FILE"
 }
