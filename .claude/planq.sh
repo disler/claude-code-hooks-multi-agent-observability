@@ -831,6 +831,11 @@ _notify_daemon() {
 
 cmd_mark() {
     local state="${1:-}" ident="${2:-}"
+    # Support "state:ident" as a single arg (e.g. m d:7)
+    if [ -n "$state" ] && [ -z "$ident" ] && [[ "$state" == *:* ]]; then
+        ident="${state#*:}"
+        state="${state%%:*}"
+    fi
     if [ -z "$state" ] || [ -z "$ident" ]; then
         echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q> <N|filename|text>" >&2; return 1
     fi
@@ -1156,6 +1161,7 @@ usage() {
     echo "  delete  / x <N>                                Delete task #N"
     echo "  archive / a [N|…] [--unarchive|-U <N|…>]      Archive done tasks; -a flag on list/show for archive"
     echo "  daemon  / d [start|stop|restart|status]        Manage the planq WebSocket daemon"
+    echo "  shell   / sh                                   Interactive planq REPL"
     echo ""
     echo "Task types:"
     echo "  unnamed-task               Pass description directly to claude as a prompt (default)"
@@ -1213,6 +1219,7 @@ case "$SUBCMD" in
     delete|x)            cmd_delete "$@" ;;
     archive|a)           cmd_archive "$@" ;;
     daemon|d)            cmd_daemon "$@" ;;
+    shell|sh)            exec bash "$SCRIPT_DIR/planq-shell.sh" "$@" ;;
     --help|-h|help|"")   usage ;;
     *)
         echo "Unknown subcommand: $SUBCMD" >&2

@@ -92,6 +92,19 @@ def _handle_sigusr1(signum, frame):
 
 signal.signal(signal.SIGUSR1, _handle_sigusr1)
 
+def _handle_sigterm(signum, frame):
+    log.info('Exiting — received SIGTERM')
+    _write_status('stopped', 'SIGTERM')
+    sys.exit(0)
+
+def _handle_sighup(signum, frame):
+    log.info('Exiting — received SIGHUP')
+    _write_status('stopped', 'SIGHUP')
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, _handle_sigterm)
+signal.signal(signal.SIGHUP, _handle_sighup)
+
 # ── Status file ───────────────────────────────────────────────────────────────
 
 def _write_status(state: str, detail: str = ''):
