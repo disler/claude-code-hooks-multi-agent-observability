@@ -1,0 +1,2 @@
+*.sh text eol=lf
+.claude/*.py text eol=lf
