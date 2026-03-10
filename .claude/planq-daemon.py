@@ -86,6 +86,11 @@ log = _setup_logging(_LOG_FILE)
 # Set by SIGUSR1 to trigger an immediate heartbeat
 _immediate_heartbeat = threading.Event()
 
+# DAG frontier hashes last acknowledged by the server; used to send only new commits.
+# Protected by _git_known_hashes_lock.
+_git_known_hashes: list = []
+_git_known_hashes_lock = threading.Lock()
+
 def _handle_sigusr1(signum, frame):
     log.debug('Received SIGUSR1 — scheduling immediate heartbeat')
     _immediate_heartbeat.set()
@@ -231,6 +236,38 @@ def _git_submodule_info(ws):
             'unstaged_diffstat': unstaged_diffstat or None,
         })
     return submodules
+
+def _git_log_incremental() -> list:
+    """Return commits reachable from any ref that the server has not yet seen.
+
+    Uses the server-acknowledged frontier hashes (_git_known_hashes) as --not
+    arguments so git only walks the new portion of the DAG.
+    """
+    with _git_known_hashes_lock:
+        known = list(_git_known_hashes)
+    not_args = []
+    for h in known:
+        not_args.extend(['--not', h])
+    raw = _run(
+        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'] + not_args,
+        cwd=WORKSPACE_ROOT,
+    )
+    commits = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split('|', 3)
+        if len(parts) < 4:
+            continue
+        hash_, parents_str, refs_str, subject = parts
+        hash_ = hash_.strip()
+        if not hash_:
+            continue
+        parents = [p for p in parents_str.split() if p]
+        refs = [r.strip() for r in refs_str.split(',') if r.strip()]
+        commits.append({'hash': hash_, 'parents': parents, 'refs': refs, 'subject': subject})
+    return commits
+
 
 def _compute_container_id(source_repo: str, git_worktree: str) -> str:
     """Derive container_id from source_repo + worktree path."""
@@ -445,6 +482,10 @@ def _run_connection():
             threading.Thread(target=_handle_file_list, args=(ws, msg), daemon=True).start()
         elif mtype == 'file_write_new':
             threading.Thread(target=_handle_file_write_new, args=(ws, msg), daemon=True).start()
+        elif mtype == 'git_known_hashes':
+            with _git_known_hashes_lock:
+                global _git_known_hashes
+                _git_known_hashes = msg.get('hashes', [])
 
     def on_error(ws, error):
         log.error('WebSocket error: %s', error)
@@ -500,6 +541,7 @@ def _send_heartbeat(ws_app):
             active_ids.append(sid)
 
     auto_test = _auto_test_pending()
+    git_commits = _git_log_incremental()
 
     heartbeat = {
         'type': 'heartbeat',
@@ -513,6 +555,7 @@ def _send_heartbeat(ws_app):
         'auto_test_pending': auto_test,
         'active_session_ids': active_ids,
         'running_session_ids': running_ids,
+        'git_commits': git_commits,
         **git,
     }
 

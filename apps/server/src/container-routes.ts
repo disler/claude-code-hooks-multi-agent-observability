@@ -20,6 +20,9 @@ import {
   archiveDoneTasks,
   touchPlanqServerModified,
   getPlanqServerModifiedAt,
+  upsertGitCommits,
+  getGitCommits,
+  getGitTips,
   type ContainerRow,
   type PlanqTaskRow,
 } from './container-db';
@@ -446,6 +449,15 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       console.log(`[heartbeat] ${hbCtx}: daemon reported 0 sessions, skipping unknown-stub cleanup`);
     }
 
+    // Upsert incremental git commits sent by daemon
+    if (Array.isArray(msg.git_commits) && msg.git_commits.length > 0) {
+      upsertGitCommits(sourceRepo, msg.git_commits);
+    }
+
+    // Send DAG frontier back so daemon can send only new commits next time
+    const tips = getGitTips(sourceRepo);
+    try { ws.send(JSON.stringify({ type: 'git_known_hashes', hashes: tips })); } catch {}
+
     // Broadcast to dashboard clients
     const containerWithState = buildContainerWithState(container);
     broadcastDashboard({ type: 'container_update', data: containerWithState });
@@ -788,37 +800,38 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   if (pathname.match(/^\/dashboard\/git-view\//) && method === 'GET') {
     const repo = decodeURIComponent(pathname.slice('/dashboard/git-view/'.length));
     const allContainers = getAllContainers().filter(c => c.source_repo === repo);
-    const paths = [...new Set(allContainers.filter(c => c.workspace_host_path).map(c => c.workspace_host_path!))];
 
-    const commitMap = new Map<string, { hash: string; parents: string[]; refs: string[]; subject: string }>();
-    for (const wpath of paths) {
-      const proc = Bun.spawn(
-        ['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'],
-        { stdout: 'pipe', stderr: 'ignore' }
-      );
-      const text = await new Response(proc.stdout).text().catch(() => '');
-      await proc.exited;
-      for (const line of text.split('\n')) {
-        if (!line.trim()) continue;
-        const pipeIdx = line.indexOf('|');
-        const rest = line.slice(pipeIdx + 1);
-        const pipeIdx2 = rest.indexOf('|');
-        const rest2 = rest.slice(pipeIdx2 + 1);
-        const pipeIdx3 = rest2.indexOf('|');
-        const hash = line.slice(0, pipeIdx).trim();
-        const parentsStr = rest.slice(0, pipeIdx2).trim();
-        const refsStr = rest2.slice(0, pipeIdx3).trim();
-        const subject = rest2.slice(pipeIdx3 + 1);
-        if (!hash || hash.length < 7) continue;
-        const parents = parentsStr ? parentsStr.split(' ').filter(Boolean) : [];
-        const refs = refsStr ? refsStr.split(',').map(r => r.trim()).filter(Boolean) : [];
-        if (commitMap.has(hash)) {
-          const ex = commitMap.get(hash)!;
-          commitMap.set(hash, { ...ex, refs: [...new Set([...ex.refs, ...refs])] });
-        } else {
-          commitMap.set(hash, { hash, parents, refs, subject });
+    // Primary: use DB-stored commits sent by daemons (works for local and remote hosts)
+    let storedCommits = getGitCommits(repo);
+
+    // Fallback: if DB is empty and server has local filesystem access, run git log directly
+    if (storedCommits.length === 0) {
+      const paths = [...new Set(allContainers.filter(c => c.workspace_host_path).map(c => c.workspace_host_path!))];
+      const commitMap = new Map<string, { hash: string; parents: string[]; refs: string[]; subject: string }>();
+      for (const wpath of paths) {
+        const proc = Bun.spawn(
+          ['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'],
+          { stdout: 'pipe', stderr: 'ignore' }
+        );
+        const text = await new Response(proc.stdout).text().catch(() => '');
+        await proc.exited;
+        for (const line of text.split('\n')) {
+          if (!line.trim()) continue;
+          const [hash, parentsStr, refsStr, ...subjectParts] = line.split('|');
+          if (!hash?.trim() || hash.trim().length < 7) continue;
+          const parents = parentsStr?.trim() ? parentsStr.trim().split(' ').filter(Boolean) : [];
+          const refs = refsStr?.trim() ? refsStr.trim().split(',').map(r => r.trim()).filter(Boolean) : [];
+          const subject = subjectParts.join('|');
+          const h = hash.trim();
+          if (commitMap.has(h)) {
+            const ex = commitMap.get(h)!;
+            commitMap.set(h, { ...ex, refs: [...new Set([...ex.refs, ...refs])] });
+          } else {
+            commitMap.set(h, { hash: h, parents, refs, subject });
+          }
         }
       }
+      storedCommits = [...commitMap.values()];
     }
 
     const containers = allContainers.map(c => ({
@@ -828,7 +841,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       git_unstaged_diffstat: c.git_unstaged_diffstat, git_staged_diffstat: c.git_staged_diffstat,
       workspace_host_path: c.workspace_host_path, connected: c.connected,
     }));
-    return json({ containers, commits: [...commitMap.values()] });
+    return json({ containers, commits: storedCommits });
   }
 
   // GET /dashboard/git-show/:repo/:hash

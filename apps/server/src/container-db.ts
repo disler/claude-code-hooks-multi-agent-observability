@@ -95,6 +95,17 @@ export function initContainerDatabase(): void {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS git_commits (
+      source_repo TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      parents TEXT NOT NULL,
+      refs TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      PRIMARY KEY (source_repo, hash)
+    )
+  `);
+
   db.exec('CREATE INDEX IF NOT EXISTS idx_containers_source_repo ON containers(source_repo)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_containers_machine ON containers(machine_hostname)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_planq_container ON planq_tasks(container_id)');
@@ -397,6 +408,50 @@ export function archiveTask(taskId: number): { ok: boolean; historyContent: stri
   db.prepare('DELETE FROM planq_tasks WHERE id = ?').run(taskId);
 
   return { ok: true, historyContent: updatedHistory, containerId };
+}
+
+export interface StoredGitCommit {
+  hash: string;
+  parents: string[];
+  refs: string[];
+  subject: string;
+}
+
+export function upsertGitCommits(sourceRepo: string, commits: StoredGitCommit[]): void {
+  const upsert = db.prepare(
+    'INSERT INTO git_commits (source_repo, hash, parents, refs, subject) VALUES (?, ?, ?, ?, ?) ON CONFLICT(source_repo, hash) DO UPDATE SET refs = excluded.refs, subject = excluded.subject'
+  );
+  const tx = db.transaction(() => {
+    for (const c of commits) {
+      upsert.run(sourceRepo, c.hash, JSON.stringify(c.parents), JSON.stringify(c.refs), c.subject);
+    }
+  });
+  tx();
+}
+
+export function getGitCommits(sourceRepo: string): StoredGitCommit[] {
+  const rows = db.prepare(
+    'SELECT hash, parents, refs, subject FROM git_commits WHERE source_repo = ?'
+  ).all(sourceRepo) as any[];
+  return rows.map(r => ({
+    hash: r.hash,
+    parents: JSON.parse(r.parents),
+    refs: JSON.parse(r.refs),
+    subject: r.subject,
+  }));
+}
+
+/** Return hashes that are not a parent of any other stored commit — the DAG frontier. */
+export function getGitTips(sourceRepo: string): string[] {
+  const rows = db.prepare(
+    'SELECT hash, parents FROM git_commits WHERE source_repo = ?'
+  ).all(sourceRepo) as any[];
+  if (rows.length === 0) return [];
+  const parentSet = new Set<string>();
+  for (const r of rows) {
+    for (const p of JSON.parse(r.parents)) parentSet.add(p);
+  }
+  return rows.filter(r => !parentSet.has(r.hash)).map(r => r.hash);
 }
 
 export function archiveDoneTasks(containerId: string): { count: number; historyContent: string } {
