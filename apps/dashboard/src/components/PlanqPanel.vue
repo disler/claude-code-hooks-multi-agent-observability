@@ -194,7 +194,7 @@ async function addTask(taskType: string, filename: string | null, description: s
   emit('tasks-changed')
 }
 
-async function setStatus(task: PlanqTask, status: 'pending' | 'done' | 'underway') {
+async function setStatus(task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue') {
   console.log(`[planq] set status ${task.status}→${status} task=${task.filename ?? task.description} container=${cid()}`)
   await apiUpdate(props.containerId, task.id, { status })
   emit('tasks-changed')

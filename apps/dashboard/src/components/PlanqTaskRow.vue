@@ -140,7 +140,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'edit-file': [task: PlanqTask]
-  'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway']
+  'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue']
   'delete': [id: number]
   'update-desc': [id: number, desc: string]
   'dragstart': [id: number]
