@@ -24,6 +24,9 @@ import {
   type PlanqTaskRow,
 } from './container-db';
 
+// ── Git show cache (LRU-style, max 200 entries) ───────────────────────────────
+const gitShowCache = new Map<string, string>();
+
 // ── WebSocket connection stores ───────────────────────────────────────────────
 
 // container_id → WebSocket (planq daemon connection)
@@ -779,6 +782,79 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (updatedTarget) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(updatedTarget) });
 
     return json({ ok: true });
+  }
+
+  // GET /dashboard/git-view/:repo
+  if (pathname.match(/^\/dashboard\/git-view\//) && method === 'GET') {
+    const repo = decodeURIComponent(pathname.slice('/dashboard/git-view/'.length));
+    const allContainers = getAllContainers().filter(c => c.source_repo === repo);
+    const paths = [...new Set(allContainers.filter(c => c.workspace_host_path).map(c => c.workspace_host_path!))];
+
+    const commitMap = new Map<string, { hash: string; parents: string[]; refs: string[]; subject: string }>();
+    for (const wpath of paths) {
+      const proc = Bun.spawn(
+        ['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'],
+        { stdout: 'pipe', stderr: 'ignore' }
+      );
+      const text = await new Response(proc.stdout).text().catch(() => '');
+      await proc.exited;
+      for (const line of text.split('\n')) {
+        if (!line.trim()) continue;
+        const pipeIdx = line.indexOf('|');
+        const rest = line.slice(pipeIdx + 1);
+        const pipeIdx2 = rest.indexOf('|');
+        const rest2 = rest.slice(pipeIdx2 + 1);
+        const pipeIdx3 = rest2.indexOf('|');
+        const hash = line.slice(0, pipeIdx).trim();
+        const parentsStr = rest.slice(0, pipeIdx2).trim();
+        const refsStr = rest2.slice(0, pipeIdx3).trim();
+        const subject = rest2.slice(pipeIdx3 + 1);
+        if (!hash || hash.length < 7) continue;
+        const parents = parentsStr ? parentsStr.split(' ').filter(Boolean) : [];
+        const refs = refsStr ? refsStr.split(',').map(r => r.trim()).filter(Boolean) : [];
+        if (commitMap.has(hash)) {
+          const ex = commitMap.get(hash)!;
+          commitMap.set(hash, { ...ex, refs: [...new Set([...ex.refs, ...refs])] });
+        } else {
+          commitMap.set(hash, { hash, parents, refs, subject });
+        }
+      }
+    }
+
+    const containers = allContainers.map(c => ({
+      id: c.id, machine_hostname: c.machine_hostname, container_hostname: c.container_hostname,
+      git_branch: c.git_branch, git_worktree: c.git_worktree, git_commit_hash: c.git_commit_hash,
+      git_staged_count: c.git_staged_count, git_unstaged_count: c.git_unstaged_count,
+      git_unstaged_diffstat: c.git_unstaged_diffstat, git_staged_diffstat: c.git_staged_diffstat,
+      workspace_host_path: c.workspace_host_path, connected: c.connected,
+    }));
+    return json({ containers, commits: [...commitMap.values()] });
+  }
+
+  // GET /dashboard/git-show/:repo/:hash
+  if (pathname.match(/^\/dashboard\/git-show\/[^/]+\/[0-9a-f]+$/) && method === 'GET') {
+    const parts = pathname.split('/');
+    const hash = parts[parts.length - 1];
+    const repo = decodeURIComponent(parts.slice(3, -1).join('/'));
+    const cached = gitShowCache.get(hash);
+    if (cached !== undefined) return json({ diffstat: cached });
+
+    const allContainers = getAllContainers().filter(c => c.source_repo === repo && c.workspace_host_path);
+    const wpath = allContainers[0]?.workspace_host_path;
+    if (!wpath) return json({ diffstat: '' });
+
+    const proc = Bun.spawn(
+      ['git', '-C', wpath, 'diff-tree', '--no-commit-id', '-r', '--stat', hash],
+      { stdout: 'pipe', stderr: 'ignore' }
+    );
+    const diffstat = await new Response(proc.stdout).text().catch(() => '');
+    await proc.exited;
+    if (gitShowCache.size >= 200) {
+      const firstKey = gitShowCache.keys().next().value;
+      if (firstKey !== undefined) gitShowCache.delete(firstKey);
+    }
+    gitShowCache.set(hash, diffstat);
+    return json({ diffstat });
   }
 
   // GET /planq/:id

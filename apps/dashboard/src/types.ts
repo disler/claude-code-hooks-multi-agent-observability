@@ -70,6 +70,33 @@ export interface ContainerWithState {
   auto_test_pending: AutoTestPending | null
 }
 
+export interface GitCommit {
+  hash: string
+  parents: string[]
+  refs: string[]
+  subject: string
+}
+
+export interface GitContainer {
+  id: string
+  machine_hostname: string
+  container_hostname: string
+  git_branch: string | null
+  git_worktree: string | null
+  git_commit_hash: string | null
+  git_staged_count: number
+  git_unstaged_count: number
+  git_unstaged_diffstat: string | null
+  git_staged_diffstat: string | null
+  workspace_host_path: string | null
+  connected: boolean
+}
+
+export interface GitViewData {
+  containers: GitContainer[]
+  commits: GitCommit[]
+}
+
 export type DashboardMessage =
   | { type: 'initial'; data: ContainerWithState[] }
   | { type: 'container_update'; data: ContainerWithState }

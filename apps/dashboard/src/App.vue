@@ -42,6 +42,17 @@
             <span :class="connected ? 'text-green-400' : 'text-red-400'">{{ connected ? 'Live' : 'Disconnected' }}</span>
           </div>
 
+          <!-- Git view buttons per repo -->
+          <div v-if="allRepos.length > 0" class="flex items-center gap-1">
+            <button
+              v-for="repo in allRepos"
+              :key="repo"
+              @click="gitRepo = repo"
+              class="text-xs text-slate-400 hover:text-slate-200 border border-slate-600 hover:border-slate-400 rounded px-2 py-1 transition-colors font-mono"
+              title="Git view"
+            >{{ repo }} git</button>
+          </div>
+
           <!-- Link to event stream client -->
           <a
             :href="clientUrl"
@@ -50,6 +61,13 @@
         </div>
       </div>
     </header>
+
+    <!-- Git View Dialog -->
+    <GitViewDialog
+      v-if="gitRepo"
+      :source-repo="gitRepo"
+      @close="gitRepo = null"
+    />
 
     <!-- Body -->
     <main class="px-4 py-4 max-w-7xl mx-auto">
@@ -75,8 +93,10 @@ import { useContainers } from './composables/useContainers'
 import { CLIENT_BASE } from './config'
 import FilterBar from './components/FilterBar.vue'
 import HostGroup from './components/HostGroup.vue'
+import GitViewDialog from './components/GitViewDialog.vue'
 
 const { byHost, summary, handleMessage, containers } = useContainers()
+const gitRepo = ref<string | null>(null)
 
 const { connected } = useDashboardWs(handleMessage)
 

@@ -1,0 +1,60 @@
+<template>
+  <div class="space-y-3">
+    <div
+      v-for="c in containers"
+      :key="c.id"
+      class="rounded border border-slate-700 bg-slate-800/50 p-3"
+    >
+      <div class="flex items-center gap-2 mb-1">
+        <span class="inline-block w-2 h-2 rounded-full" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
+        <span class="text-xs text-slate-300 font-semibold">{{ c.machine_hostname }} / {{ c.container_hostname }}</span>
+        <span v-if="c.git_branch" class="text-xs bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded font-mono">{{ c.git_branch }}</span>
+        <span v-if="c.git_worktree" class="text-xs text-slate-500 font-mono">{{ c.git_worktree }}</span>
+      </div>
+
+      <div v-if="c.git_commit_hash" class="flex items-center gap-2 text-xs">
+        <span class="font-mono text-yellow-400">{{ c.git_commit_hash.slice(0, 8) }}</span>
+        <span class="text-slate-400 truncate">{{ headCommitSubject(c.git_commit_hash) }}</span>
+        <button
+          v-if="c.git_commit_hash"
+          @click="$emit('select-hash', c.git_commit_hash)"
+          class="text-slate-500 hover:text-slate-300 shrink-0"
+          title="View diffstat"
+        >diff</button>
+      </div>
+
+      <div class="flex gap-3 mt-1 text-xs">
+        <span v-if="c.git_staged_count > 0" class="text-yellow-400">Staged: {{ c.git_staged_count }}</span>
+        <span v-if="c.git_unstaged_count > 0" class="text-orange-400">Unstaged: {{ c.git_unstaged_count }}</span>
+        <span v-if="c.git_staged_count === 0 && c.git_unstaged_count === 0" class="text-slate-500">Clean</span>
+      </div>
+
+      <!-- Diffstat popover -->
+      <pre
+        v-if="selectedHash === c.git_commit_hash && diffstat"
+        class="mt-2 text-xs text-slate-300 font-mono whitespace-pre-wrap bg-black/30 rounded p-2 max-h-40 overflow-y-auto"
+      >{{ diffstat }}</pre>
+    </div>
+
+    <div v-if="containers.length === 0" class="text-xs text-slate-500 italic">No containers for this repo.</div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import type { GitContainer, GitCommit } from '../types'
+
+const props = defineProps<{
+  containers: GitContainer[]
+  commits: GitCommit[]
+  selectedHash: string | null
+  diffstat: string
+}>()
+
+defineEmits<{
+  'select-hash': [hash: string]
+}>()
+
+function headCommitSubject(hash: string): string {
+  return props.commits.find(c => c.hash === hash)?.subject ?? ''
+}
+</script>
