@@ -3,6 +3,7 @@ Manage and execute tasks from the plan queue.
 Supports the same subcommands and aliases as `planq.sh`:
 - `/planq` or `/planq run` — execute the next pending task inline, then mark it done
 - `/planq run N` or `/planq r N` — execute task #N inline, then mark it done
+- `/planq auto` or `/planq A` — run all auto-queued tasks continuously in this session
 - `/planq list` or `/planq l` — show the full task queue
 - `/planq list -a` or `/planq l -a` — show the archive
 - `/planq show [N]` or `/planq s [N]` — show details of the next task, or task #N
@@ -25,6 +26,25 @@ Run `bash .claude/planq.sh list` and show the output. Stop.
 
 **For `show` / `s [N]`:**
 Run `bash .claude/planq.sh show $REMAINING_ARGS` and show the output. Stop.
+
+**For `auto` / `A`:**
+
+Run auto-queued tasks continuously in this Claude session (inline, no subprocess).
+
+Step 1 — Check for auto-queue tasks:
+```bash
+bash .claude/planq.sh show
+```
+Filter for tasks with `auto-queue` status (shown as `⏱` in the list). If none exist, run `bash .claude/planq.sh list` to show the queue and tell the user there are no auto-queue tasks.
+
+Step 2 — Execute each auto-queue task inline using the same steps as `run`, but only for tasks with auto-queue status:
+- Mark the task underway: `bash .claude/planq.sh mark:underway <identifier>`
+- Execute the task inline (do NOT call `claude` or spawn any subprocess) per the task-type table below
+- Mark the task done: `bash .claude/planq.sh mark:done <identifier>`
+
+Step 3 — After completing a task, immediately check for the next auto-queue task (go to Step 1). Repeat until no more auto-queue tasks remain, then report "No more auto-queue tasks."
+
+If the user interrupts (says stop, or presses Ctrl-C), stop the loop immediately without running further tasks.
 
 **For `create` / `c`, `mark` / `m`, `delete` / `x`, `archive` / `a`, `daemon` / `d`:**
 Run `bash .claude/planq.sh $ARGUMENTS` and show the output. Stop.

@@ -604,6 +604,16 @@ _run_auto_test() {
     return 1
 }
 
+# Invoke claude, using --continue if _PLANQ_CONTINUE is set.
+# Keeps all auto tasks in one continuous session.
+_invoke_claude() {
+    if [ -n "${_PLANQ_CONTINUE:-}" ]; then
+        claude --continue "$@"
+    else
+        claude "$@"
+    fi
+}
+
 # Run an auto-commit task by delegating to Claude.
 # $1 = task_value (optional extra instructions for Claude)
 # Returns 0 on success, 1 on error/abort.
@@ -641,7 +651,7 @@ _run_auto_commit() {
     [ -n "$extra_instructions" ] && claude_prompt="${claude_prompt} ${extra_instructions}"
 
     echo "auto-commit: asking Claude to commit changes..."
-    claude "$claude_prompt"
+    _invoke_claude "$claude_prompt"
 }
 
 cmd_create() {
@@ -757,10 +767,10 @@ _run_task_inline() {
                 _notify_daemon
                 return 1
             fi
-            claude "$(cat "$task_file")"
+            _invoke_claude "$(cat "$task_file")"
             ;;
         plan)
-            claude "Read plans/$task_value and implement the plan described in it."
+            _invoke_claude "Read plans/$task_value and implement the plan described in it."
             ;;
         make-plan)
             local prompt_file="$PLANS_DIR/$task_value"
@@ -773,10 +783,10 @@ _run_task_inline() {
             local prompt target_plan
             prompt="$(cat "$prompt_file")"
             target_plan="${task_value/#make-plan-/plan-}"
-            claude "${prompt} Write the plan to plans/${target_plan}."
+            _invoke_claude "${prompt} Write the plan to plans/${target_plan}."
             ;;
         unnamed-task)
-            claude "$task_value"
+            _invoke_claude "$task_value"
             ;;
         auto-test)
             if ! _run_auto_test "$task_value"; then
@@ -838,8 +848,14 @@ cmd_auto() {
     echo "Press Ctrl+C to stop."
     echo ""
 
-    # Cleanup PID file on exit
-    trap 'rm -f "$auto_pid_file"; echo ""; echo "Auto-queue stopped."' INT TERM EXIT
+    # INT/TERM: print message and exit cleanly (single message, no double-fire).
+    # EXIT: just remove the PID file (covers normal exits without double-printing).
+    trap 'rm -f "$auto_pid_file"; echo ""; echo "Auto-queue stopped."; exit 0' INT TERM
+    trap 'rm -f "$auto_pid_file"' EXIT
+
+    # _PLANQ_CONTINUE: empty for first task (new session), "1" for subsequent tasks.
+    # _invoke_claude() in _run_task_inline reads this to use --continue after the first.
+    _PLANQ_CONTINUE=""
 
     local idle_msg_shown=0
     while true; do
@@ -858,6 +874,7 @@ cmd_auto() {
         line_num="$(printf '%s' "$next" | cut -f1)"
         task_line="$(printf '%s' "$next" | cut -f2-)"
         _run_task_inline "$line_num" "$task_line"
+        _PLANQ_CONTINUE=1
     done
 }
 
