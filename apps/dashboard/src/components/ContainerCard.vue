@@ -324,11 +324,14 @@ async function startMerge() {
   // Sort by most recently live first
   targets.sort((a, b) => b.last_seen - a.last_seen)
   mergeTargets.value = targets
-  // Default to most recent from same host; fall back to overall most recent
+  // Default: same host + same worktree → same host → overall most recent (all filtered by source_repo above)
   const sameHost = props.container.machine_hostname !== 'unknown'
     ? targets.filter(c => c.machine_hostname === props.container.machine_hostname)
     : []
-  mergeTargetId.value = (sameHost[0] ?? targets[0])?.id ?? ''
+  const sameHostAndWorktree = props.container.git_worktree
+    ? sameHost.filter(c => c.git_worktree === props.container.git_worktree)
+    : []
+  mergeTargetId.value = (sameHostAndWorktree[0] ?? sameHost[0] ?? targets[0])?.id ?? ''
   merging.value = true
 }
 
