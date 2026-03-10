@@ -84,9 +84,9 @@
         v-if="task.status === 'pending' || task.status === 'auto-queue'"
         @click="emit('set-status', task, task.status === 'auto-queue' ? 'pending' : 'auto-queue')"
         class="text-xs px-1"
-        :class="task.status === 'auto-queue' ? 'text-slate-500' : 'text-cyan-400'"
+        :class="task.status === 'auto-queue' ? 'grayscale opacity-50' : ''"
         :title="task.status === 'auto-queue' ? 'Remove from auto-queue' : 'Add to auto-queue'"
-      >⧗</button>
+      >⏱</button>
 
       <!-- Mark underway / un-underway -->
       <button
