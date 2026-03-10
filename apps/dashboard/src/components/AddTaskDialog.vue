@@ -59,6 +59,7 @@
             class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize-y min-h-24 max-h-80"
             placeholder="Describe what Claude should do…"
           />
+          <p v-if="isUnnamedMultiLine" class="text-xs text-amber-400">Multiple lines will be joined with ". " for unnamed tasks — add a filename to use a multi-line task file instead.</p>
         </div>
       </template>
 
@@ -243,6 +244,10 @@ const SLUG_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
 
 const isSlugValid = computed(() => !taskSlug.value || SLUG_RE.test(taskSlug.value))
 
+const isUnnamedMultiLine = computed(() =>
+  taskType.value === 'task' && !taskSlug.value && description.value.includes('\n')
+)
+
 async function onSlugInput() {
   if (!taskFilename.value || !isExistingTaskFile.value) return
   loadingFileContents.value = true
@@ -281,7 +286,8 @@ function submit() {
       const createFile = !isExistingTaskFile.value
       emit('add', 'task', taskFilename.value, description.value.trim(), createFile, ac)
     } else {
-      emit('add', 'unnamed-task', null, description.value.trim(), false, ac)
+      const unnamedDesc = description.value.trim().split('\n').map(l => l.trim()).filter(Boolean).join('. ')
+      emit('add', 'unnamed-task', null, unnamedDesc, false, ac)
     }
   } else if (taskType.value === 'plan') {
     emit('add', 'plan', planFilename.value, null, false, ac)
