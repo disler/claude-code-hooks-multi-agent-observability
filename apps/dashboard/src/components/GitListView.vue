@@ -7,7 +7,8 @@
     >
       <div class="flex items-center gap-2 mb-1">
         <span class="inline-block w-2 h-2 rounded-full" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
-        <span class="text-xs text-slate-300 font-semibold">{{ c.machine_hostname }} / {{ c.container_hostname }}</span>
+        <span class="text-xs text-slate-200 font-semibold font-mono">{{ containerDirLabel(c) }}</span>
+        <span class="text-xs text-slate-500">{{ c.machine_hostname }} / {{ c.container_hostname }}</span>
         <span v-if="c.git_branch" class="text-xs bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded font-mono">{{ c.git_branch }}</span>
         <span v-if="c.git_worktree" class="text-xs text-slate-500 font-mono">{{ c.git_worktree }}</span>
       </div>
@@ -42,6 +43,7 @@
 
 <script setup lang="ts">
 import type { GitContainer, GitCommit } from '../types'
+import { containerDirLabel } from '../composables/useGitGraph'
 
 const props = defineProps<{
   containers: GitContainer[]
@@ -55,6 +57,6 @@ defineEmits<{
 }>()
 
 function headCommitSubject(hash: string): string {
-  return props.commits.find(c => c.hash === hash)?.subject ?? ''
+  return props.commits.find(c => c.hash.startsWith(hash) || hash.startsWith(c.hash))?.subject ?? ''
 }
 </script>

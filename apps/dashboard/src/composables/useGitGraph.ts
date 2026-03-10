@@ -1,39 +1,77 @@
-import type { GitCommit } from '../types'
+import type { GitCommit, GitContainer } from '../types'
 
 export interface LaidOutCommit {
   commit: GitCommit
   lane: number
-  // Snapshot of active lanes AFTER this commit is processed (= before next commit)
   activeLanesAfter: (string | null)[]
+  activeLanesBefore: (string | null)[]
+}
+
+/** Topologically sort commits (tips/newest first) using Kahn's algorithm. */
+function topoSort(commits: GitCommit[]): GitCommit[] {
+  const map = new Map<string, GitCommit>()
+  for (const c of commits) map.set(c.hash, c)
+
+  const childCount = new Map<string, number>()
+  for (const c of commits) {
+    if (!childCount.has(c.hash)) childCount.set(c.hash, 0)
+    for (const p of c.parents) {
+      if (map.has(p)) childCount.set(p, (childCount.get(p) ?? 0) + 1)
+    }
+  }
+
+  // Tips first (no children within the set)
+  const queue: GitCommit[] = commits.filter(c => (childCount.get(c.hash) ?? 0) === 0)
+  const seen = new Set(queue.map(c => c.hash))
+  const result: GitCommit[] = []
+
+  while (queue.length > 0) {
+    const c = queue.shift()!
+    result.push(c)
+    for (const p of c.parents) {
+      if (!map.has(p)) continue
+      const cnt = (childCount.get(p) ?? 0) - 1
+      childCount.set(p, cnt)
+      if (cnt === 0 && !seen.has(p)) {
+        queue.push(map.get(p)!)
+        seen.add(p)
+      }
+    }
+  }
+
+  // Safety net for cycles or disconnected nodes
+  for (const c of commits) {
+    if (!seen.has(c.hash)) result.push(c)
+  }
+
+  return result
 }
 
 /**
  * Assign each commit to a lane using the standard git-graph algorithm.
- * Commits must be in topological order (newest first).
+ * Commits are topologically sorted internally (tips first).
  */
 export function computeLayout(commits: GitCommit[]): LaidOutCommit[] {
+  const sorted = topoSort(commits)
   const result: LaidOutCommit[] = []
-  // activeLanes[i] = hash of the commit we expect next in lane i, or null (free)
   const activeLanes: (string | null)[] = []
 
-  for (const commit of commits) {
-    // Find this commit's lane
+  for (const commit of sorted) {
     let myLane = activeLanes.indexOf(commit.hash)
     if (myLane === -1) {
-      // Not reserved by any child — use first free lane or allocate new
       myLane = activeLanes.indexOf(null)
       if (myLane === -1) myLane = activeLanes.length
     }
 
-    // Ensure array is long enough
     while (activeLanes.length <= myLane) activeLanes.push(null)
 
-    // Update: replace this commit's slot with its first parent
+    // Snapshot BEFORE updating lanes — used by renderer to detect newly-opened lanes
+    const activeLanesBefore = [...activeLanes]
+
     if (commit.parents.length === 0) {
       activeLanes[myLane] = null
     } else {
       activeLanes[myLane] = commit.parents[0]
-      // Place additional parents (merge parents) in free slots
       for (let i = 1; i < commit.parents.length; i++) {
         const p = commit.parents[i]
         if (activeLanes.includes(p)) continue
@@ -43,12 +81,11 @@ export function computeLayout(commits: GitCommit[]): LaidOutCommit[] {
       }
     }
 
-    // Trim trailing nulls
     while (activeLanes.length > 0 && activeLanes[activeLanes.length - 1] === null) {
       activeLanes.pop()
     }
 
-    result.push({ commit, lane: myLane, activeLanesAfter: [...activeLanes] })
+    result.push({ commit, lane: myLane, activeLanesAfter: [...activeLanes], activeLanesBefore })
   }
 
   return result
@@ -88,4 +125,12 @@ const LANE_COLORS = [
 
 export function laneColor(lane: number): string {
   return LANE_COLORS[lane % LANE_COLORS.length]
+}
+
+/** Derive a display label for a container (workspace dir + worktree if applicable). */
+export function containerDirLabel(c: GitContainer): string {
+  const dir = c.workspace_host_path ? c.workspace_host_path.split('/').pop()! : null
+  const wt = c.git_worktree ? c.git_worktree.replace(/^trees\//, '').split('/').pop() ?? null : null
+  if (dir && wt && dir !== wt) return `${dir} [${wt}]`
+  return dir ?? c.id
 }

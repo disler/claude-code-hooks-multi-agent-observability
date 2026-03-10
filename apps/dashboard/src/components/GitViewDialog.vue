@@ -52,7 +52,8 @@
           @click="jumpToContainer(c)"
         >
           <span class="w-1.5 h-1.5 rounded-full inline-block" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
-          <span class="text-slate-300">{{ c.container_hostname }}</span>
+          <span class="text-slate-200 font-mono">{{ containerDirLabel(c) }}</span>
+          <span class="text-slate-500 text-xs">{{ c.machine_hostname }}</span>
           <span v-if="c.git_branch" class="text-blue-400 font-bold">{{ c.git_branch }}</span>
         </button>
       </div>
@@ -103,6 +104,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 import { useGitView } from '../composables/useGitView'
+import { containerDirLabel } from '../composables/useGitGraph'
 import GitGraphView from './GitGraphView.vue'
 import GitListView from './GitListView.vue'
 import type { GitContainer } from '../types'
@@ -145,10 +147,12 @@ async function selectHash(hash: string) {
 
 async function jumpToContainer(c: GitContainer) {
   if (!c.git_commit_hash) return
-  await selectHash(c.git_commit_hash)
+  // Resolve short hash (from daemon %h) to full hash used in the commit graph
+  const fullHash = gitData.value?.commits.find(cm => cm.hash.startsWith(c.git_commit_hash!))?.hash ?? c.git_commit_hash
+  await selectHash(fullHash)
   if (mode.value === 'graph') {
     await nextTick()
-    graphRef.value?.scrollToHash(c.git_commit_hash)
+    graphRef.value?.scrollToHash(fullHash)
   }
 }
 
@@ -157,11 +161,12 @@ watch(() => props.sourceRepo, load, { immediate: true })
 // Focus initial hash after data loads (e.g. opened by clicking branch/commit in ContainerCard)
 watch(gitData, async (data) => {
   if (!data || !props.initialHash) return
+  const fullHash = data.commits.find(cm => cm.hash.startsWith(props.initialHash!))?.hash ?? props.initialHash
   await nextTick()
-  await selectHash(props.initialHash)
+  await selectHash(fullHash)
   if (mode.value === 'graph') {
     await nextTick()
-    graphRef.value?.scrollToHash(props.initialHash)
+    graphRef.value?.scrollToHash(fullHash)
   }
 }, { once: true })
 </script>

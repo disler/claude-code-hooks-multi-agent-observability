@@ -7,12 +7,12 @@
     >
       <!-- Edges (drawn first, under circles) -->
       <g v-for="(row, i) in layout" :key="'edges-' + row.commit.hash">
-        <!-- Segments from this row to next row — center-to-center so circles cover endpoints -->
+        <!-- Segments from this row to next row -->
         <template v-if="i + 1 < layout.length">
           <template v-for="(laneHash, j) in row.activeLanesAfter" :key="'seg-' + i + '-' + j">
             <line
               v-if="laneHash !== null"
-              :x1="laneX(j)"
+              :x1="(row.activeLanesBefore[j] == null && row.activeLanesAfter[j] != null) ? laneX(row.lane) : laneX(j)"
               :y1="rowY(i)"
               :x2="laneX(targetLane(row.activeLanesAfter, j, i + 1))"
               :y2="rowY(i + 1)"
@@ -51,7 +51,7 @@
 
         <!-- Labels (refs + container labels + hash + subject) -->
         <g :transform="`translate(${labelX}, ${rowY(i)})`">
-          <!-- Container-specific HEAD labels (bold, with @hostname) -->
+          <!-- Container-specific HEAD labels -->
           <g v-for="(cl, ci) in containerLabels(row.commit.hash)" :key="'cl-' + ci">
             <rect
               :x="containerLabelOffsets[i]?.[ci]?.x ?? 0"
@@ -72,8 +72,13 @@
             >{{ cl.text }}</text>
           </g>
 
-          <!-- Git ref badges -->
-          <g v-for="(fref, ri) in formattedRefs(row.commit)" :key="ri">
+          <!-- Git ref badges (clickable — scroll to this commit) -->
+          <g
+            v-for="(fref, ri) in formattedRefs(row.commit)"
+            :key="ri"
+            class="cursor-pointer"
+            @click="onRefClick(row.commit.hash)"
+          >
             <rect
               :x="refOffsets[i]?.[ri]?.x ?? 0"
               :y="-7"
@@ -127,7 +132,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { computeLayout, formatRef, laneColor } from '../composables/useGitGraph'
+import { computeLayout, formatRef, laneColor, containerDirLabel } from '../composables/useGitGraph'
 import type { GitCommit, GitContainer } from '../types'
 
 const LANE_W = 18
@@ -141,7 +146,7 @@ const props = defineProps<{
   selectedHash: string | null
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   'select-hash': [hash: string]
 }>()
 
@@ -173,9 +178,9 @@ function targetLane(afterLanes: (string | null)[], fromLane: number, nextRow: nu
   return fromLane
 }
 
-// Containers whose HEAD is this commit
+// Containers whose HEAD matches this commit (short-hash-safe comparison)
 function headContainers(hash: string) {
-  return props.containers.filter(c => c.git_commit_hash === hash)
+  return props.containers.filter(c => c.git_commit_hash && hash.startsWith(c.git_commit_hash))
 }
 function isHeadCommit(hash: string) { return headContainers(hash).length > 0 }
 function dirtyRing(hash: string) {
@@ -186,10 +191,9 @@ interface ContainerLabel { text: string; dirty: boolean }
 
 function containerLabels(hash: string): ContainerLabel[] {
   return headContainers(hash).map(c => {
-    // Main repo: use container id (= source_repo). Worktrees: id = "repo.wtname"
-    const name = c.id
+    const dir = containerDirLabel(c)
     const dirty = c.git_staged_count > 0 || c.git_unstaged_count > 0
-    return { text: `${name}@${c.machine_hostname}`, dirty }
+    return { text: `${dir}@${c.machine_hostname}`, dirty }
   })
 }
 
@@ -228,7 +232,6 @@ const refOffsets = computed(() => {
     const row = layout.value[i]
     const refs = formattedRefs(row.commit)
     const offsets: Array<{ x: number; w: number }> = []
-    // Start after container labels
     const clOffsets = containerLabelOffsets.value[i] ?? []
     const lastCl = clOffsets[clOffsets.length - 1]
     let x = lastCl ? lastCl.x + lastCl.w + 4 : 0
@@ -243,6 +246,11 @@ const refOffsets = computed(() => {
   }
   return result
 })
+
+function onRefClick(hash: string) {
+  emit('select-hash', hash)
+  scrollToHash(hash)
+}
 
 /** Scroll the graph to put a commit's row into view and briefly flash it. */
 function scrollToHash(hash: string) {
