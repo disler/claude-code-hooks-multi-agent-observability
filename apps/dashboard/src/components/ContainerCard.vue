@@ -32,9 +32,11 @@
           <span v-if="worktreeLabel" class="text-xs text-slate-500 font-mono">
             [worktree <span class="text-sm font-semibold text-slate-100">{{ worktreeLabel }}</span>]
           </span>
-          <span v-if="container.git_branch" class="text-xs text-slate-400">
-            branch: <span class="font-mono text-cyan-400">{{ container.git_branch }}</span>
-          </span>
+          <button
+            v-if="container.git_branch"
+            class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+            @click="emit('open-git-view', container.source_repo, container.git_commit_hash)"
+          >branch: <span class="font-mono text-cyan-400">{{ container.git_branch }}</span></button>
         </div>
 
         <!-- Row 2, Col 1: workspace host path + container hostname -->
@@ -66,7 +68,10 @@
           class="flex items-center gap-2 flex-wrap"
           :style="firstSub ? { gridRow: 3, gridColumn: 1 } : {}"
         >
-          <span class="text-xs font-mono text-slate-400">{{ container.git_commit_hash }}</span>
+          <button
+            class="text-xs font-mono text-slate-400 hover:text-slate-200 cursor-pointer"
+            @click="emit('open-git-view', container.source_repo, container.git_commit_hash)"
+          >{{ container.git_commit_hash }}</button>
           <span class="text-xs text-slate-400 truncate max-w-xs">{{ container.git_commit_message }}</span>
         </div>
 
@@ -249,6 +254,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'tasks-changed': []
+  'open-git-view': [repo: string, hash?: string | null]
 }>()
 
 // ── Session hiding ────────────────────────────────────────────────────────────

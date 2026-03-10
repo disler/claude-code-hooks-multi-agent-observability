@@ -1,21 +1,20 @@
 <template>
   <div class="fixed inset-0 z-50 flex items-start justify-center pt-8 px-4" @click.self="$emit('close')">
     <div class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col">
-      <!-- Header -->
-      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700 shrink-0">
-        <div class="flex items-center gap-3">
-          <span class="text-sm font-semibold text-slate-200">Git View: {{ sourceRepo }}</span>
-          <div class="flex items-center gap-1 text-xs">
-            <span
-              v-for="c in gitData?.containers ?? []"
-              :key="c.id"
-              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-700/60"
-            >
-              <span class="w-1.5 h-1.5 rounded-full inline-block" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
-              <span class="text-slate-300">{{ c.container_hostname }}</span>
-              <span v-if="c.git_branch" class="text-blue-400">{{ c.git_branch }}</span>
-            </span>
-          </div>
+      <!-- Header top row: title + controls (always visible) -->
+      <div class="flex items-center justify-between px-4 pt-3 pb-1 border-b border-slate-700/50 shrink-0">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold text-slate-400">Git View</span>
+          <!-- Repo dropdown -->
+          <select
+            v-if="allRepos && allRepos.length > 1"
+            :value="sourceRepo"
+            @change="$emit('switch-repo', ($event.target as HTMLSelectElement).value)"
+            class="text-sm font-semibold text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 cursor-pointer"
+          >
+            <option v-for="r in allRepos" :key="r" :value="r">{{ r }}</option>
+          </select>
+          <span v-else class="text-sm font-semibold text-slate-200">{{ sourceRepo }}</span>
         </div>
         <div class="flex items-center gap-3">
           <!-- View toggle -->
@@ -43,6 +42,21 @@
         </div>
       </div>
 
+      <!-- Header second row: container chips (wraps if many) -->
+      <div v-if="gitData?.containers?.length" class="flex flex-wrap items-center gap-1 px-4 py-1.5 border-b border-slate-700 shrink-0">
+        <button
+          v-for="c in gitData.containers"
+          :key="c.id"
+          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-700/60 hover:bg-slate-600/60 text-xs cursor-pointer transition-colors"
+          :title="`Jump to ${c.container_hostname}`"
+          @click="jumpToContainer(c)"
+        >
+          <span class="w-1.5 h-1.5 rounded-full inline-block" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
+          <span class="text-slate-300">{{ c.container_hostname }}</span>
+          <span v-if="c.git_branch" class="text-blue-400 font-bold">{{ c.git_branch }}</span>
+        </button>
+      </div>
+
       <!-- Body -->
       <div class="flex-1 overflow-auto p-4">
         <div v-if="loading" class="text-xs text-slate-500 italic">Loading…</div>
@@ -50,6 +64,7 @@
         <template v-else-if="gitData">
           <GitGraphView
             v-if="mode === 'graph'"
+            ref="graphRef"
             :commits="gitData.commits"
             :containers="gitData.containers"
             :selected-hash="selectedHash"
@@ -86,17 +101,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { useGitView } from '../composables/useGitView'
 import GitGraphView from './GitGraphView.vue'
 import GitListView from './GitListView.vue'
+import type { GitContainer } from '../types'
 
 const props = defineProps<{
   sourceRepo: string
+  allRepos?: string[]
+  initialHash?: string | null
 }>()
 
 defineEmits<{
   close: []
+  'switch-repo': [repo: string]
 }>()
 
 const { data: gitData, loading, error, fetchGitView, fetchDiffstat } = useGitView()
@@ -104,6 +123,7 @@ const mode = ref<'graph' | 'list'>('graph')
 const selectedHash = ref<string | null>(null)
 const currentDiffstat = ref('')
 const loadingDiffstat = ref(false)
+const graphRef = ref<InstanceType<typeof GitGraphView> | null>(null)
 
 async function load() {
   await fetchGitView(props.sourceRepo)
@@ -123,5 +143,25 @@ async function selectHash(hash: string) {
   loadingDiffstat.value = false
 }
 
+async function jumpToContainer(c: GitContainer) {
+  if (!c.git_commit_hash) return
+  await selectHash(c.git_commit_hash)
+  if (mode.value === 'graph') {
+    await nextTick()
+    graphRef.value?.scrollToHash(c.git_commit_hash)
+  }
+}
+
 watch(() => props.sourceRepo, load, { immediate: true })
+
+// Focus initial hash after data loads (e.g. opened by clicking branch/commit in ContainerCard)
+watch(gitData, async (data) => {
+  if (!data || !props.initialHash) return
+  await nextTick()
+  await selectHash(props.initialHash)
+  if (mode.value === 'graph') {
+    await nextTick()
+    graphRef.value?.scrollToHash(props.initialHash)
+  }
+}, { once: true })
 </script>

@@ -15,6 +15,7 @@
         :key="container.id"
         :container="container"
         @tasks-changed="emit('tasks-changed')"
+        @open-git-view="(repo, hash) => emit('open-git-view', repo, hash)"
       />
     </div>
   </div>
@@ -32,6 +33,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'tasks-changed': []
+  'open-git-view': [repo: string, hash?: string | null]
 }>()
 
 const hasActive = computed(() => props.containers.some(c => c.status === 'busy' || c.status === 'awaiting_input'))

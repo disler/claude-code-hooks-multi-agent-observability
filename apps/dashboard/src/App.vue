@@ -42,17 +42,6 @@
             <span :class="connected ? 'text-green-400' : 'text-red-400'">{{ connected ? 'Live' : 'Disconnected' }}</span>
           </div>
 
-          <!-- Git view buttons per repo -->
-          <div v-if="allRepos.length > 0" class="flex items-center gap-1">
-            <button
-              v-for="repo in allRepos"
-              :key="repo"
-              @click="gitRepo = repo"
-              class="text-xs text-slate-400 hover:text-slate-200 border border-slate-600 hover:border-slate-400 rounded px-2 py-1 transition-colors font-mono"
-              title="Git view"
-            >{{ repo }} git</button>
-          </div>
-
           <!-- Link to event stream client -->
           <a
             :href="clientUrl"
@@ -66,7 +55,10 @@
     <GitViewDialog
       v-if="gitRepo"
       :source-repo="gitRepo"
-      @close="gitRepo = null"
+      :all-repos="allRepos"
+      :initial-hash="gitFocusHash"
+      @close="gitRepo = null; gitFocusHash = null"
+      @switch-repo="gitRepo = $event; gitFocusHash = null"
     />
 
     <!-- Body -->
@@ -81,6 +73,7 @@
         :hostname="hostname"
         :containers="containers"
         @tasks-changed="handleTasksChanged"
+        @open-git-view="openGitView"
       />
     </main>
   </div>
@@ -97,6 +90,7 @@ import GitViewDialog from './components/GitViewDialog.vue'
 
 const { byHost, summary, handleMessage, containers } = useContainers()
 const gitRepo = ref<string | null>(null)
+const gitFocusHash = ref<string | null>(null)
 
 const { connected } = useDashboardWs(handleMessage)
 
@@ -144,5 +138,10 @@ const clientUrl = computed(() => `${CLIENT_BASE}/`)
 
 function handleTasksChanged() {
   // The server will broadcast planq_update via WS; nothing to do here
+}
+
+function openGitView(repo: string, hash?: string | null) {
+  gitRepo.value = repo
+  gitFocusHash.value = hash ?? null
 }
 </script>
