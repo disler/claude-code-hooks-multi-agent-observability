@@ -153,14 +153,52 @@
         </template>
       </div>
 
-      <!-- Last seen (offline) + discard button -->
+      <!-- Last seen (offline) + discard/merge buttons -->
       <div v-if="!container.connected" class="flex flex-col items-end gap-1 shrink-0">
         <span class="text-xs text-slate-500">{{ relativeTime }}</span>
+        <div class="flex gap-2">
+          <button
+            class="text-xs text-slate-600 hover:text-blue-400 transition-colors"
+            title="Merge this container's history into another"
+            @click="startMerge"
+          >merge</button>
+          <button
+            class="text-xs text-slate-600 hover:text-red-400 transition-colors"
+            title="Discard this offline container"
+            @click="discardContainer"
+          >discard</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Merge panel -->
+    <div v-if="merging" class="mt-2 p-2 rounded border border-blue-800 bg-blue-950/30">
+      <div class="text-xs text-slate-400 mb-1">Merge session history into:</div>
+      <div v-if="mergeTargets.length === 0" class="text-xs text-slate-500 italic">No other containers with repo <span class="font-mono">{{ container.source_repo }}</span> found.</div>
+      <template v-else>
+        <select
+          v-model="mergeTargetId"
+          class="w-full text-xs bg-slate-700 border border-slate-600 rounded px-2 py-1 text-slate-200 focus:outline-none mb-2"
+        >
+          <option v-for="c in mergeTargets" :key="c.id" :value="c.id">
+            {{ c.machine_hostname !== 'unknown' ? c.machine_hostname + ' · ' : '' }}{{ c.workspace_host_path || c.container_hostname || c.id }}{{ !c.connected ? ' (offline)' : '' }}
+          </option>
+        </select>
+        <div class="text-xs text-slate-500 mb-2">
+          This will transfer all session history from this container into the selected one, then remove this container entry.
+        </div>
+      </template>
+      <div class="flex gap-2">
         <button
-          class="text-xs text-slate-600 hover:text-red-400 transition-colors"
-          title="Discard this offline container"
-          @click="discardContainer"
-        >discard</button>
+          v-if="mergeTargets.length > 0"
+          @click="confirmMerge"
+          :disabled="!mergeTargetId || merging && mergeLoading"
+          class="text-xs px-2 py-1 rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white"
+        >{{ mergeLoading ? 'Merging…' : 'Merge' }}</button>
+        <button
+          @click="merging = false"
+          class="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300"
+        >Cancel</button>
       </div>
     </div>
 
@@ -268,6 +306,51 @@ async function discardContainer() {
   console.log(`[dashboard] discard container=${cLabel()}`)
   await fetch(`${API_BASE}/dashboard/containers/${encodeURIComponent(props.container.id)}`, { method: 'DELETE' })
   // Server broadcasts container_removed; no local state needed
+}
+
+// ── Merge ─────────────────────────────────────────────────────────────────────
+
+const merging = ref(false)
+const mergeLoading = ref(false)
+const mergeTargets = ref<import('../types').ContainerWithState[]>([])
+const mergeTargetId = ref<string>('')
+
+async function startMerge() {
+  mergeLoading.value = false
+  // Fetch all containers and filter to same source_repo, excluding this one
+  const res = await fetch(`${API_BASE}/dashboard/containers`).catch(() => null)
+  const all: import('../types').ContainerWithState[] = res?.ok ? await res.json() : []
+  const targets = all.filter(c => c.source_repo === props.container.source_repo && c.id !== props.container.id)
+  // Sort: prefer same host + same worktree first, then same host, then rest
+  targets.sort((a, b) => {
+    const scoreA = containerMatchScore(a)
+    const scoreB = containerMatchScore(b)
+    return scoreB - scoreA
+  })
+  mergeTargets.value = targets
+  mergeTargetId.value = targets[0]?.id ?? ''
+  merging.value = true
+}
+
+function containerMatchScore(c: import('../types').ContainerWithState): number {
+  let score = 0
+  if (c.machine_hostname === props.container.machine_hostname && c.machine_hostname !== 'unknown') score += 2
+  if (c.git_worktree === props.container.git_worktree) score += 1
+  return score
+}
+
+async function confirmMerge() {
+  if (!mergeTargetId.value) return
+  mergeLoading.value = true
+  console.log(`[dashboard] merge container=${cLabel()} into=${mergeTargetId.value}`)
+  await fetch(`${API_BASE}/dashboard/containers/${encodeURIComponent(props.container.id)}/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target_id: mergeTargetId.value }),
+  })
+  merging.value = false
+  mergeLoading.value = false
+  // Server broadcasts container_removed + container_update; no local state needed
 }
 
 const firstSub = computed<GitSubmoduleInfo | null>(() => props.container.git_submodules?.[0] ?? null)

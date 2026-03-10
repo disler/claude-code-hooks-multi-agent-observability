@@ -5,6 +5,7 @@ import {
   setContainerDisconnected,
   getAllContainers,
   deleteContainer,
+  mergeContainerSessions,
   getArchiveTasks,
   getContainer,
   parsePlanqOrder,
@@ -749,6 +750,32 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     deleteContainer(containerId);
     console.log(`[dashboard] deleted offline container id=${containerId}`);
     broadcastDashboard({ type: 'container_removed', data: { id: containerId } });
+    return json({ ok: true });
+  }
+
+  // POST /dashboard/containers/:id/merge — merge an offline container's sessions into another
+  if (pathname.match(/^\/dashboard\/containers\/[^/]+\/merge$/) && method === 'POST') {
+    const containerId = decodeURIComponent(pathname.split('/')[3]);
+    const container = getContainer(containerId);
+    if (!container) return err('Container not found', 404);
+    if (container.connected) return err('Cannot merge a connected container', 409);
+
+    const body = await req.json() as any;
+    const targetId: string = body.target_id;
+    if (!targetId) return err('target_id required');
+    if (targetId === containerId) return err('Cannot merge container into itself', 400);
+
+    const target = getContainer(targetId);
+    if (!target) return err('Target container not found', 404);
+
+    mergeContainerSessions(containerId, targetId);
+    deleteContainer(containerId);
+    console.log(`[dashboard] merged container id=${containerId} into id=${targetId}`);
+
+    broadcastDashboard({ type: 'container_removed', data: { id: containerId } });
+    const updatedTarget = getContainer(targetId);
+    if (updatedTarget) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(updatedTarget) });
+
     return json({ ok: true });
   }
 

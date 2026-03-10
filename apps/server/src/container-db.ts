@@ -196,6 +196,20 @@ export function deleteContainer(id: string): boolean {
   return result.changes > 0;
 }
 
+export function mergeContainerSessions(sourceId: string, targetId: string): void {
+  const source = db.prepare('SELECT active_session_ids FROM containers WHERE id = ?').get(sourceId) as any;
+  const target = db.prepare('SELECT active_session_ids FROM containers WHERE id = ?').get(targetId) as any;
+  if (!source || !target) return;
+  const sourceIds: string[] = JSON.parse(source.active_session_ids || '[]');
+  const targetIds: string[] = JSON.parse(target.active_session_ids || '[]');
+  const merged = [...targetIds];
+  for (const id of sourceIds) {
+    if (!merged.includes(id)) merged.push(id);
+  }
+  db.prepare('UPDATE containers SET active_session_ids = ? WHERE id = ?')
+    .run(JSON.stringify(merged), targetId);
+}
+
 export function getAllContainers(): ContainerRow[] {
   const rows = db.prepare('SELECT * FROM containers ORDER BY machine_hostname, source_repo').all() as any[];
   return rows.map(rowToContainer);
