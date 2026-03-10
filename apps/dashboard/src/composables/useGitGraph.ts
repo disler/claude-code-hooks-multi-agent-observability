@@ -5,6 +5,8 @@ export interface LaidOutCommit {
   lane: number
   activeLanesAfter: (string | null)[]
   activeLanesBefore: (string | null)[]
+  /** Lanes being closed at this row because their first parent is already tracked elsewhere. */
+  closingLanes: Array<{ from: number; to: number }>
 }
 
 /** Topologically sort commits (tips/newest first) using Kahn's algorithm. */
@@ -67,11 +69,21 @@ export function computeLayout(commits: GitCommit[]): LaidOutCommit[] {
 
     // Snapshot BEFORE updating lanes — used by renderer to detect newly-opened lanes
     const activeLanesBefore = [...activeLanes]
+    const closingLanes: Array<{ from: number; to: number }> = []
 
     if (commit.parents.length === 0) {
       activeLanes[myLane] = null
     } else {
-      activeLanes[myLane] = commit.parents[0]
+      const firstParent = commit.parents[0]
+      // If the first parent is already tracked in a different lane, close this lane
+      // toward that lane rather than duplicating the tracking.
+      const existingFirstParentLane = activeLanes.indexOf(firstParent)
+      if (existingFirstParentLane !== -1 && existingFirstParentLane !== myLane) {
+        closingLanes.push({ from: myLane, to: existingFirstParentLane })
+        activeLanes[myLane] = null
+      } else {
+        activeLanes[myLane] = firstParent
+      }
       for (let i = 1; i < commit.parents.length; i++) {
         const p = commit.parents[i]
         if (activeLanes.includes(p)) continue
@@ -85,7 +97,7 @@ export function computeLayout(commits: GitCommit[]): LaidOutCommit[] {
       activeLanes.pop()
     }
 
-    result.push({ commit, lane: myLane, activeLanesAfter: [...activeLanes], activeLanesBefore })
+    result.push({ commit, lane: myLane, activeLanesAfter: [...activeLanes], activeLanesBefore, closingLanes })
   }
 
   return result

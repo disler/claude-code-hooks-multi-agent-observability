@@ -21,6 +21,18 @@
               opacity="0.7"
             />
           </template>
+          <!-- Closing segments: branch lanes whose first parent is already tracked elsewhere -->
+          <line
+            v-for="(cl, ci) in row.closingLanes"
+            :key="'close-' + i + '-' + ci"
+            :x1="laneX(cl.from)"
+            :y1="rowY(i)"
+            :x2="laneX(cl.to)"
+            :y2="rowY(i + 1)"
+            :stroke="laneColor(cl.from)"
+            stroke-width="1.5"
+            opacity="0.7"
+          />
         </template>
       </g>
 
@@ -171,11 +183,8 @@ function rowY(i: number) { return i * ROW_H + ROW_H / 2 }
 function targetLane(afterLanes: (string | null)[], fromLane: number, nextRow: number): number {
   const hash = afterLanes[fromLane]
   if (!hash) return fromLane
-  if (nextRow < layout.value.length) {
-    const nextCommit = layout.value[nextRow]
-    if (nextCommit.commit.hash === hash) return nextCommit.lane
-    // Converge toward a merge commit if this lane tracks one of its parents
-    if (nextCommit.commit.parents.includes(hash)) return nextCommit.lane
+  if (nextRow < layout.value.length && layout.value[nextRow].commit.hash === hash) {
+    return layout.value[nextRow].lane
   }
   return fromLane
 }
