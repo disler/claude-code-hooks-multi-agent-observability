@@ -1,9 +1,11 @@
 <template>
   <div class="space-y-3">
     <div
-      v-for="c in containers"
+      v-for="c in sortedContainers"
       :key="c.id"
-      class="rounded border border-slate-700 bg-slate-800/50 p-3"
+      :id="`container-${c.id}`"
+      class="rounded border p-3 transition-colors duration-300"
+      :class="flashId === c.id ? 'bg-yellow-500/10 border-yellow-500/50' : 'border-slate-700 bg-slate-800/50'"
     >
       <div class="flex items-center gap-2 mb-1">
         <span class="inline-block w-2 h-2 rounded-full" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
@@ -42,6 +44,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref, computed } from 'vue'
 import type { GitContainer, GitCommit } from '../types'
 import { containerDirLabel } from '../composables/useGitGraph'
 
@@ -56,7 +59,26 @@ defineEmits<{
   'select-hash': [hash: string]
 }>()
 
+const flashId = ref<string | null>(null)
+
+const sortedContainers = computed(() => {
+  return [...props.containers].sort((a, b) => {
+    const hostCmp = a.machine_hostname.localeCompare(b.machine_hostname)
+    if (hostCmp !== 0) return hostCmp
+    return containerDirLabel(a).localeCompare(containerDirLabel(b))
+  })
+})
+
 function headCommitSubject(hash: string): string {
   return props.commits.find(c => c.hash.startsWith(hash) || hash.startsWith(c.hash))?.subject ?? ''
 }
+
+function scrollToContainer(id: string) {
+  const el = document.getElementById(`container-${id}`)
+  el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  flashId.value = id
+  setTimeout(() => { if (flashId.value === id) flashId.value = null }, 1500)
+}
+
+defineExpose({ scrollToContainer })
 </script>

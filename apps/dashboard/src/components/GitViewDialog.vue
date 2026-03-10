@@ -42,20 +42,21 @@
         </div>
       </div>
 
-      <!-- Header second row: container chips (wraps if many) -->
-      <div v-if="gitData?.containers?.length" class="flex flex-wrap items-center gap-1 px-4 py-1.5 border-b border-slate-700 shrink-0">
-        <button
-          v-for="c in gitData.containers"
-          :key="c.id"
-          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-700/60 hover:bg-slate-600/60 text-xs cursor-pointer transition-colors"
-          :title="`Jump to ${c.container_hostname}`"
-          @click="jumpToContainer(c)"
-        >
-          <span class="w-1.5 h-1.5 rounded-full inline-block" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
-          <span class="text-slate-200 font-mono">{{ containerDirLabel(c) }}</span>
-          <span class="text-slate-500 text-xs">{{ c.machine_hostname }}</span>
-          <span v-if="c.git_branch" class="text-blue-400 font-bold">{{ c.git_branch }}</span>
-        </button>
+      <!-- Header second row: container chips grouped by host -->
+      <div v-if="gitData?.containers?.length" class="flex flex-col gap-0.5 px-4 py-1.5 border-b border-slate-700 shrink-0">
+        <div v-for="[host, conts] in containersByHost" :key="host" class="flex flex-wrap items-center gap-1">
+          <button
+            v-for="c in conts"
+            :key="c.id"
+            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-700/60 hover:bg-slate-600/60 text-xs cursor-pointer transition-colors"
+            :title="`Jump to ${c.container_hostname}`"
+            @click="jumpToContainer(c)"
+          >
+            <span class="w-1.5 h-1.5 rounded-full inline-block" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
+            <span class="text-slate-200 font-mono">{{ containerDirLabel(c) }}</span>
+            <span v-if="c.git_branch" class="text-blue-400 font-bold">{{ c.git_branch }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- Body -->
@@ -73,6 +74,7 @@
           />
           <GitListView
             v-else
+            ref="listRef"
             :containers="gitData.containers"
             :commits="gitData.commits"
             :selected-hash="selectedHash"
@@ -102,7 +104,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useGitView } from '../composables/useGitView'
 import { containerDirLabel } from '../composables/useGitGraph'
 import GitGraphView from './GitGraphView.vue'
@@ -126,6 +128,25 @@ const selectedHash = ref<string | null>(null)
 const currentDiffstat = ref('')
 const loadingDiffstat = ref(false)
 const graphRef = ref<InstanceType<typeof GitGraphView> | null>(null)
+const listRef = ref<InstanceType<typeof GitListView> | null>(null)
+
+const sortedContainers = computed(() => {
+  if (!gitData.value?.containers) return []
+  return [...gitData.value.containers].sort((a, b) => {
+    const hostCmp = a.machine_hostname.localeCompare(b.machine_hostname)
+    if (hostCmp !== 0) return hostCmp
+    return containerDirLabel(a).localeCompare(containerDirLabel(b))
+  })
+})
+
+const containersByHost = computed(() => {
+  const groups = new Map<string, GitContainer[]>()
+  for (const c of sortedContainers.value) {
+    if (!groups.has(c.machine_hostname)) groups.set(c.machine_hostname, [])
+    groups.get(c.machine_hostname)!.push(c)
+  }
+  return groups
+})
 
 async function load() {
   await fetchGitView(props.sourceRepo)
@@ -150,9 +171,11 @@ async function jumpToContainer(c: GitContainer) {
   // Resolve short hash (from daemon %h) to full hash used in the commit graph
   const fullHash = gitData.value?.commits.find(cm => cm.hash.startsWith(c.git_commit_hash!))?.hash ?? c.git_commit_hash
   await selectHash(fullHash)
+  await nextTick()
   if (mode.value === 'graph') {
-    await nextTick()
     graphRef.value?.scrollToHash(fullHash)
+  } else {
+    listRef.value?.scrollToContainer(c.id)
   }
 }
 

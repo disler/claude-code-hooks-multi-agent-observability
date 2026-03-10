@@ -67,9 +67,8 @@
               y="4"
               font-size="9"
               font-family="monospace"
-              font-weight="bold"
               :fill="cl.dirty ? '#fca5a5' : '#7dd3fc'"
-            >{{ cl.text }}</text>
+            ><tspan v-if="cl.prefix">{{ cl.prefix }}</tspan><tspan font-weight="bold">{{ cl.bold }}</tspan><tspan opacity="0.7">{{ cl.suffix }}</tspan></text>
           </g>
 
           <!-- Git ref badges (clickable — scroll to this commit) -->
@@ -172,8 +171,11 @@ function rowY(i: number) { return i * ROW_H + ROW_H / 2 }
 function targetLane(afterLanes: (string | null)[], fromLane: number, nextRow: number): number {
   const hash = afterLanes[fromLane]
   if (!hash) return fromLane
-  if (nextRow < layout.value.length && layout.value[nextRow].commit.hash === hash) {
-    return layout.value[nextRow].lane
+  if (nextRow < layout.value.length) {
+    const nextCommit = layout.value[nextRow]
+    if (nextCommit.commit.hash === hash) return nextCommit.lane
+    // Converge toward a merge commit if this lane tracks one of its parents
+    if (nextCommit.commit.parents.includes(hash)) return nextCommit.lane
   }
   return fromLane
 }
@@ -187,13 +189,20 @@ function dirtyRing(hash: string) {
   return headContainers(hash).some(c => c.git_staged_count > 0 || c.git_unstaged_count > 0)
 }
 
-interface ContainerLabel { text: string; dirty: boolean }
+interface ContainerLabel { prefix: string; bold: string; suffix: string; dirty: boolean }
 
 function containerLabels(hash: string): ContainerLabel[] {
   return headContainers(hash).map(c => {
-    const dir = containerDirLabel(c)
+    const label = containerDirLabel(c)
     const dirty = c.git_staged_count > 0 || c.git_unstaged_count > 0
-    return { text: `${dir}@${c.machine_hostname}`, dirty }
+    const suffix = `@${c.machine_hostname}`
+    if (c.git_worktree) {
+      const bracketIdx = label.lastIndexOf(' [')
+      if (bracketIdx >= 0) {
+        return { prefix: label.slice(0, bracketIdx), bold: label.slice(bracketIdx), suffix, dirty }
+      }
+    }
+    return { prefix: '', bold: label, suffix, dirty }
   })
 }
 
@@ -216,7 +225,7 @@ const containerLabelOffsets = computed(() => {
     const offsets: Array<{ x: number; w: number }> = []
     let x = 0
     for (const cl of labels) {
-      const w = cl.text.length * 6 + 8
+      const w = (cl.prefix.length + cl.bold.length + cl.suffix.length) * 6 + 8
       offsets.push({ x, w })
       x += w + 4
     }
