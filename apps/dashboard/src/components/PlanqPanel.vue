@@ -58,6 +58,7 @@
           @set-status="(t, s) => setStatus(t, s)"
           @delete="deleteTask(task.id)"
           @update-desc="(id, desc) => updateDesc(id, desc)"
+          @toggle-auto-commit="toggleAutoCommit"
           @add-plan="addPlanFromMakePlan"
           @dragstart="dragFrom = task.id"
           @drop="dropOn(task.id)"
@@ -185,12 +186,8 @@ function archiveBadgeClass(taskType: string): string {
 const cid = () => props.containerId
 
 async function addTask(taskType: string, filename: string | null, description: string | null, createFile = false, autoCommitAfter = false) {
-  console.log(`[planq] add task type=${taskType} file=${filename ?? '—'} container=${cid()}`)
-  await apiAdd(props.containerId, taskType, filename, description, createFile)
-  if (autoCommitAfter) {
-    console.log(`[planq] add auto-commit after container=${cid()}`)
-    await apiAdd(props.containerId, 'auto-commit', null, null, false)
-  }
+  console.log(`[planq] add task type=${taskType} file=${filename ?? '—'} auto_commit=${autoCommitAfter} container=${cid()}`)
+  await apiAdd(props.containerId, taskType, filename, description, createFile, autoCommitAfter)
   emit('tasks-changed')
 }
 
@@ -210,6 +207,12 @@ async function deleteTask(id: number) {
 async function updateDesc(id: number, desc: string) {
   console.log(`[planq] update desc task=${id} container=${cid()}`)
   await apiUpdate(props.containerId, id, { description: desc })
+  emit('tasks-changed')
+}
+
+async function toggleAutoCommit(task: PlanqTask) {
+  console.log(`[planq] toggle auto_commit=${!task.auto_commit} task=${task.filename ?? task.description} container=${cid()}`)
+  await apiUpdate(props.containerId, task.id, { auto_commit: !task.auto_commit })
   emit('tasks-changed')
 }
 

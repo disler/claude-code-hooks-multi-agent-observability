@@ -159,9 +159,9 @@
         />
       </div>
 
-      <!-- Auto-commit after checkbox (for non-auto-commit task types) -->
+      <!-- Auto-commit after checkbox (for non-auto-commit and non-manual task types) -->
       <label
-        v-if="taskType !== 'auto-commit' && taskType !== 'manual-commit'"
+        v-if="taskType !== 'auto-commit' && taskType !== 'manual-commit' && taskType !== 'manual-test' && taskType !== 'manual-task'"
         class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none"
       >
         <input type="checkbox" v-model="autoCommitAfter" class="rounded" />

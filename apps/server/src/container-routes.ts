@@ -800,7 +800,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const { task_type, description, create_file } = body;
+    const { task_type, description, create_file, auto_commit } = body;
     let { filename } = body;
     if (!task_type) return err('task_type required');
 
@@ -811,7 +811,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       if (actualFn) filename = actualFn;
     }
 
-    const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null);
+    const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null, Boolean(auto_commit));
     touchPlanqServerModified(containerId);
     // For make-plan, write the prompt to the filename directly (filename IS make-plan-*.md)
     if (task_type === 'make-plan' && filename && description) {
@@ -834,7 +834,11 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const task = updatePlanqTask(taskId, { description: body.description, status: body.status });
+    const updates: { description?: string; status?: string; auto_commit?: boolean } = {};
+    if (body.description !== undefined) updates.description = body.description;
+    if (body.status !== undefined) updates.status = body.status;
+    if (body.auto_commit !== undefined) updates.auto_commit = Boolean(body.auto_commit);
+    const task = updatePlanqTask(taskId, updates);
     if (!task) return err('Task not found', 404);
     touchPlanqServerModified(containerId);
 

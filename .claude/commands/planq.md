@@ -54,3 +54,5 @@ Step 2 — Execute the task **inline** (do NOT call `claude` or spawn any subpro
 Step 3 — After successfully completing the task (not for manual steps), mark it done using whichever identifier you have:
 - If the task has a filename (task/plan/make-plan): `bash .claude/planq.sh mark:done <filename>`
 - If the task is an unnamed-task or other description-only type: `bash .claude/planq.sh mark:done "<exact description text>"`
+
+Step 4 — If the task details showed `Auto-commit after: yes`, perform a git commit now. Follow the standard commit protocol: stage relevant files, write a concise commit message describing what was done, and create the commit. Do NOT skip this step if the flag was present.

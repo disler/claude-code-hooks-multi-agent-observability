@@ -119,7 +119,9 @@ _find_task_by_identifier() {
             task_line="${task_line#"# auto-queue: "}"
         fi
         local task_value="${task_line#*: }"
-        if [ "$task_value" = "$ident" ]; then
+        # Strip +auto-commit suffix for comparison (it's a flag, not part of filename/description)
+        local cmp_value="${task_value% +auto-commit}"
+        if [ "$cmp_value" = "$ident" ] || [ "$task_value" = "$ident" ]; then
             printf '%d\t%s\n' "$n" "$task_line"
             return
         fi
@@ -246,10 +248,15 @@ _delete_line() {
 }
 
 _parse_task() {
-    # Args: task_line → sets task_type and task_value in caller scope
+    # Args: task_line → sets task_type, task_value, task_auto_commit in caller scope
     local line="$1"
     task_type="${line%%:*}"
     task_value="${line#*: }"
+    task_auto_commit=""
+    if [[ "$task_value" == *" +auto-commit" ]]; then
+        task_auto_commit="1"
+        task_value="${task_value% +auto-commit}"
+    fi
 }
 
 # List entries in the archive history file
@@ -333,7 +340,7 @@ _find_archive_by_identifier() {
 # move file if applicable, then remove from planq
 _archive_one_task() {
     local line_num="$1" task_line="$2"
-    local task_type task_value
+    local task_type task_value task_auto_commit
     _parse_task "$task_line"
 
     mkdir -p "$ARCHIVE_DIR"
@@ -374,7 +381,7 @@ cmd_list() {
 
 _show_task_details() {
     local label="$1" task_line="$2" plans_base="$3"
-    local task_type task_value
+    local task_type task_value task_auto_commit
     _parse_task "$task_line"
 
     echo "${label}:"
@@ -398,6 +405,7 @@ _show_task_details() {
     else
         printf "  Desc:  %s\n" "$task_value"
     fi
+    [ -n "$task_auto_commit" ] && printf "  Auto-commit after: yes\n"
 }
 
 cmd_show() {
@@ -475,7 +483,7 @@ cmd_run() {
         fi
     fi
 
-    local line_num task_line task_type task_value
+    local line_num task_line task_type task_value task_auto_commit
     line_num="$(printf '%s' "$next" | cut -f1)"
     task_line="$(printf '%s' "$next" | cut -f2-)"
     _parse_task "$task_line"
@@ -774,11 +782,12 @@ _run_auto_commit() {
 }
 
 cmd_create() {
-    local task_type="unnamed-task" filename="" description=""
+    local task_type="unnamed-task" filename="" description="" auto_commit=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --type|-t) task_type="${2:-}"; shift 2 ;;
             --file|-f) filename="${2:-}"; shift 2 ;;
+            --auto-commit) auto_commit="1"; shift ;;
             *) description="$1"; shift ;;
         esac
     done
@@ -812,6 +821,8 @@ cmd_create() {
         *)
             echo "Error: unknown task type '$task_type'" >&2; return 1 ;;
     esac
+
+    [ -n "$auto_commit" ] && task_line="${task_line} +auto-commit"
 
     mkdir -p "$PLANS_DIR"
     printf '%s\n' "$task_line" >> "$PLANQ_FILE"

@@ -27,6 +27,7 @@ export interface PlanqTask {
   description: string | null
   position: number
   status: 'pending' | 'done' | 'underway' | 'auto-queue'
+  auto_commit: boolean
 }
 
 export interface PlanqItem {
@@ -34,6 +35,7 @@ export interface PlanqItem {
   filename: string | null
   description: string | null
   status: 'pending' | 'done' | 'underway' | 'auto-queue'
+  auto_commit: boolean
 }
 
 export interface AutoTestPending {

@@ -32,6 +32,7 @@
         :title="descPopupOpen ? 'Hide description' : 'Show description'"
       >{{ task.filename }}</button>
       <span v-else>{{ task.description }}</span>
+      <span v-if="task.auto_commit" class="ml-1 text-green-500 text-xs" title="Auto-commit after">+ac</span>
     </span>
     <input
       v-else
@@ -67,6 +68,15 @@
         class="text-xs text-slate-400 hover:text-slate-200 px-1"
         title="Edit description"
       >Edit</button>
+
+      <!-- Toggle auto-commit -->
+      <button
+        v-if="task.task_type !== 'auto-commit' && task.task_type !== 'manual-commit' && task.task_type !== 'manual-test' && task.task_type !== 'manual-task'"
+        @click="emit('toggle-auto-commit', task)"
+        class="text-xs px-1 font-mono"
+        :class="task.auto_commit ? 'text-green-400 hover:text-green-200' : 'text-slate-500 hover:text-green-400'"
+        :title="task.auto_commit ? 'Remove auto-commit' : 'Auto-commit after this task'"
+      >+ac</button>
 
       <!-- Toggle auto-queue -->
       <button
@@ -143,6 +153,7 @@ const emit = defineEmits<{
   'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue']
   'delete': [id: number]
   'update-desc': [id: number, desc: string]
+  'toggle-auto-commit': [task: PlanqTask]
   'dragstart': [id: number]
   'drop': [id: number]
   'add-plan': [planFilename: string]

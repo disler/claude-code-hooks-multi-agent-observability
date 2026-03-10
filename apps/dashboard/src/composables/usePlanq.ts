@@ -7,13 +7,14 @@ export function usePlanq() {
     taskType: string,
     filename: string | null,
     description: string | null,
-    createFile = false
+    createFile = false,
+    autoCommit = false
   ): Promise<PlanqTask | null> {
     try {
       const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task_type: taskType, filename, description, create_file: createFile }),
+        body: JSON.stringify({ task_type: taskType, filename, description, create_file: createFile, auto_commit: autoCommit }),
       })
       if (!res.ok) return null
       const data = await res.json()
@@ -26,7 +27,7 @@ export function usePlanq() {
   async function updateTask(
     containerId: string,
     taskId: number,
-    updates: { description?: string; status?: string }
+    updates: { description?: string; status?: string; auto_commit?: boolean }
   ): Promise<PlanqTask | null> {
     try {
       const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks/${taskId}`, {
@@ -124,4 +125,5 @@ export function usePlanq() {
   }
 
   return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile, listPlansFiles, fetchArchive, respondToAutoTest }
+
 }
