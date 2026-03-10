@@ -1,6 +1,6 @@
 <template>
-  <div class="fixed inset-0 z-50 flex items-start justify-center pt-8 px-4" @click.self="$emit('close')">
-    <div class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col">
+  <div class="fixed inset-0 z-50 flex items-center justify-center" @click.self="$emit('close')">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-[80vw] h-[90vh] flex flex-col">
       <!-- Header top row: title + controls (always visible) -->
       <div class="flex items-center justify-between px-4 pt-3 pb-1 border-b border-slate-700/50 shrink-0">
         <div class="flex items-center gap-2">
@@ -17,6 +17,17 @@
           <span v-else class="text-sm font-semibold text-slate-200">{{ sourceRepo }}</span>
         </div>
         <div class="flex items-center gap-3">
+          <!-- Host filter -->
+          <div v-if="allHosts.length > 1" class="flex items-center gap-1 text-xs">
+            <span class="text-slate-500">Host:</span>
+            <select
+              v-model="selectedHost"
+              class="text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 cursor-pointer text-xs"
+            >
+              <option :value="null">All</option>
+              <option v-for="h in allHosts" :key="h" :value="h">{{ h }}</option>
+            </select>
+          </div>
           <!-- View toggle -->
           <div class="flex bg-slate-800 rounded overflow-hidden text-xs">
             <button
@@ -42,9 +53,10 @@
         </div>
       </div>
 
-      <!-- Header second row: container chips grouped by host -->
+      <!-- Header second row: container chips grouped by host, with hostname label -->
       <div v-if="gitData?.containers?.length" class="flex flex-col gap-0.5 px-4 py-1.5 border-b border-slate-700 shrink-0">
-        <div v-for="[host, conts] in containersByHost" :key="host" class="flex flex-wrap items-center gap-1">
+        <div v-for="[host, conts] in visibleContainersByHost" :key="host" class="flex flex-wrap items-center gap-1">
+          <span class="text-xs text-slate-500 font-mono shrink-0 mr-0.5">{{ host }}</span>
           <button
             v-for="c in conts"
             :key="c.id"
@@ -68,15 +80,15 @@
             v-if="mode === 'graph'"
             ref="graphRef"
             :commits="gitData.commits"
-            :containers="gitData.containers"
-            :refs-per-host="gitData.refsPerHost ?? []"
+            :containers="filteredContainers"
+            :refs-per-host="filteredRefsPerHost"
             :selected-hash="selectedHash"
             @select-hash="selectHash"
           />
           <GitListView
             v-else
             ref="listRef"
-            :containers="gitData.containers"
+            :containers="filteredContainers"
             :commits="gitData.commits"
             :selected-hash="selectedHash"
             :diffstat="currentDiffstat"
@@ -128,6 +140,7 @@ const mode = ref<'graph' | 'list'>('graph')
 const selectedHash = ref<string | null>(null)
 const currentDiffstat = ref('')
 const loadingDiffstat = ref(false)
+const selectedHost = ref<string | null>(null)
 const graphRef = ref<InstanceType<typeof GitGraphView> | null>(null)
 const listRef = ref<InstanceType<typeof GitListView> | null>(null)
 
@@ -149,10 +162,35 @@ const containersByHost = computed(() => {
   return groups
 })
 
+const allHosts = computed(() => [...containersByHost.value.keys()])
+
+/** Chips visible in the header — all hosts, or just the selected one */
+const visibleContainersByHost = computed(() => {
+  if (!selectedHost.value) return containersByHost.value
+  const map = new Map<string, GitContainer[]>()
+  const conts = containersByHost.value.get(selectedHost.value)
+  if (conts) map.set(selectedHost.value, conts)
+  return map
+})
+
+/** Containers passed to graph / list views */
+const filteredContainers = computed(() => {
+  if (!selectedHost.value) return gitData.value?.containers ?? []
+  return (gitData.value?.containers ?? []).filter(c => c.machine_hostname === selectedHost.value)
+})
+
+/** Per-host branch refs passed to graph view */
+const filteredRefsPerHost = computed(() => {
+  const all = gitData.value?.refsPerHost ?? []
+  if (!selectedHost.value) return all
+  return all.filter(r => r.host === selectedHost.value)
+})
+
 async function load() {
   await fetchGitView(props.sourceRepo)
   selectedHash.value = null
   currentDiffstat.value = ''
+  selectedHost.value = null
 }
 
 async function selectHash(hash: string) {
