@@ -83,41 +83,41 @@
             ><tspan v-if="cl.prefix">{{ cl.prefix }}</tspan><tspan font-weight="bold">{{ cl.bold }}</tspan><tspan opacity="0.7">{{ cl.suffix }}</tspan></text>
           </g>
 
-          <!-- Git ref badges (clickable — scroll to this commit) -->
+          <!-- All ref badges (local branches per-host + HEAD/remote/tag) -->
           <g
-            v-for="(fref, ri) in formattedRefs(row.commit)"
-            :key="ri"
+            v-for="(badge, bi) in allBadgesForCommit(row.commit)"
+            :key="'badge-' + bi"
             class="cursor-pointer"
+            :opacity="badge.opacity"
             @click="onRefClick(row.commit.hash)"
           >
             <rect
-              :x="refOffsets[i]?.[ri]?.x ?? 0"
+              :x="badgeOffsets[i]?.[bi]?.x ?? 0"
               :y="-7"
-              :width="refOffsets[i]?.[ri]?.w ?? 0"
+              :width="badgeOffsets[i]?.[bi]?.w ?? 0"
               height="14"
               rx="3"
-              :fill="refBgColor(fref.type)"
-              opacity="0.8"
+              :fill="badge.bgColor"
             />
             <text
-              :x="(refOffsets[i]?.[ri]?.x ?? 0) + 4"
+              :x="(badgeOffsets[i]?.[bi]?.x ?? 0) + 4"
               y="4"
               font-size="9"
               font-family="monospace"
-              :fill="refTextColor(fref.type)"
-            >{{ fref.text }}</text>
+              :fill="badge.textColor"
+            >{{ badge.text }}</text>
           </g>
 
           <!-- Commit hash + subject -->
           <text
-            :x="refOffsets[i]?.[formattedRefs(row.commit).length]?.x ?? 0"
+            :x="badgeOffsets[i]?.[allBadgesForCommit(row.commit).length]?.x ?? 0"
             y="4"
             font-size="10"
             font-family="monospace"
             fill="#94a3b8"
           >{{ row.commit.hash.slice(0, 8) }}</text>
           <text
-            :x="(refOffsets[i]?.[formattedRefs(row.commit).length]?.x ?? 0) + 60"
+            :x="(badgeOffsets[i]?.[allBadgesForCommit(row.commit).length]?.x ?? 0) + 60"
             y="4"
             font-size="10"
             font-family="sans-serif"
@@ -155,6 +155,7 @@ const props = defineProps<{
   commits: GitCommit[]
   containers: GitContainer[]
   selectedHash: string | null
+  refsPerHost: Array<{ hash: string; host: string; localBranches: string[] }>
 }>()
 
 const emit = defineEmits<{
@@ -215,15 +216,63 @@ function containerLabels(hash: string): ContainerLabel[] {
   })
 }
 
-function formattedRefs(commit: GitCommit) {
-  return commit.refs.map(r => formatRef(r))
-}
+// Per-host local branch data: map from hash → map from host → branch names
+const refsByHash = computed(() => {
+  const map = new Map<string, Map<string, string[]>>()
+  for (const { hash, host, localBranches } of props.refsPerHost) {
+    if (!map.has(hash)) map.set(hash, new Map())
+    map.get(hash)!.set(host, localBranches)
+  }
+  return map
+})
 
-function refBgColor(type: string) {
-  return { head: '#1e40af', local: '#1e3a5f', remote: '#374151', tag: '#713f12' }[type] ?? '#374151'
-}
-function refTextColor(type: string) {
-  return { head: '#93c5fd', local: '#7dd3fc', remote: '#9ca3af', tag: '#fde68a' }[type] ?? '#9ca3af'
+// Branch names that appear at more than one distinct hash (diverged across hosts)
+const conflictBranches = computed(() => {
+  const branchHashes = new Map<string, Set<string>>()
+  for (const { hash, localBranches } of props.refsPerHost) {
+    for (const branch of localBranches) {
+      if (!branchHashes.has(branch)) branchHashes.set(branch, new Set())
+      branchHashes.get(branch)!.add(hash)
+    }
+  }
+  const conflicts = new Set<string>()
+  for (const [branch, hashes] of branchHashes) {
+    if (hashes.size > 1) conflicts.add(branch)
+  }
+  return conflicts
+})
+
+interface BadgeInfo { text: string; bgColor: string; textColor: string; opacity: string }
+
+function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
+  const badges: BadgeInfo[] = []
+
+  // 1. Per-host local branch badges
+  const hostMap = refsByHash.value.get(commit.hash)
+  if (hostMap) {
+    for (const [host, branches] of hostMap) {
+      for (const branch of branches) {
+        const dim = !conflictBranches.value.has(branch)
+        badges.push({
+          text: `${branch}@${host}`,
+          bgColor: '#1e3a5f',
+          textColor: '#7dd3fc',
+          opacity: dim ? '0.45' : '0.9',
+        })
+      }
+    }
+  }
+
+  // 2. Non-local refs: HEAD, remote tracking, tags (from merged commit.refs)
+  for (const ref of commit.refs) {
+    const fref = formatRef(ref)
+    if (fref.type === 'local') continue  // shown via per-host above
+    const bgColor = { head: '#1e40af', remote: '#374151', tag: '#713f12' }[fref.type] ?? '#374151'
+    const textColor = { head: '#93c5fd', remote: '#9ca3af', tag: '#fde68a' }[fref.type] ?? '#9ca3af'
+    badges.push({ text: fref.text, bgColor, textColor, opacity: '0.8' })
+  }
+
+  return badges
 }
 
 // Compute x-offsets for container labels per row
@@ -243,22 +292,22 @@ const containerLabelOffsets = computed(() => {
   return result
 })
 
-// Compute x-offsets for ref badges per row (starting after container labels)
-const refOffsets = computed(() => {
+// Compute x-offsets for all badge + hash text per row (starting after container labels)
+const badgeOffsets = computed(() => {
   const result: Array<Array<{ x: number; w: number }>> = []
   for (let i = 0; i < layout.value.length; i++) {
     const row = layout.value[i]
-    const refs = formattedRefs(row.commit)
+    const badges = allBadgesForCommit(row.commit)
     const offsets: Array<{ x: number; w: number }> = []
     const clOffsets = containerLabelOffsets.value[i] ?? []
     const lastCl = clOffsets[clOffsets.length - 1]
     let x = lastCl ? lastCl.x + lastCl.w + 4 : 0
-    for (const r of refs) {
-      const w = r.text.length * 6 + 8
+    for (const b of badges) {
+      const w = b.text.length * 6 + 8
       offsets.push({ x, w })
       x += w + 4
     }
-    // Hash text offset
+    // Hash text offset sentinel
     offsets.push({ x, w: 60 })
     result.push(offsets)
   }

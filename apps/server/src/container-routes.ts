@@ -23,6 +23,8 @@ import {
   upsertGitCommits,
   getGitCommits,
   getGitTips,
+  upsertGitCommitRefs,
+  getGitCommitRefs,
   type ContainerRow,
   type PlanqTaskRow,
 } from './container-db';
@@ -452,6 +454,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     // Upsert incremental git commits sent by daemon
     if (Array.isArray(msg.git_commits) && msg.git_commits.length > 0) {
       upsertGitCommits(sourceRepo, msg.git_commits);
+      upsertGitCommitRefs(sourceRepo, container.machine_hostname, msg.git_commits);
     }
 
     // Send DAG frontier back so daemon can send only new commits next time
@@ -804,17 +807,30 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     // Primary: use DB-stored commits sent by daemons (works for local and remote hosts)
     let storedCommits = getGitCommits(repo);
 
+    // Extract local branch names from a ref list (strips HEAD ->, ignores remote/tag/HEAD)
+    function extractLocalBranches(refs: string[]): string[] {
+      const branches: string[] = [];
+      for (const ref of refs) {
+        if (ref.startsWith('HEAD -> ')) branches.push(ref.slice('HEAD -> '.length));
+        else if (ref !== 'HEAD' && !ref.startsWith('tag: ') && !ref.includes('/')) branches.push(ref);
+      }
+      return [...new Set(branches)];
+    }
+
     // Fallback: if DB is empty and server has local filesystem access, run git log directly
+    const fallbackRefsPerHost: Array<{ hash: string; host: string; localBranches: string[] }> = [];
     if (storedCommits.length === 0) {
       const paths = [...new Set(allContainers.filter(c => c.workspace_host_path).map(c => c.workspace_host_path!))];
       const commitMap = new Map<string, { hash: string; parents: string[]; refs: string[]; subject: string }>();
       for (const wpath of paths) {
+        const host = allContainers.find(c => c.workspace_host_path === wpath)?.machine_hostname ?? 'unknown';
         const proc = Bun.spawn(
           ['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'],
           { stdout: 'pipe', stderr: 'ignore' }
         );
         const text = await new Response(proc.stdout).text().catch(() => '');
         await proc.exited;
+        const hostRefMap = new Map<string, string[]>();
         for (const line of text.split('\n')) {
           if (!line.trim()) continue;
           const [hash, parentsStr, refsStr, ...subjectParts] = line.split('|');
@@ -829,6 +845,11 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
           } else {
             commitMap.set(h, { hash: h, parents, refs, subject });
           }
+          hostRefMap.set(h, [...(hostRefMap.get(h) ?? []), ...refs]);
+        }
+        for (const [hash, refs] of hostRefMap) {
+          const localBranches = extractLocalBranches(refs);
+          if (localBranches.length > 0) fallbackRefsPerHost.push({ hash, host, localBranches });
         }
       }
       storedCommits = [...commitMap.values()];
@@ -841,7 +862,15 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       git_unstaged_diffstat: c.git_unstaged_diffstat, git_staged_diffstat: c.git_staged_diffstat,
       workspace_host_path: c.workspace_host_path, connected: c.connected,
     }));
-    return json({ containers, commits: storedCommits });
+
+    // Per-host local branch data (from DB for primary path, from fallback for direct git log)
+    const dbRefs = getGitCommitRefs(repo);
+    const refsPerHost = dbRefs.length > 0
+      ? dbRefs.map(r => ({ hash: r.hash, host: r.machine_hostname, localBranches: extractLocalBranches(r.refs) }))
+          .filter(r => r.localBranches.length > 0)
+      : fallbackRefsPerHost;
+
+    return json({ containers, commits: storedCommits, refsPerHost });
   }
 
   // GET /dashboard/git-show/:repo/:hash

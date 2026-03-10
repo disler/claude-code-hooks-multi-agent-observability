@@ -69,6 +69,7 @@
             ref="graphRef"
             :commits="gitData.commits"
             :containers="gitData.containers"
+            :refs-per-host="gitData.refsPerHost ?? []"
             :selected-hash="selectedHash"
             @select-hash="selectHash"
           />

@@ -95,6 +95,7 @@ export interface GitContainer {
 export interface GitViewData {
   containers: GitContainer[]
   commits: GitCommit[]
+  refsPerHost: Array<{ hash: string; host: string; localBranches: string[] }>
 }
 
 export type DashboardMessage =

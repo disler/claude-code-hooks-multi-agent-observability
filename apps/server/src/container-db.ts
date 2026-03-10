@@ -106,6 +106,16 @@ export function initContainerDatabase(): void {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS git_commit_refs (
+      source_repo TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      machine_hostname TEXT NOT NULL,
+      refs TEXT NOT NULL,
+      PRIMARY KEY (source_repo, hash, machine_hostname)
+    )
+  `);
+
   db.exec('CREATE INDEX IF NOT EXISTS idx_containers_source_repo ON containers(source_repo)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_containers_machine ON containers(machine_hostname)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_planq_container ON planq_tasks(container_id)');
@@ -452,6 +462,25 @@ export function getGitTips(sourceRepo: string): string[] {
     for (const p of JSON.parse(r.parents)) parentSet.add(p);
   }
   return rows.filter(r => !parentSet.has(r.hash)).map(r => r.hash);
+}
+
+export function upsertGitCommitRefs(sourceRepo: string, machineHostname: string, commits: StoredGitCommit[]): void {
+  const upsert = db.prepare(
+    'INSERT INTO git_commit_refs (source_repo, hash, machine_hostname, refs) VALUES (?, ?, ?, ?) ON CONFLICT(source_repo, hash, machine_hostname) DO UPDATE SET refs = excluded.refs'
+  );
+  const tx = db.transaction(() => {
+    for (const c of commits) {
+      upsert.run(sourceRepo, c.hash, machineHostname, JSON.stringify(c.refs));
+    }
+  });
+  tx();
+}
+
+export function getGitCommitRefs(sourceRepo: string): Array<{ hash: string; machine_hostname: string; refs: string[] }> {
+  const rows = db.prepare(
+    'SELECT hash, machine_hostname, refs FROM git_commit_refs WHERE source_repo = ?'
+  ).all(sourceRepo) as any[];
+  return rows.map(r => ({ hash: r.hash, machine_hostname: r.machine_hostname, refs: JSON.parse(r.refs) }));
 }
 
 export function archiveDoneTasks(containerId: string): { count: number; historyContent: string } {
