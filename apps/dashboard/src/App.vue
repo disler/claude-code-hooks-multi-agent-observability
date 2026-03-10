@@ -69,7 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useDashboardWs } from './composables/useDashboardWs'
 import { useContainers } from './composables/useContainers'
 import { CLIENT_BASE } from './config'
@@ -80,9 +80,20 @@ const { byHost, summary, handleMessage, containers } = useContainers()
 
 const { connected } = useDashboardWs(handleMessage)
 
-const repoFilter = ref('')
-const hostFilter = ref('')
-const connectionFilter = ref('')
+function getParam(key: string) { return new URLSearchParams(location.search).get(key) ?? '' }
+function setParam(key: string, value: string) {
+  const params = new URLSearchParams(location.search)
+  if (value) params.set(key, value); else params.delete(key)
+  const qs = params.toString()
+  history.replaceState(null, '', qs ? `?${qs}` : location.pathname)
+}
+
+const repoFilter = ref(getParam('repo'))
+const hostFilter = ref(getParam('host'))
+const connectionFilter = ref(getParam('conn'))
+watch(repoFilter, v => setParam('repo', v))
+watch(hostFilter, v => setParam('host', v))
+watch(connectionFilter, v => setParam('conn', v))
 
 const allRepos = computed(() => {
   const repos = new Set<string>()
