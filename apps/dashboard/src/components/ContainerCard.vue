@@ -181,7 +181,7 @@
           class="w-full text-xs bg-slate-700 border border-slate-600 rounded px-2 py-1 text-slate-200 focus:outline-none mb-2"
         >
           <option v-for="c in mergeTargets" :key="c.id" :value="c.id">
-            {{ c.machine_hostname !== 'unknown' ? c.machine_hostname + ' · ' : '' }}{{ c.workspace_host_path || c.container_hostname || c.id }}{{ !c.connected ? ' (offline)' : '' }}
+            {{ c.machine_hostname !== 'unknown' ? c.machine_hostname + ' · ' : '' }}{{ c.workspace_host_path || c.container_hostname || c.id }}{{ !c.connected ? ' (offline)' : '' }} · {{ relativeTimeFor(c.last_seen) }}{{ c.git_commit_hash ? ' · ' + c.git_commit_hash : '' }}
           </option>
         </select>
         <div class="text-xs text-slate-500 mb-2">
@@ -321,22 +321,15 @@ async function startMerge() {
   const res = await fetch(`${API_BASE}/dashboard/containers`).catch(() => null)
   const all: import('../types').ContainerWithState[] = res?.ok ? await res.json() : []
   const targets = all.filter(c => c.source_repo === props.container.source_repo && c.id !== props.container.id)
-  // Sort: prefer same host + same worktree first, then same host, then rest
-  targets.sort((a, b) => {
-    const scoreA = containerMatchScore(a)
-    const scoreB = containerMatchScore(b)
-    return scoreB - scoreA
-  })
+  // Sort by most recently live first
+  targets.sort((a, b) => b.last_seen - a.last_seen)
   mergeTargets.value = targets
-  mergeTargetId.value = targets[0]?.id ?? ''
+  // Default to most recent from same host; fall back to overall most recent
+  const sameHost = props.container.machine_hostname !== 'unknown'
+    ? targets.filter(c => c.machine_hostname === props.container.machine_hostname)
+    : []
+  mergeTargetId.value = (sameHost[0] ?? targets[0])?.id ?? ''
   merging.value = true
-}
-
-function containerMatchScore(c: import('../types').ContainerWithState): number {
-  let score = 0
-  if (c.machine_hostname === props.container.machine_hostname && c.machine_hostname !== 'unknown') score += 2
-  if (c.git_worktree === props.container.git_worktree) score += 1
-  return score
 }
 
 async function confirmMerge() {
@@ -375,10 +368,12 @@ const worktreeLabel = computed<string | null>(() => {
   return null
 })
 
-const relativeTime = computed(() => {
-  const diff = Math.floor((Date.now() - props.container.last_seen) / 1000)
+function relativeTimeFor(ts: number): string {
+  const diff = Math.floor((now.value - ts) / 1000)
   if (diff < 60) return `${diff}s ago`
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
   return `${Math.floor(diff / 3600)}h ago`
-})
+}
+
+const relativeTime = computed(() => relativeTimeFor(props.container.last_seen))
 </script>
