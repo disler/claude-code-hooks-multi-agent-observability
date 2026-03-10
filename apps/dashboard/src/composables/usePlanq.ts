@@ -111,6 +111,17 @@ export function usePlanq() {
     }
   }
 
+  async function archiveTask(containerId: string, taskId: number): Promise<boolean> {
+    try {
+      const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks/${taskId}/archive`, {
+        method: 'POST',
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
   async function archiveDone(containerId: string): Promise<number> {
     try {
       const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks/archive-done`, {
@@ -137,6 +148,6 @@ export function usePlanq() {
     }
   }
 
-  return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile, listPlansFiles, fetchArchive, archiveDone, respondToAutoTest }
+  return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile, listPlansFiles, fetchArchive, archiveTask, archiveDone, respondToAutoTest }
 
 }

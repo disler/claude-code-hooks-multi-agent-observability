@@ -60,6 +60,7 @@
           @update-desc="(id, desc) => updateDesc(id, desc)"
           @toggle-auto-commit="toggleAutoCommit"
           @add-plan="addPlanFromMakePlan"
+          @archive="archiveTask(task.id)"
           @dragstart="dragFrom = task.id"
           @drop="dropOn(task.id)"
         />
@@ -147,7 +148,7 @@ const emit = defineEmits<{
   'tasks-changed': []
 }>()
 
-const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder, fetchArchive: apiFetchArchive, archiveDone: apiArchiveDone, respondToAutoTest: apiRespondAutoTest } = usePlanq()
+const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder, fetchArchive: apiFetchArchive, archiveTask: apiArchiveTask, archiveDone: apiArchiveDone, respondToAutoTest: apiRespondAutoTest } = usePlanq()
 
 const open = ref(true)
 const showAddDialog = ref(false)
@@ -214,6 +215,14 @@ async function updateDesc(id: number, desc: string) {
   console.log(`[planq] update desc task=${id} container=${cid()}`)
   await apiUpdate(props.containerId, id, { description: desc })
   emit('tasks-changed')
+}
+
+async function archiveTask(id: number) {
+  await apiArchiveTask(props.containerId, id)
+  emit('tasks-changed')
+  if (archiveOpen.value) {
+    archiveTasks.value = await apiFetchArchive(props.containerId)
+  }
 }
 
 async function archiveDone() {

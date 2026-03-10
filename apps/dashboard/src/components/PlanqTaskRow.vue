@@ -33,7 +33,7 @@
         :title="descPopupOpen ? 'Hide description' : 'Show description'"
       >{{ task.filename }}</button>
       <span v-else>{{ task.description }}</span>
-      <span v-if="task.auto_commit" class="ml-1 text-green-500 text-xs" title="Auto-commit after">+ac</span>
+      <span v-if="task.auto_commit" class="ml-1 text-green-500 text-xs" title="Auto-commit after">⇒</span>
     </span>
     <input
       v-else
@@ -75,18 +75,18 @@
         v-if="task.task_type !== 'auto-commit' && task.task_type !== 'manual-commit' && task.task_type !== 'manual-test' && task.task_type !== 'manual-task'"
         @click="emit('toggle-auto-commit', task)"
         class="text-xs px-1 font-mono"
-        :class="task.auto_commit ? 'text-green-400 hover:text-green-200' : 'text-slate-500 hover:text-green-400'"
+        :class="task.auto_commit ? 'text-green-400' : 'text-slate-500'"
         :title="task.auto_commit ? 'Remove auto-commit' : 'Auto-commit after this task'"
-      >+ac</button>
+      >⇒</button>
 
       <!-- Toggle auto-queue -->
       <button
         v-if="task.status === 'pending' || task.status === 'auto-queue'"
         @click="emit('set-status', task, task.status === 'auto-queue' ? 'pending' : 'auto-queue')"
         class="text-xs px-1"
-        :class="task.status === 'auto-queue' ? 'text-cyan-400 hover:text-cyan-200' : 'text-slate-500 hover:text-cyan-400'"
+        :class="task.status === 'auto-queue' ? 'text-slate-500' : 'text-cyan-400'"
         :title="task.status === 'auto-queue' ? 'Remove from auto-queue' : 'Add to auto-queue'"
-      >⏱</button>
+      >⧗</button>
 
       <!-- Mark underway / un-underway -->
       <button
@@ -112,6 +112,14 @@
         class="text-xs text-purple-400 hover:text-purple-200 px-1"
         :title="`Add ${derivedPlanFilename} to task list`"
       >+ plan</button>
+
+      <!-- Archive (done tasks only) -->
+      <button
+        v-if="task.status === 'done'"
+        @click="emit('archive', task.id)"
+        class="text-xs px-1 text-slate-400 hover:text-slate-200"
+        title="Archive this task"
+      >🗄️</button>
 
       <!-- Delete -->
       <button
@@ -158,6 +166,7 @@ const emit = defineEmits<{
   'dragstart': [id: number]
   'drop': [id: number]
   'add-plan': [planFilename: string]
+  'archive': [id: number]
 }>()
 
 const { readFile } = usePlanq()
