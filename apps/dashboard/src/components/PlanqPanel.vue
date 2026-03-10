@@ -72,6 +72,12 @@
           @click="showAddDialog = true"
           class="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300"
         >+ Add task</button>
+        <button
+          v-if="doneCount > 0"
+          @click="archiveDone"
+          class="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-400"
+          title="Move done tasks to archive"
+        >Archive done</button>
       </div>
 
       <!-- Archive section -->
@@ -141,7 +147,7 @@ const emit = defineEmits<{
   'tasks-changed': []
 }>()
 
-const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder, fetchArchive: apiFetchArchive, respondToAutoTest: apiRespondAutoTest } = usePlanq()
+const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder, fetchArchive: apiFetchArchive, archiveDone: apiArchiveDone, respondToAutoTest: apiRespondAutoTest } = usePlanq()
 
 const open = ref(true)
 const showAddDialog = ref(false)
@@ -155,7 +161,7 @@ const archiveLoading = ref(false)
 
 async function toggleArchive() {
   archiveOpen.value = !archiveOpen.value
-  if (archiveOpen.value && archiveTasks.value.length === 0) {
+  if (archiveOpen.value) {
     archiveLoading.value = true
     archiveTasks.value = await apiFetchArchive(props.containerId)
     archiveLoading.value = false
@@ -208,6 +214,14 @@ async function updateDesc(id: number, desc: string) {
   console.log(`[planq] update desc task=${id} container=${cid()}`)
   await apiUpdate(props.containerId, id, { description: desc })
   emit('tasks-changed')
+}
+
+async function archiveDone() {
+  const count = await apiArchiveDone(props.containerId)
+  emit('tasks-changed')
+  if (archiveOpen.value && count > 0) {
+    archiveTasks.value = await apiFetchArchive(props.containerId)
+  }
 }
 
 async function toggleAutoCommit(task: PlanqTask) {

@@ -16,6 +16,7 @@ import {
   updatePlanqTask,
   deletePlanqTask,
   reorderPlanqTasks,
+  archiveDoneTasks,
   touchPlanqServerModified,
   getPlanqServerModifiedAt,
   type ContainerRow,
@@ -878,6 +879,23 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     await writePlanqFile(containerId, container).catch(() => {});
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
     return json({ ok: true });
+  }
+
+  // POST /planq/:id/tasks/archive-done
+  if (pathname.match(/^\/planq\/[^/]+\/tasks\/archive-done$/) && method === 'POST') {
+    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const container = getContainer(containerId);
+    if (!container) return err('Container not found', 404);
+
+    const { count, historyContent } = archiveDoneTasks(containerId);
+    touchPlanqServerModified(containerId);
+
+    await writePlanqFile(containerId, container).catch(() => {});
+    if (count > 0 && containerWsMap.has(containerId)) {
+      await relayFileWrite(containerId, 'archive/planq-history.txt', historyContent).catch(() => {});
+    }
+    broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
+    return json({ ok: true, archived: count });
   }
 
   // POST /planq/:id/auto-test/respond

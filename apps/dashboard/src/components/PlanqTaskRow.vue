@@ -5,6 +5,7 @@
     :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue' }"
     draggable="true"
     @dragstart="emit('dragstart', task.id)"
+    @dragenter.prevent
     @dragover.prevent
     @drop="emit('drop', task.id)"
   >

@@ -381,3 +381,22 @@ export function getArchiveTasks(containerId: string): PlanqItem[] {
   if (!row?.planq_history) return [];
   return parsePlanqOrder(row.planq_history);
 }
+
+export function archiveDoneTasks(containerId: string): { count: number; historyContent: string } {
+  const doneTasks = (db.prepare(
+    "SELECT * FROM planq_tasks WHERE container_id = ? AND status = 'done' ORDER BY position"
+  ).all(containerId) as any[]).map(r => ({ ...r, auto_commit: Boolean(r.auto_commit) })) as PlanqTaskRow[];
+
+  if (doneTasks.length === 0) return { count: 0, historyContent: '' };
+
+  const existingRow = db.prepare('SELECT planq_history FROM containers WHERE id = ?').get(containerId) as any;
+  const existingHistory: string = existingRow?.planq_history ?? '';
+  const newEntries = serializePlanqOrder(doneTasks);
+  const updatedHistory = (existingHistory ? existingHistory.trimEnd() + '\n' : '') + newEntries;
+
+  db.prepare('UPDATE containers SET planq_history = ? WHERE id = ?').run(updatedHistory, containerId);
+  const stmt = db.prepare('DELETE FROM planq_tasks WHERE id = ?');
+  for (const task of doneTasks) stmt.run(task.id);
+
+  return { count: doneTasks.length, historyContent: updatedHistory };
+}

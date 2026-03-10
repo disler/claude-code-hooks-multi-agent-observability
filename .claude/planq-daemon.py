@@ -124,6 +124,7 @@ def _write_status(state: str, detail: str = ''):
 ALLOWED_FILENAME = re.compile(
     r'^(?:planq-order(?:-[A-Za-z0-9._-]+)?\.txt'
     r'|auto-test-response\.txt'
+    r'|archive/planq-history\.txt'
     r'|[A-Za-z0-9][A-Za-z0-9._-]*\.md)$'
 )
 
@@ -131,7 +132,8 @@ def _validate_filename(filename: str) -> bool:
     """Return True iff filename is safe to read/write under plans/."""
     if not filename or not ALLOWED_FILENAME.match(filename):
         return False
-    if '/' in filename or '\\' in filename or '\x00' in filename:
+    bare = filename[len('archive/'):] if filename.startswith('archive/') else filename
+    if '/' in bare or '\\' in filename or '\x00' in filename:
         return False
     plans_dir = str((WORKSPACE_ROOT / 'plans').resolve())
     target = os.path.realpath(os.path.join(plans_dir, filename))

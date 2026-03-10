@@ -59,7 +59,7 @@ export function usePlanq() {
       const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks/reorder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reorder }),
+        body: JSON.stringify(reorder),
       })
       return res.ok
     } catch {
@@ -111,6 +111,19 @@ export function usePlanq() {
     }
   }
 
+  async function archiveDone(containerId: string): Promise<number> {
+    try {
+      const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks/archive-done`, {
+        method: 'POST',
+      })
+      if (!res.ok) return 0
+      const data = await res.json()
+      return data.archived ?? 0
+    } catch {
+      return 0
+    }
+  }
+
   async function respondToAutoTest(containerId: string, response: 'continue' | 'abort'): Promise<boolean> {
     try {
       const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/auto-test/respond`, {
@@ -124,6 +137,6 @@ export function usePlanq() {
     }
   }
 
-  return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile, listPlansFiles, fetchArchive, respondToAutoTest }
+  return { addTask, updateTask, deleteTask, reorderTasks, readFile, writeFile, listPlansFiles, fetchArchive, archiveDone, respondToAutoTest }
 
 }
