@@ -37,6 +37,12 @@ const gitShowCache = new Map<string, string>();
 // sourceRepo → host → epoch ms
 const branchLastCommit = new Map<string, Map<string, number>>();
 
+// ── Planq sync tracking (in-memory) ───────────────────────────────────────────
+// Records timestamp of the last successful planq file write to each daemon.
+// Used to detect unsynced server-side changes on daemon reconnection.
+// containerId → epoch ms
+const planqSyncedAt = new Map<string, number>();
+
 // ── WebSocket connection stores ───────────────────────────────────────────────
 
 // container_id → WebSocket (planq daemon connection)
@@ -313,8 +319,11 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       console.log(`[heartbeat] ${hbCtx}: cancelled pending offline timer (reconnected)`);
     }
 
+    // Detect reconnection: WS not yet registered for this container
+    const isReconnect = !containerWsMap.has(containerId);
+
     // Register WS if not already and update its label with full identity
-    if (!containerWsMap.has(containerId)) {
+    if (isReconnect) {
       containerWsMap.set(containerId, ws);
       ws.__containerId = containerId;
       const addr = (ws.data as any)?.addr ?? 'unknown';
@@ -403,12 +412,21 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
 
     console.log(`[heartbeat] ${hbCtx}: upserted connected=${container.connected} sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}] git: staged=${msg.git_staged_count ?? 'n/a'} unstaged=${msg.git_unstaged_count ?? 'n/a'} branch=${msg.git_branch ?? '-'}`);
 
-    // Sync planq tasks from planq_order text — but only if the server hasn't made local
-    // edits more recently (30s grace period avoids a race where the heartbeat file read
-    // predates a server-initiated file write, which would revert server-side changes).
-    if (msg.planq_order) {
-      const lastServerEdit = getPlanqServerModifiedAt(containerId);
-      if (Date.now() - lastServerEdit > 30_000) {
+    // Sync planq tasks: if the server has unsynced changes (e.g. edits made while daemon
+    // was offline), push server state to daemon. Otherwise accept daemon's planq_order,
+    // subject to a 30s grace period to avoid a race where the heartbeat file read predates
+    // a server-initiated file write.
+    const serverModified = getPlanqServerModifiedAt(containerId);
+    const serverSynced = planqSyncedAt.get(containerId) ?? 0;
+    const hasUnsyncedServerChanges = serverModified > serverSynced;
+    if (hasUnsyncedServerChanges && isReconnect) {
+      // Push server's authoritative state to the reconnected daemon
+      console.log(`[heartbeat] ${hbCtx}: pushing unsynced server planq state to daemon (serverModified=${serverModified} serverSynced=${serverSynced})`);
+      writePlanqFile(containerId, container).then(() => {
+        planqSyncedAt.set(containerId, Date.now());
+      }).catch(() => {});
+    } else if (msg.planq_order && !hasUnsyncedServerChanges) {
+      if (Date.now() - serverModified > 30_000) {
         const items = parsePlanqOrder(msg.planq_order);
         syncPlanqTasksFromParsed(containerId, items);
       }
@@ -1225,4 +1243,5 @@ async function writePlanqFile(containerId: string, _container: ContainerRow): Pr
   const tasks = getPlanqTasks(containerId);
   const content = serializePlanqOrder(tasks);
   await relayFileWrite(containerId, 'planq-order.txt', content);
+  planqSyncedAt.set(containerId, Date.now());
 }
