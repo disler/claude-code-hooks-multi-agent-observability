@@ -91,6 +91,10 @@ _immediate_heartbeat = threading.Event()
 _git_known_hashes: list = []
 _git_known_hashes_lock = threading.Lock()
 
+# Per-submodule known hashes: { source_repo -> list[hash] }
+_submodule_known_hashes: dict = {}
+_submodule_known_hashes_lock = threading.Lock()
+
 def _handle_sigusr1(signum, frame):
     log.debug('Received SIGUSR1 — scheduling immediate heartbeat')
     _immediate_heartbeat.set()
@@ -240,10 +244,13 @@ def _git_submodule_info(ws):
         })
     return submodules
 
-def _git_log_for_path(cwd) -> list:
-    """Return recent commits (up to 50) for a given git repo path."""
+def _git_log_for_path(cwd, known=None) -> list:
+    """Return commits for a git repo path, excluding already-known hashes."""
+    not_args = []
+    for h in (known or []):
+        not_args.extend(['--not', h])
     raw = _run(
-        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'],
+        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'] + not_args,
         cwd=cwd,
     )
     commits = []
@@ -264,17 +271,20 @@ def _git_log_for_path(cwd) -> list:
 
 
 def _git_log_for_submodules() -> dict:
-    """Return git commits for each submodule, keyed by submodule source_repo."""
+    """Return incremental git commits for each submodule, keyed by submodule source_repo."""
     result = {}
     ws = str(WORKSPACE_ROOT)
     submodules = _git_submodule_info(ws)
+    with _submodule_known_hashes_lock:
+        known_snapshot = dict(_submodule_known_hashes)
     for sub in submodules:
         sub_path = sub.get('path', '')
         if not sub_path:
             continue
         sub_abs = str(WORKSPACE_ROOT / sub_path)
         sub_source_repo = f"{SOURCE_REPO}/{sub_path}"
-        commits = _git_log_for_path(sub_abs)
+        known = known_snapshot.get(sub_source_repo, [])
+        commits = _git_log_for_path(sub_abs, known)
         if commits:
             result[sub_source_repo] = commits
     return result
@@ -529,6 +539,11 @@ def _run_connection():
             with _git_known_hashes_lock:
                 global _git_known_hashes
                 _git_known_hashes = msg.get('hashes', [])
+        elif mtype == 'submodule_git_known_hashes':
+            with _submodule_known_hashes_lock:
+                global _submodule_known_hashes
+                for repo, hashes in msg.get('tips', {}).items():
+                    _submodule_known_hashes[repo] = hashes
 
     def on_error(ws, error):
         log.error('WebSocket error: %s', error)

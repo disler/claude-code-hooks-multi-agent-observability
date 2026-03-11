@@ -458,14 +458,17 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       upsertGitCommitRefs(sourceRepo, container.machine_hostname, msg.git_commits);
     }
 
-    // Upsert submodule commits sent by daemon
+    // Upsert submodule commits sent by daemon, then send back tips per submodule
     if (msg.submodule_commits && typeof msg.submodule_commits === 'object') {
+      const submoduleTips: Record<string, string[]> = {};
       for (const [subRepo, commits] of Object.entries(msg.submodule_commits)) {
         if (Array.isArray(commits) && commits.length > 0) {
           upsertGitCommits(subRepo, commits as any[]);
           upsertGitCommitRefs(subRepo, container.machine_hostname, commits as any[]);
         }
+        submoduleTips[subRepo] = getGitTips(subRepo);
       }
+      try { ws.send(JSON.stringify({ type: 'submodule_git_known_hashes', tips: submoduleTips })); } catch {}
     }
 
     // Send DAG frontier back so daemon can send only new commits next time
