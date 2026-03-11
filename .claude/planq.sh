@@ -46,6 +46,9 @@ _list_tasks() {
         elif [[ "$trimmed" == "# auto-queue:"* ]]; then
             i=$((i + 1))
             printf "  \033[36m⏱  %-3d  %s\033[0m\n" "$i" "${trimmed#"# auto-queue: "}"
+        elif [[ "$trimmed" == "# awaiting-commit:"* ]]; then
+            i=$((i + 1))
+            printf "  \033[35m💾 %-3d  %s\033[0m\n" "$i" "${trimmed#"# awaiting-commit: "}"
         elif [[ "$trimmed" == "#"* ]]; then
             continue  # regular comment — skip
         else
@@ -79,7 +82,7 @@ _find_task_by_number() {
         n=$((n + 1))
         local trimmed="${line#"${line%%[![:space:]]*}"}"
         [ -z "$trimmed" ] && continue
-        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* && "$trimmed" != "# auto-queue:"* ]] && continue  # skip regular comments
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* && "$trimmed" != "# auto-queue:"* && "$trimmed" != "# awaiting-commit:"* ]] && continue  # skip regular comments
         i=$((i + 1))
         if [ "$i" -eq "$target" ]; then
             # Strip status prefixes if present so we get the raw task line
@@ -89,6 +92,8 @@ _find_task_by_number() {
                 trimmed="${trimmed#"# underway: "}"
             elif [[ "$trimmed" == "# auto-queue: "* ]]; then
                 trimmed="${trimmed#"# auto-queue: "}"
+            elif [[ "$trimmed" == "# awaiting-commit: "* ]]; then
+                trimmed="${trimmed#"# awaiting-commit: "}"
             fi
             printf '%d\t%s\n' "$n" "$trimmed"
             return
@@ -109,7 +114,7 @@ _find_task_by_identifier() {
         n=$((n + 1))
         local trimmed="${line#"${line%%[![:space:]]*}"}"
         [ -z "$trimmed" ] && continue
-        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* && "$trimmed" != "# auto-queue:"* ]] && continue
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* && "$trimmed" != "# auto-queue:"* && "$trimmed" != "# awaiting-commit:"* ]] && continue
         local task_line="$trimmed"
         if [[ "$task_line" == "# done: "* ]]; then
             task_line="${task_line#"# done: "}"
@@ -117,10 +122,13 @@ _find_task_by_identifier() {
             task_line="${task_line#"# underway: "}"
         elif [[ "$task_line" == "# auto-queue: "* ]]; then
             task_line="${task_line#"# auto-queue: "}"
+        elif [[ "$task_line" == "# awaiting-commit: "* ]]; then
+            task_line="${task_line#"# awaiting-commit: "}"
         fi
         local task_value="${task_line#*: }"
-        # Strip +auto-commit suffix for comparison (it's a flag, not part of filename/description)
+        # Strip +auto-commit / +stage-commit suffix for comparison (flags, not part of filename/description)
         local cmp_value="${task_value% +auto-commit}"
+        cmp_value="${cmp_value% +stage-commit}"
         if [ "$cmp_value" = "$ident" ] || [ "$task_value" = "$ident" ]; then
             printf '%d\t%s\n' "$n" "$task_line"
             return
@@ -168,6 +176,16 @@ _mark_auto_queue() {
     mv "$tmp" "$PLANQ_FILE"
 }
 
+_mark_awaiting_commit() {
+    local line_num="$1" original_line="$2"
+    local tmp
+    tmp="$(mktemp)"
+    awk -v n="$line_num" -v orig="$original_line" \
+        'NR == n { print "# awaiting-commit: " orig; next } { print }' \
+        "$PLANQ_FILE" > "$tmp"
+    mv "$tmp" "$PLANQ_FILE"
+}
+
 # Outputs: line_number TAB task_line  (first auto-queue task only)
 _find_next_auto_task() {
     [ ! -f "$PLANQ_FILE" ] && return
@@ -178,6 +196,20 @@ _find_next_auto_task() {
         [ -z "$trimmed" ] && continue
         [[ "$trimmed" == "# auto-queue: "* ]] || continue
         printf '%d\t%s\n' "$n" "${trimmed#"# auto-queue: "}"
+        return
+    done < "$PLANQ_FILE"
+}
+
+# Outputs: line_number TAB task_line  (first awaiting-commit task only)
+_find_next_awaiting_commit_task() {
+    [ ! -f "$PLANQ_FILE" ] && return
+    local n=0
+    while IFS= read -r line; do
+        n=$((n + 1))
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "# awaiting-commit: "* ]] || continue
+        printf '%d\t%s\n' "$n" "${trimmed#"# awaiting-commit: "}"
         return
     done < "$PLANQ_FILE"
 }
@@ -248,14 +280,19 @@ _delete_line() {
 }
 
 _parse_task() {
-    # Args: task_line → sets task_type, task_value, task_auto_commit in caller scope
+    # Args: task_line → sets task_type, task_value, task_auto_commit, task_stage_commit in caller scope
     local line="$1"
     task_type="${line%%:*}"
     task_value="${line#*: }"
     task_auto_commit=""
+    task_stage_commit=""
     if [[ "$task_value" == *" +auto-commit" ]]; then
         task_auto_commit="1"
         task_value="${task_value% +auto-commit}"
+    fi
+    if [[ "$task_value" == *" +stage-commit" ]]; then
+        task_stage_commit="1"
+        task_value="${task_value% +stage-commit}"
     fi
 }
 
@@ -381,7 +418,7 @@ cmd_list() {
 
 _show_task_details() {
     local label="$1" task_line="$2" plans_base="$3"
-    local task_type task_value task_auto_commit
+    local task_type task_value task_auto_commit task_stage_commit
     _parse_task "$task_line"
 
     echo "${label}:"
@@ -406,6 +443,7 @@ _show_task_details() {
         printf "  Desc:  %s\n" "$task_value"
     fi
     [ -n "$task_auto_commit" ] && printf "  Auto-commit after: yes\n"
+    [ -n "$task_stage_commit" ] && printf "  Stage-commit after: yes\n"
 }
 
 cmd_show() {
@@ -483,7 +521,7 @@ cmd_run() {
         fi
     fi
 
-    local line_num task_line task_type task_value task_auto_commit
+    local line_num task_line task_type task_value task_auto_commit task_stage_commit
     line_num="$(printf '%s' "$next" | cut -f1)"
     task_line="$(printf '%s' "$next" | cut -f2-)"
     _parse_task "$task_line"
@@ -571,6 +609,18 @@ cmd_run() {
         _run_auto_commit "" || { _notify_daemon; return 1; }
     fi
 
+    # If the task had +stage-commit, stage changes and mark awaiting-commit instead of done
+    if [ -n "$task_stage_commit" ] && [ "$task_type" != "auto-commit" ]; then
+        if _run_stage_commit ""; then
+            _mark_awaiting_commit "$line_num" "$task_line"
+            echo "stage-commit: changes staged. Commit when ready, then task will be marked done."
+        else
+            _notify_daemon; return 1
+        fi
+        _notify_daemon
+        return 0
+    fi
+
     _notify_daemon
 }
 
@@ -654,13 +704,92 @@ _run_auto_commit() {
     _invoke_claude "$claude_prompt"
 }
 
+# Stage changes and write a commit message via Claude, without committing.
+# $1 = task_value (optional extra instructions for Claude)
+# Returns 0 on success, 1 on error/abort.
+_run_stage_commit() {
+    local task_value="$1"
+
+    # Check for git
+    if ! git -C "$WORKSPACE_ROOT" rev-parse --git-dir > /dev/null 2>&1; then
+        echo "stage-commit: not a git repository." >&2
+        return 1
+    fi
+
+    local staged_count unstaged_count
+    staged_count="$(git -C "$WORKSPACE_ROOT" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
+    unstaged_count="$(git -C "$WORKSPACE_ROOT" diff --name-only 2>/dev/null | wc -l | tr -d ' ')"
+
+    if [ "$staged_count" -eq 0 ] && [ "$unstaged_count" -eq 0 ]; then
+        echo "stage-commit: nothing to stage (working tree clean)."
+        return 0
+    fi
+
+    # Build prompt for Claude
+    local claude_prompt="Please stage all relevant git changes and write an appropriate commit message to .git/COMMIT_EDITMSG, but do NOT actually commit. Stage the files, then write the commit message to .git/COMMIT_EDITMSG."
+
+    local extra_instructions=""
+    if [ -f "$_AUTO_COMMIT_CONFIG" ]; then
+        local conf_title conf_desc
+        conf_title="$(grep '^title=' "$_AUTO_COMMIT_CONFIG" 2>/dev/null | head -1 | cut -d= -f2-)"
+        conf_desc="$(grep '^description=' "$_AUTO_COMMIT_CONFIG" 2>/dev/null | head -1 | cut -d= -f2-)"
+        [ -n "$conf_title" ] && extra_instructions="${extra_instructions}Use this as the commit title: ${conf_title}. "
+        [ -n "$conf_desc" ] && extra_instructions="${extra_instructions}Description source: ${conf_desc}. "
+    fi
+    [ -n "$task_value" ] && extra_instructions="${extra_instructions}${task_value}"
+
+    [ -n "$extra_instructions" ] && claude_prompt="${claude_prompt} ${extra_instructions}"
+
+    echo "stage-commit: asking Claude to stage changes and prepare commit message..."
+    _invoke_claude "$claude_prompt"
+}
+
+# Wait for the user to commit staged changes (for +stage-commit tasks in auto mode).
+# $1 = line_num, $2 = task_line
+# Marks the task done when commit is detected; returns silently if status changes away.
+_wait_for_stage_commit() {
+    local line_num="$1" task_line="$2"
+    echo "awaiting-commit: waiting for staged changes to be committed..."
+    local git_dir
+    git_dir="$(git -C "$WORKSPACE_ROOT" rev-parse --git-dir 2>/dev/null || true)"
+    if [ -n "$git_dir" ]; then
+        echo "  Commit message ready: ${git_dir}/COMMIT_EDITMSG"
+        echo "  Run: git commit"
+    fi
+    echo "  To abort staging: planq mark underway <task>"
+
+    while true; do
+        sleep 3
+
+        # Check if the task is still in awaiting-commit state
+        local current_line
+        current_line="$(awk -v n="$line_num" 'NR == n { print; exit }' "$PLANQ_FILE" 2>/dev/null || true)"
+        current_line="${current_line#"${current_line%%[![:space:]]*}"}"
+        if [[ "$current_line" != "# awaiting-commit: "* ]]; then
+            echo "awaiting-commit: task no longer in awaiting-commit state."
+            return
+        fi
+
+        # Check if staged changes are gone (commit happened)
+        local staged_count
+        staged_count="$(git -C "$WORKSPACE_ROOT" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
+        if [ "$staged_count" -eq 0 ]; then
+            echo "awaiting-commit: commit detected, marking task as done."
+            _mark_done "$line_num" "$task_line"
+            _notify_daemon
+            return
+        fi
+    done
+}
+
 cmd_create() {
-    local task_type="unnamed-task" filename="" description="" auto_commit=""
+    local task_type="unnamed-task" filename="" description="" auto_commit="" stage_commit=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --type|-t) task_type="${2:-}"; shift 2 ;;
             --file|-f) filename="${2:-}"; shift 2 ;;
             --auto-commit) auto_commit="1"; shift ;;
+            --stage-commit) stage_commit="1"; shift ;;
             *) description="$1"; shift ;;
         esac
     done
@@ -696,6 +825,7 @@ cmd_create() {
     esac
 
     [ -n "$auto_commit" ] && task_line="${task_line} +auto-commit"
+    [ -n "$stage_commit" ] && task_line="${task_line} +stage-commit"
 
     mkdir -p "$PLANS_DIR"
     printf '%s\n' "$task_line" >> "$PLANQ_FILE"
@@ -721,14 +851,15 @@ cmd_mark() {
         state="${state%%:*}"
     fi
     if [ -z "$state" ] || [ -z "$ident" ]; then
-        echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q> <N|filename|text>" >&2; return 1
+        echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q|awaiting-commit|ac> <N|filename|text>" >&2; return 1
     fi
     case "$state" in
-        done|d)         state=done ;;
-        underway|u)     state=underway ;;
-        inactive|i)     state=inactive ;;
-        queue|q)        state=queue ;;
-        *) echo "Error: state must be done/d, underway/u, inactive/i, or queue/q; got: $state" >&2; return 1 ;;
+        done|d)                  state=done ;;
+        underway|u)              state=underway ;;
+        inactive|i)              state=inactive ;;
+        queue|q)                 state=queue ;;
+        awaiting-commit|ac)      state=awaiting-commit ;;
+        *) echo "Error: state must be done/d, underway/u, inactive/i, queue/q, or awaiting-commit/ac; got: $state" >&2; return 1 ;;
     esac
     local next
     next="$(_find_task_by_identifier "$ident")"
@@ -740,10 +871,11 @@ cmd_mark() {
     task_line="$(printf '%s' "$next" | cut -f2-)"
     echo "Task: $task_line"
     case "$state" in
-        done)     _mark_done       "$line_num" "$task_line"; echo "Marked as done." ;;
-        underway) _mark_underway   "$line_num" "$task_line"; echo "Marked as underway." ;;
-        inactive) _mark_inactive   "$line_num" "$task_line"; echo "Marked as inactive (pending)." ;;
-        queue)    _mark_auto_queue "$line_num" "$task_line"; echo "Marked as auto-queue." ;;
+        done)             _mark_done            "$line_num" "$task_line"; echo "Marked as done." ;;
+        underway)         _mark_underway        "$line_num" "$task_line"; echo "Marked as underway." ;;
+        inactive)         _mark_inactive        "$line_num" "$task_line"; echo "Marked as inactive (pending)." ;;
+        queue)            _mark_auto_queue      "$line_num" "$task_line"; echo "Marked as auto-queue." ;;
+        awaiting-commit)  _mark_awaiting_commit "$line_num" "$task_line"; echo "Marked as awaiting-commit." ;;
     esac
     _notify_daemon
 }
@@ -752,7 +884,7 @@ _run_task_inline() {
     # Run a task (already stripped of status prefix) and mark it done.
     # $1 = line_num, $2 = task_line
     local line_num="$1" task_line="$2"
-    local task_type task_value task_auto_commit
+    local task_type task_value task_auto_commit task_stage_commit
     _parse_task "$task_line"
     echo "Auto-running: $task_line"
     _mark_underway "$line_num" "$task_line"
@@ -824,6 +956,18 @@ _run_task_inline() {
         _run_auto_commit "" || { _notify_daemon; return 1; }
     fi
 
+    # If the task had +stage-commit, stage changes and mark awaiting-commit instead of done
+    if [ -n "$task_stage_commit" ] && [ "$task_type" != "auto-commit" ]; then
+        if _run_stage_commit ""; then
+            _mark_awaiting_commit "$line_num" "$task_line"
+            echo "stage-commit: changes staged. Commit when ready."
+            _notify_daemon
+            return 0
+        else
+            _notify_daemon; return 1
+        fi
+    fi
+
     _mark_done "$line_num" "$task_line"
     _notify_daemon
 }
@@ -859,6 +1003,18 @@ cmd_auto() {
 
     local idle_msg_shown=0
     while true; do
+        # Check for awaiting-commit tasks first — they block auto-queue progression
+        local awaiting
+        awaiting="$(_find_next_awaiting_commit_task)"
+        if [ -n "$awaiting" ]; then
+            idle_msg_shown=0
+            local ac_line_num ac_task_line
+            ac_line_num="$(printf '%s' "$awaiting" | cut -f1)"
+            ac_task_line="$(printf '%s' "$awaiting" | cut -f2-)"
+            _wait_for_stage_commit "$ac_line_num" "$ac_task_line"
+            continue
+        fi
+
         local next
         next="$(_find_next_auto_task)"
         if [ -z "$next" ]; then
@@ -1028,11 +1184,12 @@ usage_create() {
     echo "    planq create -t make-plan -f make-plan-001.md 'Design a caching layer for the API'"
 }
 usage_mark()   {
-    echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q> <N|filename|text>"
+    echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q|awaiting-commit|ac> <N|filename|text>"
     echo "       planq mark:<state> <N|filename|text>"
     echo "  Mark a task with a status."
     echo "  Identify the task by number, by its filename (for task/plan/make-plan), or by its exact description text (for unnamed-task etc.)."
-    echo "  inactive/i restores a done/underway/auto-queue task to pending."
+    echo "  inactive/i restores a done/underway/auto-queue/awaiting-commit task to pending."
+    echo "  awaiting-commit/ac marks a task as waiting for user to commit staged changes."
     echo "  queue/q marks a task for automatic execution by 'planq auto'."
 }
 usage_auto()   {
@@ -1054,7 +1211,7 @@ usage() {
     echo "  run     / r [N] [--dry-run|-n]                 Run next pending task, or task #N"
     echo "  auto    / A                                    Run auto-queued tasks continuously"
     echo "  create  / c [-t <type>] [-f <file>] [<desc>]   Add a task (default type: unnamed-task)"
-    echo "  mark    / m <done|underway|inactive|queue> <N|…>  Mark a task (also: mark:<state> / m:<state>)"
+    echo "  mark    / m <done|underway|inactive|queue|awaiting-commit> <N|…>  Mark a task (also: mark:<state> / m:<state>)"
     echo "  delete  / x <N>                                Delete task #N"
     echo "  archive / a [N|…] [--unarchive|-U <N|…>]      Archive done tasks; -a flag on list/show for archive"
     echo "  daemon  / d [start|stop|restart|status]        Manage the planq WebSocket daemon"
