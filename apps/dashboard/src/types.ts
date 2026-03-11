@@ -98,6 +98,7 @@ export interface GitViewData {
   containers: GitContainer[]
   commits: GitCommit[]
   refsPerHost: Array<{ hash: string; host: string; localBranches: string[] }>
+  remote_url?: string | null
 }
 
 export type DashboardMessage =

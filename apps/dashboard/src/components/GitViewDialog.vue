@@ -83,6 +83,7 @@
             :containers="filteredContainers"
             :refs-per-host="filteredRefsPerHost"
             :selected-hash="selectedHash"
+            :remote-url="gitData.remote_url ?? undefined"
             @select-hash="selectHash"
           />
           <GitListView

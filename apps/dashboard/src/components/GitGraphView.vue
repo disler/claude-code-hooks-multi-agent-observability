@@ -161,6 +161,27 @@
             >{{ badge.text }}</text>
           </g>
 
+          <!-- PR link icons for local branch badges with remote tracking refs -->
+          <a
+            v-for="(badge, bi) in allBadgesForCommit(row.commit)"
+            :key="'pr-' + bi"
+            v-show="badge.prUrl && (badgeOffsets[i]?.[bi]?.prW ?? 0) > 0"
+            :href="badge.prUrl"
+            target="_blank"
+            @click.stop
+            class="cursor-pointer"
+            title="Create pull request on GitHub"
+          >
+            <g :transform="`translate(${badgeOffsets[i]?.[bi]?.prX ?? 0}, -6) scale(0.875)`">
+              <rect width="16" height="13" fill="#052e16" rx="2" opacity="0.85" />
+              <path
+                d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"
+                transform="translate(1, 0) scale(0.8)"
+                fill="#4ade80"
+              />
+            </g>
+          </a>
+
           <!-- Commit hash + subject -->
           <text
             :x="badgeOffsets[i]?.[allBadgesForCommit(row.commit).length]?.x ?? 0"
@@ -227,6 +248,7 @@ const props = defineProps<{
   containers: GitContainer[]
   selectedHash: string | null
   refsPerHost: Array<{ hash: string; host: string; localBranches: string[] }>
+  remoteUrl?: string
 }>()
 
 const emit = defineEmits<{
@@ -305,6 +327,29 @@ function containerLabels(hash: string): ContainerLabel[] {
   })
 }
 
+// Parse GitHub remote URL into { owner, repo } or null
+const githubInfo = computed(() => {
+  if (!props.remoteUrl) return null
+  const m = props.remoteUrl.match(/github\.com[/:]([^/]+)\/([^/\s.]+?)(\.git)?\s*$/)
+  if (!m) return null
+  return { owner: m[1], repo: m[2] }
+})
+
+// Detect the default branch from remote tracking refs (origin/main preferred over origin/master)
+const defaultBranch = computed(() => {
+  for (const commit of props.commits) {
+    for (const ref of commit.refs) {
+      if (ref === 'origin/main' || ref.endsWith('/main')) return 'main'
+    }
+  }
+  for (const commit of props.commits) {
+    for (const ref of commit.refs) {
+      if (ref === 'origin/master' || ref.endsWith('/master')) return 'master'
+    }
+  }
+  return 'main'
+})
+
 // Per-host local branch data: map from hash → map from host → branch names
 const refsByHash = computed(() => {
   const map = new Map<string, Map<string, string[]>>()
@@ -331,7 +376,7 @@ const conflictBranches = computed(() => {
   return conflicts
 })
 
-interface BadgeInfo { text: string; bgColor: string; textColor: string; opacity: string }
+interface BadgeInfo { text: string; bgColor: string; textColor: string; opacity: string; prUrl?: string }
 
 function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
   const badges: BadgeInfo[] = []
@@ -342,11 +387,20 @@ function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
     for (const [host, branches] of hostMap) {
       for (const branch of branches) {
         const dim = !conflictBranches.value.has(branch)
+        // Show PR button if this branch has a remote tracking ref at this commit and isn't the default branch
+        let prUrl: string | undefined
+        if (githubInfo.value && branch !== defaultBranch.value) {
+          const hasRemote = commit.refs.some(r => r === `origin/${branch}` || (r.includes('/') && r.split('/').slice(1).join('/') === branch))
+          if (hasRemote) {
+            prUrl = `https://github.com/${githubInfo.value.owner}/${githubInfo.value.repo}/compare/${defaultBranch.value}...${branch}?expand=1`
+          }
+        }
         badges.push({
           text: `${branch}@${host}`,
           bgColor: '#1e3a5f',
           textColor: '#7dd3fc',
           opacity: dim ? '0.45' : '0.9',
+          prUrl,
         })
       }
     }
@@ -408,13 +462,15 @@ const containerLabelOffsets = computed(() => {
   return result
 })
 
+const PR_ICON_W = 14  // width of pull request icon button
+
 // Compute x-offsets for all badge + hash text per row (starting after container labels + dirty badges)
 const badgeOffsets = computed(() => {
-  const result: Array<Array<{ x: number; w: number }>> = []
+  const result: Array<Array<{ x: number; w: number; prX: number; prW: number }>> = []
   for (let i = 0; i < layout.value.length; i++) {
     const row = layout.value[i]
     const badges = allBadgesForCommit(row.commit)
-    const offsets: Array<{ x: number; w: number }> = []
+    const offsets: Array<{ x: number; w: number; prX: number; prW: number }> = []
     const clOffsets = containerLabelOffsets.value[i] ?? []
     const lastCl = clOffsets[clOffsets.length - 1]
     let x: number
@@ -429,11 +485,13 @@ const badgeOffsets = computed(() => {
     }
     for (const b of badges) {
       const w = b.text.length * 6 + 8
-      offsets.push({ x, w })
-      x += w + 4
+      const prW = b.prUrl ? PR_ICON_W : 0
+      const prX = x + w + 3
+      offsets.push({ x, w, prX, prW })
+      x += w + 4 + (prW > 0 ? prW + 3 : 0)
     }
     // Hash text offset sentinel
-    offsets.push({ x, w: 60 })
+    offsets.push({ x, w: 60, prX: 0, prW: 0 })
     result.push(offsets)
   }
   return result

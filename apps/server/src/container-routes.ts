@@ -386,6 +386,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       git_staged_diffstat: msg.git_staged_diffstat ?? null,
       git_unstaged_count: msg.git_unstaged_count ?? 0,
       git_unstaged_diffstat: msg.git_unstaged_diffstat ?? null,
+      git_remote_url: msg.git_remote_url ?? null,
       git_submodules: Array.isArray(msg.git_submodules) ? msg.git_submodules : [],
       planq_order: msg.planq_order ?? null,
       planq_history: msg.planq_history ?? null,
@@ -870,7 +871,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
           .filter(r => r.localBranches.length > 0)
       : fallbackRefsPerHost;
 
-    return json({ containers, commits: storedCommits, refsPerHost });
+    const remoteUrl = allContainers.find(c => c.git_remote_url)?.git_remote_url ?? null;
+    return json({ containers, commits: storedCommits, refsPerHost, remote_url: remoteUrl });
   }
 
   // GET /dashboard/git-show/:repo/:hash

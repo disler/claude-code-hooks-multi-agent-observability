@@ -185,6 +185,8 @@ def _git_info():
 
     submodules = _git_submodule_info(ws)
 
+    remote_url = _run(['git', 'remote', 'get-url', 'origin'], cwd=ws)
+
     return {
         'git_branch': branch,
         'git_worktree': worktree,
@@ -195,6 +197,7 @@ def _git_info():
         'git_unstaged_count': unstaged_count,
         'git_unstaged_diffstat': unstaged_diffstat,
         'git_submodules': submodules,
+        'git_remote_url': remote_url,
     }
 
 

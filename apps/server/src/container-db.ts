@@ -25,6 +25,7 @@ export interface ContainerRow {
   git_staged_diffstat: string | null;
   git_unstaged_count: number;
   git_unstaged_diffstat: string | null;
+  git_remote_url: string | null;
   git_submodules: GitSubmoduleInfo[]; // parsed from JSON
   planq_order: string | null;
   planq_history: string | null;
@@ -72,6 +73,7 @@ export function initContainerDatabase(): void {
       git_staged_diffstat TEXT,
       git_unstaged_count INTEGER DEFAULT 0,
       git_unstaged_diffstat TEXT,
+      git_remote_url TEXT,
       git_submodules TEXT DEFAULT '[]',
       planq_order TEXT,
       planq_history TEXT,
@@ -141,6 +143,9 @@ export function initContainerDatabase(): void {
   if (!columns.includes('auto_test_pending')) {
     db.exec('ALTER TABLE containers ADD COLUMN auto_test_pending TEXT');
   }
+  if (!columns.includes('git_remote_url')) {
+    db.exec('ALTER TABLE containers ADD COLUMN git_remote_url TEXT');
+  }
 
   // Migration for planq_tasks columns added after initial schema
   const taskColumns = (db.prepare('PRAGMA table_info(planq_tasks)').all() as any[]).map((r: any) => r.name);
@@ -169,8 +174,8 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       (id, source_repo, machine_hostname, container_hostname, workspace_host_path,
        git_branch, git_worktree, git_commit_hash, git_commit_message,
        git_staged_count, git_staged_diffstat, git_unstaged_count, git_unstaged_diffstat,
-       git_submodules, planq_order, planq_history, auto_test_pending, active_session_ids, running_session_ids, last_seen, connected)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+       git_remote_url, git_submodules, planq_order, planq_history, auto_test_pending, active_session_ids, running_session_ids, last_seen, connected)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
     ON CONFLICT(id) DO UPDATE SET
       source_repo=excluded.source_repo,
       machine_hostname=excluded.machine_hostname,
@@ -184,6 +189,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       git_staged_diffstat=excluded.git_staged_diffstat,
       git_unstaged_count=excluded.git_unstaged_count,
       git_unstaged_diffstat=excluded.git_unstaged_diffstat,
+      git_remote_url=excluded.git_remote_url,
       git_submodules=excluded.git_submodules,
       planq_order=excluded.planq_order,
       planq_history=COALESCE(excluded.planq_history, planq_history),
@@ -208,6 +214,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
     data.git_staged_diffstat ?? null,
     data.git_unstaged_count,
     data.git_unstaged_diffstat ?? null,
+    data.git_remote_url ?? null,
     JSON.stringify(data.git_submodules ?? []),
     data.planq_order ?? null,
     data.planq_history ?? null,
@@ -268,6 +275,7 @@ function rowToContainer(row: any): ContainerRow {
     git_staged_diffstat: row.git_staged_diffstat,
     git_unstaged_count: row.git_unstaged_count ?? 0,
     git_unstaged_diffstat: row.git_unstaged_diffstat,
+    git_remote_url: row.git_remote_url ?? null,
     git_submodules: JSON.parse(row.git_submodules || '[]'),
     planq_order: row.planq_order,
     planq_history: row.planq_history ?? null,
