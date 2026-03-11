@@ -759,19 +759,37 @@ _run_stage_commit() {
     _invoke_claude "$claude_prompt"
 }
 
-# Wait for the user to commit staged changes (for +stage-commit tasks in auto mode).
+# Wait for the user to commit (for awaiting-commit tasks in auto mode).
 # $1 = line_num, $2 = task_line
-# Marks the task done when commit is detected; returns silently if status changes away.
+# For +stage-commit: waits until no staged changes remain.
+# For +manual-commit: waits until the HEAD commit hash changes.
+# Returns silently if the task status changes away from awaiting-commit.
 _wait_for_stage_commit() {
     local line_num="$1" task_line="$2"
-    echo "awaiting-commit: waiting for staged changes to be committed..."
-    local git_dir
-    git_dir="$(git -C "$WORKSPACE_ROOT" rev-parse --git-dir 2>/dev/null || true)"
-    if [ -n "$git_dir" ]; then
-        echo "  Commit message ready: ${git_dir}/COMMIT_EDITMSG"
+
+    # Determine wait strategy from commit flag in the task line
+    local wait_mode="stage"
+    if [[ "$task_line" == *"+manual-commit"* ]]; then
+        wait_mode="manual"
+    fi
+
+    if [ "$wait_mode" = "manual" ]; then
+        echo "awaiting-commit: waiting for a new commit (manual-commit mode)..."
+        echo "  Stage and commit your changes, then the task will be marked done."
+    else
+        echo "awaiting-commit: waiting for staged changes to be committed..."
+        local git_dir
+        git_dir="$(git -C "$WORKSPACE_ROOT" rev-parse --git-dir 2>/dev/null || true)"
+        [ -n "$git_dir" ] && echo "  Commit message ready: ${git_dir}/COMMIT_EDITMSG"
         echo "  Run: git commit"
     fi
-    echo "  To abort staging: planq mark underway <task>"
+    echo "  To abort: planq mark underway <task>"
+
+    # Snapshot HEAD for manual-commit mode
+    local initial_head=""
+    if [ "$wait_mode" = "manual" ]; then
+        initial_head="$(git -C "$WORKSPACE_ROOT" rev-parse HEAD 2>/dev/null || true)"
+    fi
 
     while true; do
         sleep 3
@@ -785,14 +803,26 @@ _wait_for_stage_commit() {
             return
         fi
 
-        # Check if staged changes are gone (commit happened)
-        local staged_count
-        staged_count="$(git -C "$WORKSPACE_ROOT" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
-        if [ "$staged_count" -eq 0 ]; then
-            echo "awaiting-commit: commit detected, marking task as done."
-            _mark_done "$line_num" "$task_line"
-            _notify_daemon
-            return
+        if [ "$wait_mode" = "manual" ]; then
+            # Detect a new commit by HEAD hash change
+            local current_head
+            current_head="$(git -C "$WORKSPACE_ROOT" rev-parse HEAD 2>/dev/null || true)"
+            if [ -n "$current_head" ] && [ "$current_head" != "$initial_head" ]; then
+                echo "awaiting-commit: new commit detected, marking task as done."
+                _mark_done "$line_num" "$task_line"
+                _notify_daemon
+                return
+            fi
+        else
+            # Detect commit by absence of staged changes
+            local staged_count
+            staged_count="$(git -C "$WORKSPACE_ROOT" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
+            if [ "$staged_count" -eq 0 ]; then
+                echo "awaiting-commit: commit detected, marking task as done."
+                _mark_done "$line_num" "$task_line"
+                _notify_daemon
+                return
+            fi
         fi
     done
 }
