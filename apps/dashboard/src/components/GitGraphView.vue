@@ -1,6 +1,7 @@
 <template>
-  <div ref="scrollEl" class="overflow-auto max-h-[60vh]">
+  <div ref="scrollEl" class="overflow-auto max-h-[60vh] relative">
     <svg
+      ref="svgEl"
       :width="svgWidth"
       :height="svgHeight"
       class="select-none"
@@ -81,6 +82,58 @@
               font-family="monospace"
               :fill="cl.dirty ? '#fca5a5' : '#7dd3fc'"
             ><tspan v-if="cl.prefix">{{ cl.prefix }}</tspan><tspan font-weight="bold">{{ cl.bold }}</tspan><tspan opacity="0.7">{{ cl.suffix }}</tspan></text>
+
+            <!-- Staged count badge -->
+            <g
+              v-if="cl.stagedCount > 0"
+              class="cursor-pointer"
+              @click.stop="onDirtyBadgeClick(i, ci, 'staged', $event)"
+            >
+              <rect
+                :x="containerLabelOffsets[i]?.[ci]?.stagedX ?? 0"
+                :y="-6"
+                :width="containerLabelOffsets[i]?.[ci]?.stagedW ?? 0"
+                height="12"
+                rx="2"
+                fill="#1e3a5f"
+                stroke="#3b82f6"
+                stroke-width="0.5"
+                opacity="0.9"
+              />
+              <text
+                :x="(containerLabelOffsets[i]?.[ci]?.stagedX ?? 0) + 3"
+                y="4"
+                font-size="8"
+                font-family="monospace"
+                fill="#93c5fd"
+              >+{{ cl.stagedCount }}</text>
+            </g>
+
+            <!-- Unstaged count badge -->
+            <g
+              v-if="cl.unstagedCount > 0"
+              class="cursor-pointer"
+              @click.stop="onDirtyBadgeClick(i, ci, 'unstaged', $event)"
+            >
+              <rect
+                :x="containerLabelOffsets[i]?.[ci]?.unstagedX ?? 0"
+                :y="-6"
+                :width="containerLabelOffsets[i]?.[ci]?.unstagedW ?? 0"
+                height="12"
+                rx="2"
+                fill="#431407"
+                stroke="#f97316"
+                stroke-width="0.5"
+                opacity="0.9"
+              />
+              <text
+                :x="(containerLabelOffsets[i]?.[ci]?.unstagedX ?? 0) + 3"
+                y="4"
+                font-size="8"
+                font-family="monospace"
+                fill="#fed7aa"
+              >~{{ cl.unstagedCount }}</text>
+            </g>
           </g>
 
           <!-- All ref badges (local branches per-host + HEAD/remote/tag) -->
@@ -138,11 +191,29 @@
         />
       </g>
     </svg>
+
+    <!-- Dirty diffstat popover (teleported to body to avoid SVG/overflow clipping) -->
+    <Teleport to="body">
+      <div
+        v-if="activeDirtyPopover"
+        class="fixed z-[9999] min-w-64 max-w-xl bg-slate-900 border border-slate-600 rounded-lg shadow-2xl p-3"
+        :style="{ left: activeDirtyPopover.x + 'px', top: activeDirtyPopover.y + 'px' }"
+        @click.stop
+      >
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs text-slate-400 font-semibold uppercase tracking-wide">
+            {{ activeDirtyPopover.kind === 'staged' ? 'staged' : 'unstaged' }} diffstat
+          </span>
+          <button @click="closeDirtyPopover" class="text-slate-500 hover:text-slate-300 text-xs">✕</button>
+        </div>
+        <pre class="text-xs text-slate-200 font-mono overflow-x-auto whitespace-pre">{{ activeDirtyPopover.diffstat }}</pre>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { computeLayout, formatRef, laneColor, containerDirLabel } from '../composables/useGitGraph'
 import type { GitCommit, GitContainer } from '../types'
 
@@ -163,6 +234,7 @@ const emit = defineEmits<{
 }>()
 
 const scrollEl = ref<HTMLElement | null>(null)
+const svgEl = ref<SVGSVGElement | null>(null)
 const flashHash = ref<string | null>(null)
 
 const layout = computed(() => computeLayout(props.commits))
@@ -199,7 +271,16 @@ function dirtyRing(hash: string) {
   return headContainers(hash).some(c => c.git_staged_count > 0 || c.git_unstaged_count > 0)
 }
 
-interface ContainerLabel { prefix: string; bold: string; suffix: string; dirty: boolean }
+interface ContainerLabel {
+  prefix: string
+  bold: string
+  suffix: string
+  dirty: boolean
+  stagedCount: number
+  stagedDiffstat: string | null
+  unstagedCount: number
+  unstagedDiffstat: string | null
+}
 
 function containerLabels(hash: string): ContainerLabel[] {
   return headContainers(hash).map(c => {
@@ -209,10 +290,18 @@ function containerLabels(hash: string): ContainerLabel[] {
     if (c.git_worktree) {
       const bracketIdx = label.lastIndexOf(' [')
       if (bracketIdx >= 0) {
-        return { prefix: label.slice(0, bracketIdx), bold: label.slice(bracketIdx), suffix, dirty }
+        return {
+          prefix: label.slice(0, bracketIdx), bold: label.slice(bracketIdx), suffix, dirty,
+          stagedCount: c.git_staged_count, stagedDiffstat: c.git_staged_diffstat,
+          unstagedCount: c.git_unstaged_count, unstagedDiffstat: c.git_unstaged_diffstat,
+        }
       }
     }
-    return { prefix: '', bold: label, suffix, dirty }
+    return {
+      prefix: '', bold: label, suffix, dirty,
+      stagedCount: c.git_staged_count, stagedDiffstat: c.git_staged_diffstat,
+      unstagedCount: c.git_unstaged_count, unstagedDiffstat: c.git_unstaged_diffstat,
+    }
   })
 }
 
@@ -275,24 +364,51 @@ function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
   return badges
 }
 
-// Compute x-offsets for container labels per row
+interface LabelOffset {
+  x: number       // label box left edge
+  w: number       // label box width
+  stagedX: number // staged badge left edge (valid when stagedW > 0)
+  stagedW: number // staged badge width (0 = no staged changes)
+  unstagedX: number
+  unstagedW: number
+}
+
+// Compute x-offsets for container labels (and their dirty badges) per row
 const containerLabelOffsets = computed(() => {
-  const result: Array<Array<{ x: number; w: number }>> = []
+  const result: Array<Array<LabelOffset>> = []
   for (const row of layout.value) {
     const labels = containerLabels(row.commit.hash)
-    const offsets: Array<{ x: number; w: number }> = []
+    const offsets: LabelOffset[] = []
     let x = 0
     for (const cl of labels) {
-      const w = (cl.prefix.length + cl.bold.length + cl.suffix.length) * 6 + 8
-      offsets.push({ x, w })
-      x += w + 4
+      const labelW = (cl.prefix.length + cl.bold.length + cl.suffix.length) * 6 + 8
+      let nextX = x + labelW + 4
+
+      // Staged badge
+      let stagedX = nextX
+      let stagedW = 0
+      if (cl.stagedCount > 0) {
+        stagedW = String(cl.stagedCount).length * 6 + 14  // "+N" text + padding
+        nextX = stagedX + stagedW + 3
+      }
+
+      // Unstaged badge
+      let unstagedX = nextX
+      let unstagedW = 0
+      if (cl.unstagedCount > 0) {
+        unstagedW = String(cl.unstagedCount).length * 6 + 14  // "~N" text + padding
+        nextX = unstagedX + unstagedW + 3
+      }
+
+      offsets.push({ x, w: labelW, stagedX, stagedW, unstagedX, unstagedW })
+      x = nextX + 1
     }
     result.push(offsets)
   }
   return result
 })
 
-// Compute x-offsets for all badge + hash text per row (starting after container labels)
+// Compute x-offsets for all badge + hash text per row (starting after container labels + dirty badges)
 const badgeOffsets = computed(() => {
   const result: Array<Array<{ x: number; w: number }>> = []
   for (let i = 0; i < layout.value.length; i++) {
@@ -301,7 +417,16 @@ const badgeOffsets = computed(() => {
     const offsets: Array<{ x: number; w: number }> = []
     const clOffsets = containerLabelOffsets.value[i] ?? []
     const lastCl = clOffsets[clOffsets.length - 1]
-    let x = lastCl ? lastCl.x + lastCl.w + 4 : 0
+    let x: number
+    if (!lastCl) {
+      x = 0
+    } else {
+      // Start after last dirty badge (or label box if no dirty badges)
+      const unstagedEnd = lastCl.unstagedW > 0 ? lastCl.unstagedX + lastCl.unstagedW : 0
+      const stagedEnd = lastCl.stagedW > 0 ? lastCl.stagedX + lastCl.stagedW : 0
+      const labelEnd = lastCl.x + lastCl.w
+      x = Math.max(unstagedEnd, stagedEnd, labelEnd) + 4
+    }
     for (const b of badges) {
       const w = b.text.length * 6 + 8
       offsets.push({ x, w })
@@ -330,6 +455,55 @@ function scrollToHash(hash: string) {
   flashHash.value = hash
   setTimeout(() => { if (flashHash.value === hash) flashHash.value = null }, 1500)
 }
+
+// --- Dirty diffstat popover ---
+
+interface DirtyPopover {
+  x: number
+  y: number
+  kind: 'staged' | 'unstaged'
+  diffstat: string | null
+}
+
+const activeDirtyPopover = ref<DirtyPopover | null>(null)
+
+function onDirtyBadgeClick(rowIndex: number, labelIndex: number, kind: 'staged' | 'unstaged', event: MouseEvent) {
+  if (!svgEl.value || !scrollEl.value) return
+  const labels = containerLabels(layout.value[rowIndex].commit.hash)
+  const cl = labels[labelIndex]
+  if (!cl) return
+
+  const diffstat = kind === 'staged' ? cl.stagedDiffstat : cl.unstagedDiffstat
+  if (!diffstat) return
+
+  const offset = containerLabelOffsets.value[rowIndex][labelIndex]
+  const badgeSvgX = labelX.value + (kind === 'staged' ? offset.stagedX : offset.unstagedX)
+  const badgeSvgY = rowY(rowIndex)
+
+  const svgRect = svgEl.value.getBoundingClientRect()
+  const screenX = svgRect.left + badgeSvgX
+  const screenY = svgRect.top + badgeSvgY - scrollEl.value.scrollTop + ROW_H / 2 + 4
+
+  // Toggle: clicking the same badge closes the popover
+  if (activeDirtyPopover.value && activeDirtyPopover.value.kind === kind
+      && Math.abs(activeDirtyPopover.value.x - screenX) < 5) {
+    activeDirtyPopover.value = null
+  } else {
+    activeDirtyPopover.value = { x: screenX, y: screenY, kind, diffstat }
+  }
+  event.stopPropagation()
+}
+
+function closeDirtyPopover() {
+  activeDirtyPopover.value = null
+}
+
+function onDocumentClick() {
+  if (activeDirtyPopover.value) activeDirtyPopover.value = null
+}
+
+onMounted(() => document.addEventListener('click', onDocumentClick))
+onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
 
 defineExpose({ scrollToHash })
 </script>
