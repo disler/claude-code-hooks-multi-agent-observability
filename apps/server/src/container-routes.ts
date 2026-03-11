@@ -922,6 +922,18 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     return json({ diffstat });
   }
 
+  // GET /dashboard/hostname-aliases
+  if (pathname === '/dashboard/hostname-aliases' && method === 'GET') {
+    try {
+      const home = process.env.HOME || process.env.USERPROFILE || '/root';
+      const aliasPath = `${home}/.local/devcontainer/hostname-aliases.json`;
+      const content = await Bun.file(aliasPath).text();
+      return json(JSON.parse(content));
+    } catch {
+      return json({});
+    }
+  }
+
   // GET /planq/:id
   if (pathname.match(/^\/planq\/[^/]+$/) && method === 'GET') {
     const containerId = decodeURIComponent(pathname.split('/')[2]);

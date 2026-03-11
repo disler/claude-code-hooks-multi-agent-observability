@@ -10,7 +10,7 @@
       <div class="flex items-center gap-2 mb-1">
         <span class="inline-block w-2 h-2 rounded-full" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
         <span class="text-xs text-slate-200 font-semibold font-mono">{{ containerDirLabel(c) }}</span>
-        <span class="text-xs text-slate-500">{{ c.machine_hostname }} / {{ c.container_hostname }}</span>
+        <span class="text-xs text-slate-500">{{ alias(c.machine_hostname) }} / {{ c.container_hostname }}</span>
         <span v-if="c.git_branch" class="text-xs bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded font-mono">{{ c.git_branch }}</span>
         <span v-if="c.git_worktree" class="text-xs text-slate-500 font-mono">{{ c.git_worktree }}</span>
       </div>
@@ -47,6 +47,9 @@
 import { ref, computed } from 'vue'
 import type { GitContainer, GitCommit } from '../types'
 import { containerDirLabel } from '../composables/useGitGraph'
+import { useHostnameAliases } from '../composables/useHostnameAliases'
+
+const { alias } = useHostnameAliases()
 
 const props = defineProps<{
   containers: GitContainer[]

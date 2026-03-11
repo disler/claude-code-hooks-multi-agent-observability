@@ -236,7 +236,10 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { computeLayout, formatRef, laneColor, containerDirLabel } from '../composables/useGitGraph'
+import { useHostnameAliases } from '../composables/useHostnameAliases'
 import type { GitCommit, GitContainer } from '../types'
+
+const { alias } = useHostnameAliases()
 
 const LANE_W = 18
 const ROW_H = 24
@@ -308,7 +311,7 @@ function containerLabels(hash: string): ContainerLabel[] {
   return headContainers(hash).map(c => {
     const label = containerDirLabel(c)
     const dirty = c.git_staged_count > 0 || c.git_unstaged_count > 0
-    const suffix = `@${c.machine_hostname}`
+    const suffix = `@${alias(c.machine_hostname)}`
     if (c.git_worktree) {
       const bracketIdx = label.lastIndexOf(' [')
       if (bracketIdx >= 0) {
@@ -396,7 +399,7 @@ function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
           }
         }
         badges.push({
-          text: `${branch}@${host}`,
+          text: `${branch}@${alias(host)}`,
           bgColor: '#1e3a5f',
           textColor: '#7dd3fc',
           opacity: dim ? '0.45' : '0.9',

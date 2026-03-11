@@ -5,7 +5,7 @@
       class="flex items-center gap-2 w-full text-left py-2 px-1 hover:bg-slate-800/50 rounded-lg mb-2"
     >
       <span class="text-slate-400 text-sm">{{ open ? '▾' : '▸' }}</span>
-      <span class="text-sm font-semibold text-slate-300">HOST: {{ hostname }}</span>
+      <span class="text-sm font-semibold text-slate-300">HOST: {{ alias(hostname) }}</span>
       <span class="text-xs text-slate-500">({{ containers.length }} container{{ containers.length !== 1 ? 's' : '' }}{{ allOffline ? ', all offline' : '' }})</span>
     </button>
 
@@ -25,6 +25,9 @@
 import { ref, computed, watch } from 'vue'
 import ContainerCard from './ContainerCard.vue'
 import type { ContainerWithState } from '../types'
+import { useHostnameAliases } from '../composables/useHostnameAliases'
+
+const { alias } = useHostnameAliases()
 
 const props = defineProps<{
   hostname: string

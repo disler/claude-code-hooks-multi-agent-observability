@@ -80,19 +80,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { useDashboardWs } from './composables/useDashboardWs'
 import { useContainers } from './composables/useContainers'
+import { useHostnameAliases } from './composables/useHostnameAliases'
 import { CLIENT_BASE } from './config'
 import FilterBar from './components/FilterBar.vue'
 import HostGroup from './components/HostGroup.vue'
 import GitViewDialog from './components/GitViewDialog.vue'
 
 const { byHost, summary, handleMessage, containers } = useContainers()
+const { load: loadAliases } = useHostnameAliases()
 const gitRepo = ref<string | null>(null)
 const gitFocusHash = ref<string | null>(null)
 
 const { connected } = useDashboardWs(handleMessage)
+
+onMounted(loadAliases)
 
 function getParam(key: string) { return new URLSearchParams(location.search).get(key) ?? '' }
 function setParam(key: string, value: string) {

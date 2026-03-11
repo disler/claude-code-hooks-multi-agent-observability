@@ -36,7 +36,7 @@
               class="text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 cursor-pointer text-xs"
             >
               <option :value="null">All</option>
-              <option v-for="h in allHosts" :key="h" :value="h">{{ h }}</option>
+              <option v-for="h in allHosts" :key="h" :value="h">{{ alias(h) }}</option>
             </select>
           </div>
           <!-- View toggle -->
@@ -67,7 +67,7 @@
       <!-- Header second row: container chips grouped by host, with hostname label -->
       <div v-if="gitData?.containers?.length" class="flex flex-col gap-0.5 px-4 py-1.5 border-b border-slate-700 shrink-0">
         <div v-for="[host, conts] in visibleContainersByHost" :key="host" class="flex flex-wrap items-center gap-1">
-          <span class="text-xs text-slate-500 font-mono shrink-0 mr-0.5">{{ host }}</span>
+          <span class="text-xs text-slate-500 font-mono shrink-0 mr-0.5">{{ alias(host) }}</span>
           <button
             v-for="c in conts"
             :key="c.id"
@@ -132,9 +132,12 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useGitView } from '../composables/useGitView'
 import { containerDirLabel } from '../composables/useGitGraph'
+import { useHostnameAliases } from '../composables/useHostnameAliases'
 import GitGraphView from './GitGraphView.vue'
 import GitListView from './GitListView.vue'
 import type { GitContainer } from '../types'
+
+const { alias } = useHostnameAliases()
 
 const props = defineProps<{
   sourceRepo: string
