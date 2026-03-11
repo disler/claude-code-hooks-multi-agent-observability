@@ -861,6 +861,22 @@ cmd_create() {
         esac
     done
 
+    # Normalize filename: auto-prefix with type if bare, auto-append .md
+    if [ -n "$filename" ]; then
+        case "$filename" in
+            *.md) ;;  # already has extension
+            *) filename="${filename}.md" ;;
+        esac
+        case "$task_type" in
+            task|plan|make-plan)
+                case "$filename" in
+                    ${task_type}-*) ;;  # already prefixed
+                    *) filename="${task_type}-${filename}" ;;
+                esac
+                ;;
+        esac
+    fi
+
     local task_line
     case "$task_type" in
         task|plan)
@@ -868,6 +884,11 @@ cmd_create() {
                 echo "Error: --file required for task type '$task_type'" >&2; return 1
             fi
             task_line="${task_type}: ${filename}"
+            if [ -n "$description" ]; then
+                mkdir -p "$PLANS_DIR"
+                printf '%s\n' "$description" > "$PLANS_DIR/${filename}"
+                echo "Wrote description to: plans/${filename}"
+            fi
             ;;
         make-plan)
             if [ -z "$filename" ]; then
