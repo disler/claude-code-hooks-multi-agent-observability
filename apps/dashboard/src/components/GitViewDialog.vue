@@ -36,6 +36,7 @@
               class="text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 cursor-pointer text-xs"
             >
               <option :value="null">All</option>
+              <option v-if="browserHost" value="_local">Local</option>
               <option v-for="h in allHosts" :key="h" :value="h">{{ alias(h) }}</option>
             </select>
           </div>
@@ -95,6 +96,7 @@
             :refs-per-host="filteredRefsPerHost"
             :selected-hash="selectedHash"
             :remote-url="gitData.remote_url ?? undefined"
+            :source-host="browserHost ?? undefined"
             @select-hash="selectHash"
           />
           <GitListView
@@ -203,26 +205,43 @@ const containersByHost = computed(() => {
 
 const allHosts = computed(() => [...containersByHost.value.keys()])
 
+/** Detect which known host the browser is running on by matching window.location.hostname */
+const browserHost = computed((): string | null => {
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : ''
+  if (!hostname) return null
+  const hosts = allHosts.value
+  const exact = hosts.find(h => h === hostname)
+  if (exact) return exact
+  return hosts.find(h => hostname.startsWith(h) || h.startsWith(hostname)) ?? null
+})
+
+/** Resolve the effective host filter (handles '_local' virtual value) */
+const effectiveHost = computed((): string | null => {
+  if (!selectedHost.value) return null
+  if (selectedHost.value === '_local') return browserHost.value
+  return selectedHost.value
+})
+
 /** Chips visible in the header — all hosts, or just the selected one */
 const visibleContainersByHost = computed(() => {
-  if (!selectedHost.value) return containersByHost.value
+  if (!effectiveHost.value) return containersByHost.value
   const map = new Map<string, GitContainer[]>()
-  const conts = containersByHost.value.get(selectedHost.value)
-  if (conts) map.set(selectedHost.value, conts)
+  const conts = containersByHost.value.get(effectiveHost.value)
+  if (conts) map.set(effectiveHost.value, conts)
   return map
 })
 
 /** Containers passed to graph / list views */
 const filteredContainers = computed(() => {
-  if (!selectedHost.value) return gitData.value?.containers ?? []
-  return (gitData.value?.containers ?? []).filter(c => c.machine_hostname === selectedHost.value)
+  if (!effectiveHost.value) return gitData.value?.containers ?? []
+  return (gitData.value?.containers ?? []).filter(c => c.machine_hostname === effectiveHost.value)
 })
 
 /** Per-host branch refs passed to graph view */
 const filteredRefsPerHost = computed(() => {
   const all = gitData.value?.refsPerHost ?? []
-  if (!selectedHost.value) return all
-  return all.filter(r => r.host === selectedHost.value)
+  if (!effectiveHost.value) return all
+  return all.filter(r => r.host === effectiveHost.value)
 })
 
 async function load() {

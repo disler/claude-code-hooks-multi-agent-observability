@@ -32,6 +32,11 @@ import {
 // ── Git show cache (LRU-style, max 200 entries) ───────────────────────────────
 const gitShowCache = new Map<string, string>();
 
+// ── Branch update tracking (in-memory, per repo per host) ─────────────────────
+// Records timestamp of the last heartbeat where a host sent new commits.
+// sourceRepo → host → epoch ms
+const branchLastCommit = new Map<string, Map<string, number>>();
+
 // ── WebSocket connection stores ───────────────────────────────────────────────
 
 // container_id → WebSocket (planq daemon connection)
@@ -456,6 +461,9 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     if (Array.isArray(msg.git_commits) && msg.git_commits.length > 0) {
       upsertGitCommits(sourceRepo, msg.git_commits);
       upsertGitCommitRefs(sourceRepo, container.machine_hostname, msg.git_commits);
+      // Record that this host has new commits (for auto-fetch polling)
+      if (!branchLastCommit.has(sourceRepo)) branchLastCommit.set(sourceRepo, new Map());
+      branchLastCommit.get(sourceRepo)!.set(container.machine_hostname, Date.now());
     }
 
     // Upsert submodule commits sent by daemon, then send back tips per submodule
@@ -923,6 +931,32 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     }
     gitShowCache.set(hash, diffstat);
     return json({ diffstat });
+  }
+
+  // GET /dashboard/git-hosts/:repo — list known hosts + workspace paths for a repo
+  if (pathname.match(/^\/dashboard\/git-hosts\//) && method === 'GET') {
+    const repo = decodeURIComponent(pathname.slice('/dashboard/git-hosts/'.length));
+    const repoContainers = getAllContainers().filter(c => c.source_repo === repo);
+    const hostMap = new Map<string, { hostname: string; workspacePath: string | null; lastSeen: number }>();
+    for (const c of repoContainers) {
+      const existing = hostMap.get(c.machine_hostname);
+      if (!existing || c.last_seen > existing.lastSeen) {
+        hostMap.set(c.machine_hostname, {
+          hostname: c.machine_hostname,
+          workspacePath: c.workspace_host_path ?? null,
+          lastSeen: c.last_seen,
+        });
+      }
+    }
+    return json([...hostMap.values()]);
+  }
+
+  // GET /dashboard/git-updates/:repo — timestamps of last new-commit event per host
+  if (pathname.match(/^\/dashboard\/git-updates\//) && method === 'GET') {
+    const repo = decodeURIComponent(pathname.slice('/dashboard/git-updates/'.length));
+    const hostMap = branchLastCommit.get(repo) ?? new Map<string, number>();
+    const updates = [...hostMap.entries()].map(([host, lastCommitAt]) => ({ host, lastCommitAt }));
+    return json(updates);
   }
 
   // GET /dashboard/hostname-aliases

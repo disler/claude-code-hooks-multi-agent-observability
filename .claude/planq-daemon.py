@@ -76,6 +76,9 @@ WORKSPACE_HOST_PATH = os.environ.get('WORKSPACE_HOST_PATH', str(WORKSPACE_ROOT))
 MACHINE_HOSTNAME = _get_machine_hostname()
 CONTAINER_HOSTNAME = os.environ.get('HOSTNAME', '')
 HEARTBEAT_INTERVAL = int(os.environ.get('OBSERVABILITY_HEARTBEAT_INTERVAL', '15'))
+AUTO_FETCH_ENABLED = os.environ.get('AUTO_FETCH_ENABLED', 'false').lower() == 'true'
+AUTO_FETCH_INTERVAL = int(os.environ.get('AUTO_FETCH_INTERVAL', '60'))
+AUTO_FETCH_MODE = os.environ.get('AUTO_FETCH_MODE', 'ssh')
 
 _SANDBOX_DIR = Path.home() / '.local' / 'devcontainer-sandbox'
 _LOG_FILE = _SANDBOX_DIR / 'logs' / 'planq-daemon.log'
@@ -320,6 +323,69 @@ def _git_log_incremental() -> list:
         refs = [r.strip() for r in refs_str.split(',') if r.strip()]
         commits.append({'hash': hash_, 'parents': parents, 'refs': refs, 'subject': subject})
     return commits
+
+
+def _interhost_remote_mode() -> str | None:
+    """Return mode from .devcontainer/git-interhost-remotes-mode if present, else None."""
+    mode_file = WORKSPACE_ROOT / '.devcontainer' / 'git-interhost-remotes-mode'
+    try:
+        if mode_file.exists():
+            return mode_file.read_text().strip() or None
+    except OSError:
+        pass
+    return None
+
+
+def _http_base_url() -> str:
+    """Derive the HTTP base URL from the WebSocket SERVER_URL."""
+    from urllib.parse import urlparse
+    url = SERVER_URL.replace('wss://', 'https://').replace('ws://', 'http://')
+    parsed = urlparse(url)
+    return f'{parsed.scheme}://{parsed.netloc}'
+
+
+# Timestamp of last auto-fetch (epoch seconds); protected by lock
+_last_auto_fetch_time = 0.0
+_last_auto_fetch_lock = threading.Lock()
+
+
+def _do_auto_fetch():
+    """Poll the server for branch updates and fetch from any host with new commits."""
+    global _last_auto_fetch_time
+    mode = _interhost_remote_mode() or AUTO_FETCH_MODE
+    with _last_auto_fetch_lock:
+        since_ts = _last_auto_fetch_time
+        _last_auto_fetch_time = time.time()
+
+    try:
+        import urllib.request
+        url = f'{_http_base_url()}/dashboard/git-updates/{SOURCE_REPO}'
+        req = urllib.request.urlopen(url, timeout=5)
+        updates = json.loads(req.read().decode())
+    except Exception as e:
+        log.debug('Auto-fetch poll failed: %s', e)
+        return
+
+    did_fetch = False
+    fetched_origin = False
+    for item in updates:
+        host = item.get('host', '')
+        last_commit_at = item.get('lastCommitAt', 0) / 1000.0
+        if host == MACHINE_HOSTNAME:
+            continue
+        if last_commit_at > since_ts:
+            log.info('Auto-fetch: new commits from %s (mode=%s)', host, mode)
+            if mode == 'github':
+                if not fetched_origin:
+                    _run(['git', 'fetch', 'origin'], cwd=str(WORKSPACE_ROOT))
+                    fetched_origin = True
+                    did_fetch = True
+            else:
+                _run(['git', 'fetch', host], cwd=str(WORKSPACE_ROOT))
+                did_fetch = True
+
+    if did_fetch:
+        _immediate_heartbeat.set()
 
 
 def _compute_container_id(source_repo: str, git_worktree: str) -> str:
@@ -576,9 +642,14 @@ def _run_connection():
 
     # Heartbeat loop
     last_beat = time.time()
+    last_auto_fetch = 0.0
     while not stop_event.is_set():
         time.sleep(1)
-        if _immediate_heartbeat.is_set() or time.time() - last_beat >= HEARTBEAT_INTERVAL:
+        now = time.time()
+        if AUTO_FETCH_ENABLED and now - last_auto_fetch >= AUTO_FETCH_INTERVAL:
+            last_auto_fetch = now
+            threading.Thread(target=_do_auto_fetch, daemon=True).start()
+        if _immediate_heartbeat.is_set() or now - last_beat >= HEARTBEAT_INTERVAL:
             _immediate_heartbeat.clear()
             _send_heartbeat(ws_app)
             last_beat = time.time()

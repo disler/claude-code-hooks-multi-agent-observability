@@ -182,6 +182,33 @@
             </g>
           </a>
 
+          <!-- ↑ scroll-to-source buttons for out-of-date branch badges -->
+          <g
+            v-for="(badge, bi) in allBadgesForCommit(row.commit)"
+            :key="'up-' + bi"
+            v-show="badge.sourceHash && (badgeOffsets[i]?.[bi]?.upW ?? 0) > 0"
+            class="cursor-pointer"
+            @click.stop="badge.sourceHash && onRefClick(badge.sourceHash)"
+            title="Scroll to this branch on the local host"
+          >
+            <rect
+              :x="badgeOffsets[i]?.[bi]?.upX ?? 0"
+              y="-6"
+              :width="badgeOffsets[i]?.[bi]?.upW ?? 0"
+              height="13"
+              rx="2"
+              fill="#451a03"
+              opacity="0.85"
+            />
+            <text
+              :x="(badgeOffsets[i]?.[bi]?.upX ?? 0) + 2"
+              y="4"
+              font-size="10"
+              font-family="monospace"
+              fill="#fcd34d"
+            >↑</text>
+          </g>
+
           <!-- Commit hash + subject -->
           <text
             :x="badgeOffsets[i]?.[allBadgesForCommit(row.commit).length]?.x ?? 0"
@@ -252,6 +279,7 @@ const props = defineProps<{
   selectedHash: string | null
   refsPerHost: Array<{ hash: string; host: string; localBranches: string[] }>
   remoteUrl?: string
+  sourceHost?: string
 }>()
 
 const emit = defineEmits<{
@@ -363,6 +391,18 @@ const refsByHash = computed(() => {
   return map
 })
 
+// For the source host, map from branch name → commit hash (so we can show ↑ buttons to outdated badges)
+const sourceBranchTips = computed(() => {
+  const tips = new Map<string, string>()
+  if (!props.sourceHost) return tips
+  for (const { hash, host, localBranches } of props.refsPerHost) {
+    if (host === props.sourceHost) {
+      for (const branch of localBranches) tips.set(branch, hash)
+    }
+  }
+  return tips
+})
+
 // Branch names that appear at more than one distinct hash (diverged across hosts)
 const conflictBranches = computed(() => {
   const branchHashes = new Map<string, Set<string>>()
@@ -379,7 +419,7 @@ const conflictBranches = computed(() => {
   return conflicts
 })
 
-interface BadgeInfo { text: string; bgColor: string; textColor: string; opacity: string; prUrl?: string }
+interface BadgeInfo { text: string; bgColor: string; textColor: string; opacity: string; prUrl?: string; sourceHash?: string }
 
 function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
   const badges: BadgeInfo[] = []
@@ -389,7 +429,8 @@ function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
   if (hostMap) {
     for (const [host, branches] of hostMap) {
       for (const branch of branches) {
-        const dim = !conflictBranches.value.has(branch)
+        const isConflicted = conflictBranches.value.has(branch)
+        const dim = !isConflicted
         // Show PR button if this branch has a remote tracking ref at this commit and isn't the default branch
         let prUrl: string | undefined
         if (githubInfo.value && branch !== defaultBranch.value) {
@@ -398,13 +439,21 @@ function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
             prUrl = `https://github.com/${githubInfo.value.owner}/${githubInfo.value.repo}/compare/${defaultBranch.value}...${branch}?expand=1`
           }
         }
-        badges.push({
-          text: `${branch}@${alias(host)}`,
-          bgColor: '#1e3a5f',
-          textColor: '#7dd3fc',
-          opacity: dim ? '0.45' : '0.9',
-          prUrl,
-        })
+        // Amber styling + ↑ button for conflicted branches on non-source hosts
+        let bgColor = '#1e3a5f'
+        let textColor = '#7dd3fc'
+        let opacity = dim ? '0.45' : '0.9'
+        let sourceHash: string | undefined
+        if (isConflicted && props.sourceHost && host !== props.sourceHost) {
+          const tip = sourceBranchTips.value.get(branch)
+          if (tip && tip !== commit.hash) {
+            bgColor = '#451a03'
+            textColor = '#fcd34d'
+            opacity = '0.9'
+            sourceHash = tip
+          }
+        }
+        badges.push({ text: `${branch}@${alias(host)}`, bgColor, textColor, opacity, prUrl, sourceHash })
       }
     }
   }
@@ -466,14 +515,15 @@ const containerLabelOffsets = computed(() => {
 })
 
 const PR_ICON_W = 14  // width of pull request icon button
+const UP_ICON_W = 12  // width of ↑ scroll-to-source button
 
 // Compute x-offsets for all badge + hash text per row (starting after container labels + dirty badges)
 const badgeOffsets = computed(() => {
-  const result: Array<Array<{ x: number; w: number; prX: number; prW: number }>> = []
+  const result: Array<Array<{ x: number; w: number; prX: number; prW: number; upX: number; upW: number }>> = []
   for (let i = 0; i < layout.value.length; i++) {
     const row = layout.value[i]
     const badges = allBadgesForCommit(row.commit)
-    const offsets: Array<{ x: number; w: number; prX: number; prW: number }> = []
+    const offsets: Array<{ x: number; w: number; prX: number; prW: number; upX: number; upW: number }> = []
     const clOffsets = containerLabelOffsets.value[i] ?? []
     const lastCl = clOffsets[clOffsets.length - 1]
     let x: number
@@ -490,11 +540,13 @@ const badgeOffsets = computed(() => {
       const w = b.text.length * 6 + 8
       const prW = b.prUrl ? PR_ICON_W : 0
       const prX = x + w + 3
-      offsets.push({ x, w, prX, prW })
-      x += w + 4 + (prW > 0 ? prW + 3 : 0)
+      const upW = b.sourceHash ? UP_ICON_W : 0
+      const upX = prX + (prW > 0 ? prW + 2 : 0)
+      offsets.push({ x, w, prX, prW, upX, upW })
+      x += w + 4 + (prW > 0 ? prW + 2 : 0) + (upW > 0 ? upW + 2 : 0)
     }
     // Hash text offset sentinel
-    offsets.push({ x, w: 60, prX: 0, prW: 0 })
+    offsets.push({ x, w: 60, prX: 0, prW: 0, upX: 0, upW: 0 })
     result.push(offsets)
   }
   return result
