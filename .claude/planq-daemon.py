@@ -243,7 +243,7 @@ def _git_submodule_info(ws):
 def _git_log_for_path(cwd) -> list:
     """Return recent commits (up to 50) for a given git repo path."""
     raw = _run(
-        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '50'],
+        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'],
         cwd=cwd,
     )
     commits = []
