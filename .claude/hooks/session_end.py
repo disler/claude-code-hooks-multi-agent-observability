@@ -20,11 +20,13 @@ try:
 except ImportError:
     pass  # dotenv is optional
 
+from utils.constants import LOG_BASE_DIR
+
 
 def log_session_end(input_data, reason):
     """Log session end event to logs directory."""
     # Ensure logs directory exists
-    log_dir = Path("logs")
+    log_dir = Path(LOG_BASE_DIR)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / 'session_end.json'
 
@@ -70,7 +72,7 @@ def save_session_statistics(input_data):
                 pass
 
         # Save statistics
-        stats_dir = Path("logs")
+        stats_dir = Path(LOG_BASE_DIR)
         stats_dir.mkdir(parents=True, exist_ok=True)
         stats_file = stats_dir / 'session_statistics.json'
 
