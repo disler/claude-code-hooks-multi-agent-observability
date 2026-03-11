@@ -226,6 +226,7 @@
         :explicitly-hidden="isExplicitlyHidden(session.session_id)"
         @hide="hideSession(session.session_id)"
         @unhide="unhideSession(session.session_id)"
+        @open-history="emit('open-history', container.id, session.session_id)"
       />
       <!-- show/hide hidden sessions toggle -->
       <div v-if="hiddenSessionCount > 0" class="mt-0.5 pl-3">
@@ -265,6 +266,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'tasks-changed': []
   'open-git-view': [repo: string, hash?: string | null]
+  'open-history': [containerId: string, sessionId: string]
 }>()
 
 // ── Session hiding ────────────────────────────────────────────────────────────

@@ -1,0 +1,238 @@
+<template>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="$emit('close')">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-[92vw] h-[92vh] flex flex-col">
+      <!-- Header -->
+      <div class="flex items-center justify-between px-4 pt-3 pb-2 border-b border-slate-700 shrink-0">
+        <div class="flex items-center gap-3">
+          <span class="text-sm font-semibold text-slate-400">Session History</span>
+          <span class="text-sm font-mono text-slate-200">{{ sessionId.slice(0, 8) }}</span>
+          <span v-if="loading" class="text-xs text-slate-500 italic">Loading…</span>
+          <span v-else class="text-xs text-slate-500">{{ promptBlocks.length }} prompt{{ promptBlocks.length !== 1 ? 's' : '' }}</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <!-- Prompt navigation -->
+          <div v-if="promptBlocks.length > 1" class="flex items-center gap-1 text-xs text-slate-400">
+            <button
+              @click="prevPrompt"
+              :disabled="currentPromptIndex <= 0"
+              class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Previous prompt (↑)"
+            >↑</button>
+            <span>{{ currentPromptIndex + 1 }} / {{ promptBlocks.length }}</span>
+            <button
+              @click="nextPrompt"
+              :disabled="currentPromptIndex >= promptBlocks.length - 1"
+              class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Next prompt (↓)"
+            >↓</button>
+          </div>
+          <button @click="$emit('close')" class="text-slate-400 hover:text-slate-200 text-lg leading-none px-1">×</button>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div v-if="error" class="px-4 py-3 text-sm text-red-400">{{ error }}</div>
+
+      <!-- Content -->
+      <div ref="scrollContainer" class="flex-1 overflow-y-auto px-4 py-3 space-y-4" @keydown="handleKey" tabindex="0">
+        <template v-for="(block, idx) in renderBlocks" :key="idx">
+          <!-- User prompt block -->
+          <div
+            v-if="block.role === 'user'"
+            :id="`prompt-${block.promptIndex}`"
+            class="rounded-lg bg-slate-800/80 border border-slate-600 px-4 py-3"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-semibold text-slate-400 uppercase tracking-wide">User</span>
+              <button
+                @click="copyText(block.text)"
+                class="text-xs text-slate-600 hover:text-slate-300 transition-colors"
+                title="Copy"
+              >copy</button>
+            </div>
+            <pre class="text-sm text-slate-100 whitespace-pre-wrap font-sans leading-relaxed">{{ block.text }}</pre>
+          </div>
+
+          <!-- Assistant response block -->
+          <div
+            v-else-if="block.role === 'assistant'"
+            class="px-4 py-2"
+          >
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs text-slate-500 uppercase tracking-wide">Assistant</span>
+              <button
+                @click="copyText(block.text)"
+                class="text-xs text-slate-600 hover:text-slate-300 transition-colors"
+                title="Copy"
+              >copy</button>
+            </div>
+            <pre class="text-sm text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">{{ block.text }}</pre>
+          </div>
+
+          <!-- Tool use block -->
+          <div
+            v-else-if="block.role === 'tool'"
+            class="pl-4 border-l-2 border-slate-700 py-1"
+          >
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs text-slate-600 font-mono">{{ block.toolName }}</span>
+              <button
+                v-if="block.text"
+                @click="copyText(block.text)"
+                class="text-xs text-slate-700 hover:text-slate-500 transition-colors"
+                title="Copy"
+              >copy</button>
+            </div>
+            <pre v-if="block.text" class="text-xs text-slate-500 whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">{{ block.text }}</pre>
+          </div>
+        </template>
+        <div v-if="!loading && renderBlocks.length === 0 && !error" class="text-xs text-slate-500 italic">No messages found.</div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { API_BASE } from '../config'
+
+const props = defineProps<{
+  containerId: string
+  sessionId: string
+}>()
+
+defineEmits<{ close: [] }>()
+
+const loading = ref(true)
+const error = ref('')
+const rawLines = ref<any[]>([])
+const scrollContainer = ref<HTMLElement | null>(null)
+const currentPromptIndex = ref(0)
+
+interface RenderBlock {
+  role: 'user' | 'assistant' | 'tool'
+  text: string
+  toolName?: string
+  promptIndex?: number
+}
+
+// Parse JSONL into render blocks
+const renderBlocks = computed((): RenderBlock[] => {
+  const blocks: RenderBlock[] = []
+  let promptCount = 0
+
+  for (const line of rawLines.value) {
+    const type = line.type
+    const msg = line.message
+
+    if (type === 'user' && msg?.role === 'user') {
+      const text = extractText(msg.content)
+      if (text.trim()) {
+        blocks.push({ role: 'user', text, promptIndex: promptCount++ })
+      }
+    } else if (type === 'assistant' && msg?.role === 'assistant') {
+      // Collect text parts and tool_use parts
+      const content = Array.isArray(msg.content) ? msg.content : []
+      for (const part of content) {
+        if (part.type === 'text' && part.text?.trim()) {
+          blocks.push({ role: 'assistant', text: part.text })
+        } else if (part.type === 'tool_use') {
+          // Format tool input as compact JSON
+          const inputText = part.input ? formatToolInput(part.name, part.input) : ''
+          blocks.push({ role: 'tool', text: inputText, toolName: part.name })
+        }
+      }
+    }
+  }
+
+  return blocks
+})
+
+// Prompt blocks only (for navigation)
+const promptBlocks = computed(() => renderBlocks.value.filter(b => b.role === 'user'))
+
+function extractText(content: any): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
+      .filter((p: any) => p.type === 'text')
+      .map((p: any) => p.text ?? '')
+      .join('\n')
+  }
+  return ''
+}
+
+function formatToolInput(name: string, input: any): string {
+  // For bash/write/edit tools show key fields concisely
+  if (name === 'Bash' && input.command) return input.command
+  if (name === 'Write' && input.file_path) return `${input.file_path}\n${(input.content ?? '').slice(0, 200)}${(input.content ?? '').length > 200 ? '…' : ''}`
+  if (name === 'Edit' && input.file_path) return `${input.file_path}: ${(input.old_string ?? '').slice(0, 80)} → ${(input.new_string ?? '').slice(0, 80)}`
+  if (name === 'Read' && input.file_path) return input.file_path
+  if (name === 'Grep' && input.pattern) return `${input.pattern}${input.path ? ' in ' + input.path : ''}`
+  if (name === 'Glob' && input.pattern) return input.pattern
+  try { return JSON.stringify(input, null, 2).slice(0, 300) } catch { return '' }
+}
+
+async function load() {
+  loading.value = true
+  error.value = ''
+  rawLines.value = []
+  try {
+    const res = await fetch(`${API_BASE}/dashboard/session-log/${encodeURIComponent(props.containerId)}/${encodeURIComponent(props.sessionId)}`)
+    if (!res.ok) { error.value = `Failed to load log (${res.status})`; return }
+    const { content } = await res.json()
+    rawLines.value = content.split('\n').filter(Boolean).map((l: string) => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+    // Jump to last prompt after load
+    await nextTick()
+    if (promptBlocks.value.length > 0) {
+      currentPromptIndex.value = promptBlocks.value.length - 1
+      scrollToPrompt(currentPromptIndex.value)
+    }
+  } catch (e: any) {
+    error.value = e?.message ?? 'Unknown error'
+  } finally {
+    loading.value = false
+  }
+}
+
+function scrollToPrompt(idx: number) {
+  const el = scrollContainer.value?.querySelector(`#prompt-${idx}`)
+  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function prevPrompt() {
+  if (currentPromptIndex.value > 0) {
+    currentPromptIndex.value--
+    scrollToPrompt(currentPromptIndex.value)
+  }
+}
+
+function nextPrompt() {
+  if (currentPromptIndex.value < promptBlocks.value.length - 1) {
+    currentPromptIndex.value++
+    scrollToPrompt(currentPromptIndex.value)
+  }
+}
+
+function handleKey(e: KeyboardEvent) {
+  if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); prevPrompt() }
+  if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); nextPrompt() }
+}
+
+async function copyText(text: string) {
+  try { await navigator.clipboard.writeText(text) } catch { /* ignore */ }
+}
+
+// Global keyboard handler for Escape
+function onGlobalKey(e: KeyboardEvent) {
+  if (e.key === 'ArrowUp') prevPrompt()
+  if (e.key === 'ArrowDown') nextPrompt()
+}
+
+onMounted(() => {
+  load()
+  window.addEventListener('keydown', onGlobalKey)
+  nextTick(() => scrollContainer.value?.focus())
+})
+onUnmounted(() => window.removeEventListener('keydown', onGlobalKey))
+</script>

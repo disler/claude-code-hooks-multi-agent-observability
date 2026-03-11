@@ -51,6 +51,14 @@
       </div>
     </header>
 
+    <!-- Prompt History Dialog -->
+    <PromptHistoryDialog
+      v-if="historyContainerId && historySessionId"
+      :container-id="historyContainerId"
+      :session-id="historySessionId"
+      @close="historyContainerId = null; historySessionId = null"
+    />
+
     <!-- Git View Dialog -->
     <GitViewDialog
       v-if="gitRepo"
@@ -74,6 +82,7 @@
         :containers="containers"
         @tasks-changed="handleTasksChanged"
         @open-git-view="openGitView"
+        @open-history="openHistory"
       />
     </main>
   </div>
@@ -88,11 +97,14 @@ import { CLIENT_BASE } from './config'
 import FilterBar from './components/FilterBar.vue'
 import HostGroup from './components/HostGroup.vue'
 import GitViewDialog from './components/GitViewDialog.vue'
+import PromptHistoryDialog from './components/PromptHistoryDialog.vue'
 
 const { byHost, summary, handleMessage, containers } = useContainers()
 const { load: loadAliases } = useHostnameAliases()
 const gitRepo = ref<string | null>(null)
 const gitFocusHash = ref<string | null>(null)
+const historyContainerId = ref<string | null>(null)
+const historySessionId = ref<string | null>(null)
 
 const { connected } = useDashboardWs(handleMessage)
 
@@ -160,5 +172,10 @@ function handleTasksChanged() {
 function openGitView(repo: string, hash?: string | null) {
   gitRepo.value = repo
   gitFocusHash.value = hash ?? null
+}
+
+function openHistory(containerId: string, sessionId: string) {
+  historyContainerId.value = containerId
+  historySessionId.value = sessionId
 }
 </script>

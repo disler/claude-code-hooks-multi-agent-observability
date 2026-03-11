@@ -985,6 +985,23 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     return json(updates);
   }
 
+  // GET /dashboard/session-log/:containerId/:sessionId
+  if (pathname.match(/^\/dashboard\/session-log\/[^/]+\/[^/]+$/) && method === 'GET') {
+    const parts = pathname.split('/');
+    const containerId = decodeURIComponent(parts[3]);
+    const sessionId = decodeURIComponent(parts[4]);
+    if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return err('Invalid session ID', 400);
+    const container = getContainer(containerId);
+    if (!container?.workspace_host_path) return err('Container not found', 404);
+    const logPath = `${container.workspace_host_path}/.claude/logs/${sessionId}.jsonl`;
+    try {
+      const content = await Bun.file(logPath).text();
+      return json({ content });
+    } catch {
+      return err('Log file not found', 404);
+    }
+  }
+
   // GET /dashboard/hostname-aliases
   if (pathname === '/dashboard/hostname-aliases' && method === 'GET') {
     try {

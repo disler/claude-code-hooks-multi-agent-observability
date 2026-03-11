@@ -8,7 +8,11 @@
   >
     <div class="flex items-center gap-2 flex-wrap">
       <AgentStatusBadge :status="session.status" />
-      <span class="text-xs text-slate-400 font-mono">{{ shortId }}</span>
+      <button
+        class="text-xs text-slate-400 font-mono hover:text-slate-200 hover:underline cursor-pointer"
+        title="View session history"
+        @click="emit('open-history')"
+      >{{ shortId }}</button>
       <span v-if="session.model_name" class="text-xs text-slate-500">{{ session.model_name }}</span>
       <span
         v-if="session.last_event_at"
@@ -48,7 +52,7 @@ import AgentStatusBadge from './AgentStatusBadge.vue'
 import type { SessionState } from '../types'
 
 const props = defineProps<{ session: SessionState; explicitlyHidden?: boolean }>()
-const emit = defineEmits<{ hide: []; unhide: [] }>()
+const emit = defineEmits<{ hide: []; unhide: []; 'open-history': [] }>()
 
 const shortId = computed(() => props.session.session_id.slice(0, 8))
 
