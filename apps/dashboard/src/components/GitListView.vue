@@ -32,6 +32,20 @@
         <span v-if="c.git_staged_count === 0 && c.git_unstaged_count === 0" class="text-slate-500">Clean</span>
       </div>
 
+      <!-- Submodule info -->
+      <div
+        v-for="sub in (c.git_submodules ?? [])"
+        :key="sub.path"
+        class="mt-1 pl-3 border-l border-slate-700 text-xs flex items-center gap-2 flex-wrap"
+      >
+        <span class="text-slate-500">submodule</span>
+        <span class="font-mono text-slate-300">{{ sub.path }}</span>
+        <span v-if="sub.branch" class="font-mono text-cyan-400">{{ sub.branch }}</span>
+        <span v-if="sub.commit_hash" class="font-mono text-yellow-400">{{ sub.commit_hash.slice(0, 8) }}</span>
+        <span v-if="sub.staged_count > 0" class="text-yellow-400">+{{ sub.staged_count }}</span>
+        <span v-if="sub.unstaged_count > 0" class="text-orange-400">~{{ sub.unstaged_count }}</span>
+      </div>
+
       <!-- Diffstat popover -->
       <pre
         v-if="selectedHash === c.git_commit_hash && diffstat"

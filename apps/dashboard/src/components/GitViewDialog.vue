@@ -7,16 +7,16 @@
           <span class="text-sm font-semibold text-slate-400">Git View</span>
           <!-- Repo dropdown -->
           <select
-            v-if="allRepos && allRepos.length > 1"
-            :value="sourceRepo"
+            v-if="visibleRepoItems.length > 1"
+            :value="isSubmoduleInListMode ? parentRepo : sourceRepo"
             @change="$emit('switch-repo', ($event.target as HTMLSelectElement).value)"
             class="text-sm font-semibold text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 cursor-pointer"
           >
-            <option v-for="r in sortedRepoItems" :key="r.value" :value="r.value">{{ r.label }}</option>
+            <option v-for="r in visibleRepoItems" :key="r.value" :value="r.value">{{ r.label }}</option>
           </select>
-          <span v-else class="text-sm font-semibold text-slate-200">{{ repoDisplayName(sourceRepo) }}</span>
-          <!-- Submodule quick links -->
-          <template v-if="gitData?.submodules?.length">
+          <span v-else class="text-sm font-semibold text-slate-200">{{ repoDisplayName(isSubmoduleInListMode ? parentRepo : sourceRepo) }}</span>
+          <!-- Submodule quick links (graph mode only) -->
+          <template v-if="mode === 'graph' && gitData?.submodules?.length">
             <span class="text-slate-600 text-xs">·</span>
             <button
               v-for="sub in gitData.submodules"
@@ -161,6 +161,20 @@ const selectedHost = ref<string | null>(null)
 const graphRef = ref<InstanceType<typeof GitGraphView> | null>(null)
 const listRef = ref<InstanceType<typeof GitListView> | null>(null)
 
+// Returns true if repo is a submodule of another repo in allRepos
+function isSubmoduleRepo(repo: string): boolean {
+  return (props.allRepos ?? []).some(p => p !== repo && repo.startsWith(p + '/'))
+}
+
+// The parent repo of the current sourceRepo (if it's a submodule)
+const parentRepo = computed((): string => {
+  const allRepoList = props.allRepos ?? []
+  return allRepoList.find(p => p !== props.sourceRepo && props.sourceRepo.startsWith(p + '/')) ?? props.sourceRepo
+})
+
+// True when in list mode AND currently viewing a submodule
+const isSubmoduleInListMode = computed(() => mode.value === 'list' && isSubmoduleRepo(props.sourceRepo))
+
 // Compute display name for a repo path (basename, or parent/subname for submodules)
 function repoDisplayName(repo: string): string {
   const allRepoList = props.allRepos ?? []
@@ -173,16 +187,15 @@ function repoDisplayName(repo: string): string {
   return repo.split('/').pop() ?? repo
 }
 
-// Sorted repo list with display labels (submodules indented under parents)
+// All repo items with proper display labels (parent/subName format)
 const sortedRepoItems = computed(() => {
-  const allRepoList = [...(props.allRepos ?? [])].sort()
-  return allRepoList.map(r => {
-    const parent = allRepoList.find(p => p !== r && r.startsWith(p + '/'))
-    const label = parent
-      ? `  ${r.slice(parent.length + 1)}`
-      : (r.split('/').pop() ?? r)
-    return { value: r, label }
-  })
+  return [...(props.allRepos ?? [])].sort().map(r => ({ value: r, label: repoDisplayName(r) }))
+})
+
+// In list mode, hide submodule repos from the dropdown
+const visibleRepoItems = computed(() => {
+  if (mode.value === 'list') return sortedRepoItems.value.filter(r => !isSubmoduleRepo(r.value))
+  return sortedRepoItems.value
 })
 
 const sortedContainers = computed(() => {
@@ -244,8 +257,11 @@ const filteredRefsPerHost = computed(() => {
   return all.filter(r => r.host === effectiveHost.value)
 })
 
+// The repo to actually fetch: in list mode, use the parent repo for submodules
+const fetchRepo = computed(() => isSubmoduleInListMode.value ? parentRepo.value : props.sourceRepo)
+
 async function load() {
-  await fetchGitView(props.sourceRepo)
+  await fetchGitView(fetchRepo.value)
   selectedHash.value = null
   currentDiffstat.value = ''
   selectedHost.value = null
@@ -259,7 +275,7 @@ async function selectHash(hash: string) {
   }
   selectedHash.value = hash
   loadingDiffstat.value = true
-  currentDiffstat.value = await fetchDiffstat(props.sourceRepo, hash)
+  currentDiffstat.value = await fetchDiffstat(fetchRepo.value, hash)
   loadingDiffstat.value = false
 }
 
@@ -277,6 +293,7 @@ async function jumpToContainer(c: GitContainer) {
 }
 
 watch(() => props.sourceRepo, load, { immediate: true })
+watch(fetchRepo, (newRepo, oldRepo) => { if (newRepo !== oldRepo) load() })
 
 // Focus initial hash after data loads (e.g. opened by clicking branch/commit in ContainerCard)
 watch(gitData, async (data) => {

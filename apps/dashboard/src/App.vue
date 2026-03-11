@@ -55,7 +55,7 @@
     <GitViewDialog
       v-if="gitRepo"
       :source-repo="gitRepo"
-      :all-repos="allRepos"
+      :all-repos="allGitViewRepos"
       :initial-hash="gitFocusHash"
       @close="gitRepo = null; gitFocusHash = null"
       @switch-repo="gitRepo = $event; gitFocusHash = null"
@@ -113,7 +113,15 @@ watch(repoFilter, v => setParam('repo', v))
 watch(hostFilter, v => setParam('host', v))
 watch(connectionFilter, v => setParam('conn', v))
 
+// Top-level repos only (no submodule paths) — used for the main FilterBar
 const allRepos = computed(() => {
+  const repos = new Set<string>()
+  for (const c of containers.value.values()) repos.add(c.source_repo)
+  return [...repos].sort()
+})
+
+// All repos including submodule paths — used for the Git View dropdown
+const allGitViewRepos = computed(() => {
   const repos = new Set<string>()
   for (const c of containers.value.values()) {
     repos.add(c.source_repo)

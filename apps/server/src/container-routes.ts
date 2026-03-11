@@ -824,7 +824,23 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // GET /dashboard/git-view/:repo
   if (pathname.match(/^\/dashboard\/git-view\//) && method === 'GET') {
     const repo = decodeURIComponent(pathname.slice('/dashboard/git-view/'.length));
-    const allContainers = getAllContainers().filter(c => c.source_repo === repo);
+    let allContainers = getAllContainers().filter(c => c.source_repo === repo);
+
+    // If no containers found, check if this is a submodule repo (e.g. "myproject/observability")
+    // and fall back to parent containers with submodule git info substituted.
+    let submodulePath = '';
+    if (allContainers.length === 0) {
+      const parts = repo.split('/');
+      for (let i = parts.length - 1; i >= 1; i--) {
+        const candidate = parts.slice(0, i).join('/');
+        const parentContainers = getAllContainers().filter(c => c.source_repo === candidate);
+        if (parentContainers.length > 0) {
+          submodulePath = parts.slice(i).join('/');
+          allContainers = parentContainers;
+          break;
+        }
+      }
+    }
 
     // Primary: use DB-stored commits sent by daemons (works for local and remote hosts)
     let storedCommits = getGitCommits(repo);
@@ -877,13 +893,23 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       storedCommits = [...commitMap.values()];
     }
 
-    const containers = allContainers.map(c => ({
-      id: c.id, machine_hostname: c.machine_hostname, container_hostname: c.container_hostname,
-      git_branch: c.git_branch, git_worktree: c.git_worktree, git_commit_hash: c.git_commit_hash,
-      git_staged_count: c.git_staged_count, git_unstaged_count: c.git_unstaged_count,
-      git_unstaged_diffstat: c.git_unstaged_diffstat, git_staged_diffstat: c.git_staged_diffstat,
-      workspace_host_path: c.workspace_host_path, connected: c.connected,
-    }));
+    const containers = allContainers.map(c => {
+      const subData = submodulePath
+        ? (c.git_submodules ?? []).find((s: any) => s.path === submodulePath)
+        : null;
+      return {
+        id: c.id, machine_hostname: c.machine_hostname, container_hostname: c.container_hostname,
+        git_branch: subData ? (subData as any).branch ?? null : c.git_branch,
+        git_worktree: subData ? null : c.git_worktree,
+        git_commit_hash: subData ? (subData as any).commit_hash ?? null : c.git_commit_hash,
+        git_staged_count: subData ? (subData as any).staged_count ?? 0 : c.git_staged_count,
+        git_unstaged_count: subData ? (subData as any).unstaged_count ?? 0 : c.git_unstaged_count,
+        git_unstaged_diffstat: subData ? (subData as any).unstaged_diffstat ?? null : c.git_unstaged_diffstat,
+        git_staged_diffstat: subData ? (subData as any).staged_diffstat ?? null : c.git_staged_diffstat,
+        workspace_host_path: c.workspace_host_path, connected: c.connected,
+        git_submodules: subData ? [] : (c.git_submodules ?? []),
+      };
+    });
 
     // Per-host local branch data (from DB for primary path, from fallback for direct git log)
     const dbRefs = getGitCommitRefs(repo);

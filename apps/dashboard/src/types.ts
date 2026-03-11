@@ -92,6 +92,7 @@ export interface GitContainer {
   git_staged_diffstat: string | null
   workspace_host_path: string | null
   connected: boolean
+  git_submodules?: Array<{ path: string; branch: string | null; commit_hash: string | null; staged_count: number; unstaged_count: number }>
 }
 
 export interface GitViewData {
