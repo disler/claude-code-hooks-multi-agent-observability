@@ -7,7 +7,7 @@
     >
       <span>{{ open ? '▾' : '▸' }}</span>
       <span>Plan Queue</span>
-      <span class="text-slate-500">({{ pendingCount }} pending{{ autoQueueCount > 0 ? `, ${autoQueueCount} queued` : '' }}{{ underwayCount > 0 ? `, ${underwayCount} underway` : '' }}{{ doneCount > 0 ? `, ${doneCount} done` : '' }})</span>
+      <span class="text-slate-500">({{ pendingCount }} pending{{ autoQueueCount > 0 ? `, ${autoQueueCount} queued` : '' }}{{ underwayCount > 0 ? `, ${underwayCount} underway` : '' }}{{ awaitingCommitCount > 0 ? `, ${awaitingCommitCount} awaiting commit` : '' }}{{ doneCount > 0 ? `, ${doneCount} done` : '' }})</span>
     </button>
 
     <div v-if="open" class="mt-1 bg-slate-900/50 rounded-lg border border-slate-700 p-2">
@@ -21,6 +21,12 @@
         <span>⏱</span>
         <span>{{ autoQueueCount }} task{{ autoQueueCount > 1 ? 's' : '' }} queued for auto-run</span>
         <span v-if="multipleAutoWarning" class="text-yellow-400 ml-1">⚠ multiple auto-queue sessions may be running</span>
+      </div>
+
+      <!-- Awaiting-commit notice -->
+      <div v-if="awaitingCommitCount > 0" class="text-xs text-purple-400 mb-2 flex items-center gap-1">
+        <span>💾</span>
+        <span>{{ awaitingCommitCount }} task{{ awaitingCommitCount > 1 ? 's' : '' }} awaiting commit — commit staged changes to continue</span>
       </div>
 
       <!-- Auto-test pending prompt -->
@@ -58,7 +64,7 @@
           @set-status="(t, s) => setStatus(t, s)"
           @delete="deleteTask(task.id)"
           @update-desc="(id, desc) => updateDesc(id, desc)"
-          @toggle-auto-commit="toggleAutoCommit"
+          @set-commit-mode="(t, m) => setCommitMode(t, m)"
           @add-plan="addPlanFromMakePlan"
           @archive="archiveTask(task.id)"
           @dragstart="dragFrom = task.id"
@@ -116,7 +122,7 @@
       v-if="showAddDialog"
       :container-id="containerId"
       @close="showAddDialog = false"
-      @add="(type, fn, desc, createFile, autoCommit) => addTask(type, fn, desc, createFile, autoCommit)"
+      @add="(type, fn, desc, createFile, commitMode) => addTask(type, fn, desc, createFile, commitMode)"
     />
 
     <PlanqFileEditor
@@ -173,6 +179,7 @@ const pendingCount = computed(() => props.tasks.filter(t => t.status === 'pendin
 const underwayCount = computed(() => props.tasks.filter(t => t.status === 'underway').length)
 const doneCount = computed(() => props.tasks.filter(t => t.status === 'done').length)
 const autoQueueCount = computed(() => props.tasks.filter(t => t.status === 'auto-queue').length)
+const awaitingCommitCount = computed(() => props.tasks.filter(t => t.status === 'awaiting-commit').length)
 // Warn if there are multiple underway tasks alongside auto-queue tasks (suggests >1 auto runner)
 const multipleAutoWarning = computed(() => autoQueueCount.value > 0 && underwayCount.value > 1)
 
@@ -192,13 +199,13 @@ function archiveBadgeClass(taskType: string): string {
 
 const cid = () => props.containerId
 
-async function addTask(taskType: string, filename: string | null, description: string | null, createFile = false, autoCommitAfter = false) {
-  console.log(`[planq] add task type=${taskType} file=${filename ?? '—'} auto_commit=${autoCommitAfter} container=${cid()}`)
-  await apiAdd(props.containerId, taskType, filename, description, createFile, autoCommitAfter)
+async function addTask(taskType: string, filename: string | null, description: string | null, createFile = false, commitMode: 'none' | 'auto' | 'stage' | 'manual' = 'none') {
+  console.log(`[planq] add task type=${taskType} file=${filename ?? '—'} commit_mode=${commitMode} container=${cid()}`)
+  await apiAdd(props.containerId, taskType, filename, description, createFile, commitMode)
   emit('tasks-changed')
 }
 
-async function setStatus(task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue') {
+async function setStatus(task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit') {
   console.log(`[planq] set status ${task.status}→${status} task=${task.filename ?? task.description} container=${cid()}`)
   await apiUpdate(props.containerId, task.id, { status })
   emit('tasks-changed')
@@ -233,9 +240,9 @@ async function archiveDone() {
   }
 }
 
-async function toggleAutoCommit(task: PlanqTask) {
-  console.log(`[planq] toggle auto_commit=${!task.auto_commit} task=${task.filename ?? task.description} container=${cid()}`)
-  await apiUpdate(props.containerId, task.id, { auto_commit: !task.auto_commit })
+async function setCommitMode(task: PlanqTask, mode: 'none' | 'auto' | 'stage' | 'manual') {
+  console.log(`[planq] set commit_mode=${mode} task=${task.filename ?? task.description} container=${cid()}`)
+  await apiUpdate(props.containerId, task.id, { commit_mode: mode })
   emit('tasks-changed')
 }
 

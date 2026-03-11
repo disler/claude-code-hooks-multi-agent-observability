@@ -2,7 +2,7 @@
   <div class="flex flex-col">
   <div
     class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-700/50 group"
-    :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue' }"
+    :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue', 'bg-purple-900/20': task.status === 'awaiting-commit' }"
     draggable="true"
     @dragstart="emit('dragstart', task.id)"
     @dragenter.prevent
@@ -19,6 +19,7 @@
     <span v-if="task.status === 'done'" class="text-green-500 text-xs">✅</span>
     <span v-else-if="task.status === 'underway'" class="text-yellow-400 text-xs">⏳</span>
     <span v-else-if="task.status === 'auto-queue'" class="text-cyan-400 text-xs">⏱</span>
+    <span v-else-if="task.status === 'awaiting-commit'" class="text-purple-400 text-xs">💾</span>
     <span v-else class="text-slate-600 text-xs">▶</span>
 
     <!-- Type badge -->
@@ -33,7 +34,9 @@
         :title="descPopupOpen ? 'Hide description' : 'Show description'"
       >{{ task.filename }}</button>
       <span v-else>{{ task.description }}</span>
-      <span v-if="task.auto_commit" class="ml-1 text-green-500 text-xs" title="Auto-commit after">⇒</span>
+      <span v-if="task.commit_mode === 'auto' || task.auto_commit" class="ml-1 text-green-500 text-xs" title="Auto-commit after">⇒</span>
+      <span v-else-if="task.commit_mode === 'stage'" class="ml-1 text-blue-400 text-xs" title="Stage-commit after (Claude stages, you commit)">⇒</span>
+      <span v-else-if="task.commit_mode === 'manual'" class="ml-1 text-orange-400 text-xs" title="Manual-commit after (you stage and commit)">⇒</span>
     </span>
     <input
       v-else
@@ -70,31 +73,31 @@
         title="Edit description"
       >Edit</button>
 
-      <!-- Toggle auto-commit -->
+      <!-- Cycle commit mode (none → auto → stage → manual → none) -->
       <button
-        v-if="task.task_type !== 'auto-commit' && task.task_type !== 'manual-commit' && task.task_type !== 'manual-test' && task.task_type !== 'manual-task'"
-        @click="emit('toggle-auto-commit', task)"
+        v-if="task.task_type !== 'auto-commit' && task.task_type !== 'manual-commit' && task.task_type !== 'manual-test' && task.task_type !== 'manual-task' && task.status !== 'awaiting-commit'"
+        @click="emit('set-commit-mode', task, nextCommitMode(task.commit_mode))"
         class="text-xs px-1 font-mono"
-        :class="task.auto_commit ? 'text-green-400' : 'text-slate-500'"
-        :title="task.auto_commit ? 'Remove auto-commit' : 'Auto-commit after this task'"
+        :class="commitModeButtonClass"
+        :title="commitModeButtonTitle"
       >⇒</button>
 
       <!-- Toggle auto-queue -->
       <button
-        v-if="task.status === 'pending' || task.status === 'auto-queue'"
+        v-if="task.status === 'pending' || task.status === 'auto-queue' || task.status === 'awaiting-commit'"
         @click="emit('set-status', task, task.status === 'auto-queue' ? 'pending' : 'auto-queue')"
         class="text-xs px-1"
         :class="task.status === 'auto-queue' ? 'grayscale opacity-50' : ''"
         :title="task.status === 'auto-queue' ? 'Remove from auto-queue' : 'Add to auto-queue'"
       >⏱</button>
 
-      <!-- Mark underway / un-underway -->
+      <!-- Mark underway / un-underway (also from awaiting-commit to abort the wait) -->
       <button
-        v-if="task.status === 'pending' || task.status === 'underway'"
+        v-if="task.status === 'pending' || task.status === 'underway' || task.status === 'awaiting-commit'"
         @click="emit('set-status', task, task.status === 'underway' ? 'pending' : 'underway')"
         class="text-xs px-1"
         :class="task.status === 'underway' ? 'text-slate-500 hover:text-slate-300' : 'text-yellow-500 hover:text-yellow-300'"
-        :title="task.status === 'underway' ? 'Mark inactive' : 'Mark underway'"
+        :title="task.status === 'awaiting-commit' ? 'Abort commit wait (mark underway)' : task.status === 'underway' ? 'Mark inactive' : 'Mark underway'"
       >⏳</button>
 
       <!-- Mark done / pending -->
@@ -159,10 +162,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'edit-file': [task: PlanqTask]
-  'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue']
+  'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit']
   'delete': [id: number]
   'update-desc': [id: number, desc: string]
-  'toggle-auto-commit': [task: PlanqTask]
+  'set-commit-mode': [task: PlanqTask, mode: 'none' | 'auto' | 'stage' | 'manual']
   'dragstart': [id: number]
   'drop': [id: number]
   'add-plan': [planFilename: string]
@@ -187,6 +190,27 @@ const showAddPlan = computed(() =>
   && !!derivedPlanFilename.value
   && !(props.allTasks ?? []).some(t => t.task_type === 'plan' && t.filename === derivedPlanFilename.value)
 )
+
+function nextCommitMode(current: PlanqTask['commit_mode']): PlanqTask['commit_mode'] {
+  const cycle: PlanqTask['commit_mode'][] = ['none', 'auto', 'stage', 'manual']
+  return cycle[(cycle.indexOf(current) + 1) % cycle.length]
+}
+
+const commitModeButtonClass = computed(() => {
+  const mode = props.task.commit_mode ?? (props.task.auto_commit ? 'auto' : 'none')
+  if (mode === 'auto') return 'text-green-400'
+  if (mode === 'stage') return 'text-blue-400'
+  if (mode === 'manual') return 'text-orange-400'
+  return 'text-slate-500'
+})
+
+const commitModeButtonTitle = computed(() => {
+  const mode = props.task.commit_mode ?? (props.task.auto_commit ? 'auto' : 'none')
+  if (mode === 'auto') return 'Auto-commit after (click: → stage-commit)'
+  if (mode === 'stage') return 'Stage-commit after (Claude stages, you commit) (click: → manual-commit)'
+  if (mode === 'manual') return 'Manual-commit after (you stage and commit) (click: → none)'
+  return 'No commit after (click: → auto-commit)'
+})
 
 const typeBadgeClass = computed(() => ({
   'task': 'bg-blue-900/60 text-blue-300',

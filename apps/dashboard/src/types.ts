@@ -26,16 +26,18 @@ export interface PlanqTask {
   filename: string | null
   description: string | null
   position: number
-  status: 'pending' | 'done' | 'underway' | 'auto-queue'
+  status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit'
   auto_commit: boolean
+  commit_mode: 'none' | 'auto' | 'stage' | 'manual'
 }
 
 export interface PlanqItem {
   task_type: string
   filename: string | null
   description: string | null
-  status: 'pending' | 'done' | 'underway' | 'auto-queue'
+  status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit'
   auto_commit: boolean
+  commit_mode: 'none' | 'auto' | 'stage' | 'manual'
 }
 
 export interface AutoTestPending {

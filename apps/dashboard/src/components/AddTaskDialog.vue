@@ -159,14 +159,25 @@
         />
       </div>
 
-      <!-- Auto-commit after checkbox (for non-auto-commit and non-manual task types) -->
-      <label
+      <!-- Commit mode selector (for non-auto-commit and non-manual task types) -->
+      <div
         v-if="taskType !== 'auto-commit' && taskType !== 'manual-commit' && taskType !== 'manual-test' && taskType !== 'manual-task'"
-        class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none"
+        class="flex flex-col gap-1"
       >
-        <input type="checkbox" v-model="autoCommitAfter" class="rounded" />
-        <span>Auto-commit after this task</span>
-      </label>
+        <label class="text-xs text-slate-400">After this task</label>
+        <div class="flex gap-1">
+          <button
+            v-for="opt in commitModeOptions"
+            :key="opt.value"
+            type="button"
+            @click="commitMode = opt.value"
+            class="text-xs px-2 py-1 rounded border transition-colors"
+            :class="commitMode === opt.value
+              ? opt.activeClass
+              : 'border-slate-600 bg-slate-700 text-slate-400 hover:bg-slate-600'"
+          >{{ opt.label }}</button>
+        </div>
+      </div>
 
       <div class="flex justify-end gap-2">
         <button
@@ -192,7 +203,7 @@ const props = defineProps<{ containerId: string }>()
 
 const emit = defineEmits<{
   close: []
-  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, autoCommitAfter?: boolean]
+  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, commitMode?: 'none' | 'auto' | 'stage' | 'manual']
 }>()
 
 const { readFile, listPlansFiles } = usePlanq()
@@ -203,7 +214,14 @@ const taskSlug = ref('')
 const planSlug = ref('')
 const makePlanSlug = ref('')
 const description = ref('')
-const autoCommitAfter = ref(false)
+const commitMode = ref<'none' | 'auto' | 'stage' | 'manual'>('none')
+
+const commitModeOptions = [
+  { value: 'none' as const, label: 'Nothing', activeClass: 'border-slate-500 bg-slate-600 text-slate-200' },
+  { value: 'auto' as const, label: '⇒ Auto-commit', activeClass: 'border-green-600 bg-green-900/50 text-green-300' },
+  { value: 'stage' as const, label: '⇒ Stage-commit', activeClass: 'border-blue-600 bg-blue-900/50 text-blue-300' },
+  { value: 'manual' as const, label: '⇒ Manual-commit', activeClass: 'border-orange-600 bg-orange-900/50 text-orange-300' },
+]
 
 const plansFiles = ref<string[]>([])
 const filePreview = ref<string | null>(null)
@@ -279,27 +297,27 @@ const isValid = computed(() => {
 function submit() {
   if (!isValid.value) return
 
-  const ac = autoCommitAfter.value
+  const cm = commitMode.value
 
   if (taskType.value === 'task') {
     if (taskFilename.value) {
       const createFile = !isExistingTaskFile.value
-      emit('add', 'task', taskFilename.value, description.value.trim(), createFile, ac)
+      emit('add', 'task', taskFilename.value, description.value.trim(), createFile, cm)
     } else {
       const unnamedDesc = description.value.trim().split('\n').map(l => l.trim()).filter(Boolean).join('. ')
-      emit('add', 'unnamed-task', null, unnamedDesc, false, ac)
+      emit('add', 'unnamed-task', null, unnamedDesc, false, cm)
     }
   } else if (taskType.value === 'plan') {
-    emit('add', 'plan', planFilename.value, null, false, ac)
+    emit('add', 'plan', planFilename.value, null, false, cm)
   } else if (taskType.value === 'make-plan') {
-    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, ac)
+    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, cm)
   } else if (taskType.value === 'auto-commit') {
     const opts = description.value.trim() || null
-    emit('add', 'auto-commit', null, opts, false, false)
+    emit('add', 'auto-commit', null, opts, false, 'none')
   } else if (taskType.value === 'auto-test') {
-    emit('add', 'auto-test', null, description.value.trim(), false, ac)
+    emit('add', 'auto-test', null, description.value.trim(), false, cm)
   } else {
-    emit('add', taskType.value, null, description.value.trim(), false, ac)
+    emit('add', taskType.value, null, description.value.trim(), false, cm)
   }
   emit('close')
 }

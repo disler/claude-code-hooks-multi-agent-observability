@@ -920,7 +920,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const { task_type, description, create_file, auto_commit } = body;
+    const { task_type, description, create_file, auto_commit, commit_mode } = body;
     let { filename } = body;
     if (!task_type) return err('task_type required');
 
@@ -931,7 +931,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       if (actualFn) filename = actualFn;
     }
 
-    const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null, Boolean(auto_commit));
+    const effectiveMode = (['auto', 'stage', 'manual'].includes(commit_mode) ? commit_mode : (auto_commit ? 'auto' : 'none')) as 'none' | 'auto' | 'stage' | 'manual';
+    const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null, effectiveMode === 'auto', effectiveMode);
     touchPlanqServerModified(containerId);
     // For make-plan, write the prompt to the filename directly (filename IS make-plan-*.md)
     if (task_type === 'make-plan' && filename && description) {
@@ -954,10 +955,14 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const updates: { description?: string; status?: string; auto_commit?: boolean } = {};
+    const updates: { description?: string; status?: string; auto_commit?: boolean; commit_mode?: 'none' | 'auto' | 'stage' | 'manual' } = {};
     if (body.description !== undefined) updates.description = body.description;
     if (body.status !== undefined) updates.status = body.status;
-    if (body.auto_commit !== undefined) updates.auto_commit = Boolean(body.auto_commit);
+    if (body.commit_mode !== undefined && ['none', 'auto', 'stage', 'manual'].includes(body.commit_mode)) {
+      updates.commit_mode = body.commit_mode;
+    } else if (body.auto_commit !== undefined) {
+      updates.auto_commit = Boolean(body.auto_commit);
+    }
     const task = updatePlanqTask(taskId, updates);
     if (!task) return err('Task not found', 404);
     touchPlanqServerModified(containerId);

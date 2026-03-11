@@ -126,9 +126,10 @@ _find_task_by_identifier() {
             task_line="${task_line#"# awaiting-commit: "}"
         fi
         local task_value="${task_line#*: }"
-        # Strip +auto-commit / +stage-commit suffix for comparison (flags, not part of filename/description)
+        # Strip commit flags from comparison (flags, not part of filename/description)
         local cmp_value="${task_value% +auto-commit}"
         cmp_value="${cmp_value% +stage-commit}"
+        cmp_value="${cmp_value% +manual-commit}"
         if [ "$cmp_value" = "$ident" ] || [ "$task_value" = "$ident" ]; then
             printf '%d\t%s\n' "$n" "$task_line"
             return
@@ -280,12 +281,13 @@ _delete_line() {
 }
 
 _parse_task() {
-    # Args: task_line → sets task_type, task_value, task_auto_commit, task_stage_commit in caller scope
+    # Args: task_line → sets task_type, task_value, task_auto_commit, task_stage_commit, task_manual_commit in caller scope
     local line="$1"
     task_type="${line%%:*}"
     task_value="${line#*: }"
     task_auto_commit=""
     task_stage_commit=""
+    task_manual_commit=""
     if [[ "$task_value" == *" +auto-commit" ]]; then
         task_auto_commit="1"
         task_value="${task_value% +auto-commit}"
@@ -293,6 +295,10 @@ _parse_task() {
     if [[ "$task_value" == *" +stage-commit" ]]; then
         task_stage_commit="1"
         task_value="${task_value% +stage-commit}"
+    fi
+    if [[ "$task_value" == *" +manual-commit" ]]; then
+        task_manual_commit="1"
+        task_value="${task_value% +manual-commit}"
     fi
 }
 
@@ -444,6 +450,7 @@ _show_task_details() {
     fi
     [ -n "$task_auto_commit" ] && printf "  Auto-commit after: yes\n"
     [ -n "$task_stage_commit" ] && printf "  Stage-commit after: yes\n"
+    [ -n "$task_manual_commit" ] && printf "  Manual-commit after: yes\n"
 }
 
 cmd_show() {
@@ -521,7 +528,7 @@ cmd_run() {
         fi
     fi
 
-    local line_num task_line task_type task_value task_auto_commit task_stage_commit
+    local line_num task_line task_type task_value task_auto_commit task_stage_commit task_manual_commit
     line_num="$(printf '%s' "$next" | cut -f1)"
     task_line="$(printf '%s' "$next" | cut -f2-)"
     _parse_task "$task_line"
@@ -617,6 +624,14 @@ cmd_run() {
         else
             _notify_daemon; return 1
         fi
+        _notify_daemon
+        return 0
+    fi
+
+    # If the task had +manual-commit, mark awaiting-commit (user stages and commits manually)
+    if [ -n "$task_manual_commit" ] && [ "$task_type" != "auto-commit" ]; then
+        _mark_awaiting_commit "$line_num" "$task_line"
+        echo "manual-commit: task complete. Stage and commit changes manually, then task will be marked done."
         _notify_daemon
         return 0
     fi
@@ -783,13 +798,14 @@ _wait_for_stage_commit() {
 }
 
 cmd_create() {
-    local task_type="unnamed-task" filename="" description="" auto_commit="" stage_commit=""
+    local task_type="unnamed-task" filename="" description="" auto_commit="" stage_commit="" manual_commit=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --type|-t) task_type="${2:-}"; shift 2 ;;
             --file|-f) filename="${2:-}"; shift 2 ;;
             --auto-commit) auto_commit="1"; shift ;;
             --stage-commit) stage_commit="1"; shift ;;
+            --manual-commit) manual_commit="1"; shift ;;
             *) description="$1"; shift ;;
         esac
     done
@@ -826,6 +842,7 @@ cmd_create() {
 
     [ -n "$auto_commit" ] && task_line="${task_line} +auto-commit"
     [ -n "$stage_commit" ] && task_line="${task_line} +stage-commit"
+    [ -n "$manual_commit" ] && task_line="${task_line} +manual-commit"
 
     mkdir -p "$PLANS_DIR"
     printf '%s\n' "$task_line" >> "$PLANQ_FILE"
@@ -884,7 +901,7 @@ _run_task_inline() {
     # Run a task (already stripped of status prefix) and mark it done.
     # $1 = line_num, $2 = task_line
     local line_num="$1" task_line="$2"
-    local task_type task_value task_auto_commit task_stage_commit
+    local task_type task_value task_auto_commit task_stage_commit task_manual_commit
     _parse_task "$task_line"
     echo "Auto-running: $task_line"
     _mark_underway "$line_num" "$task_line"
@@ -966,6 +983,14 @@ _run_task_inline() {
         else
             _notify_daemon; return 1
         fi
+    fi
+
+    # If the task had +manual-commit, mark awaiting-commit (user stages and commits manually)
+    if [ -n "$task_manual_commit" ] && [ "$task_type" != "auto-commit" ]; then
+        _mark_awaiting_commit "$line_num" "$task_line"
+        echo "manual-commit: task complete. Stage and commit changes manually."
+        _notify_daemon
+        return 0
     fi
 
     _mark_done "$line_num" "$task_line"
@@ -1176,8 +1201,11 @@ usage_run()    { echo "Usage: planq run [N] [--dry-run|-n]"; echo "  Run the nex
 usage_create() {
     echo "Usage: planq create [-t <type>] [-f <file>] [<desc>]"
     echo "  Add a task to the planq file."
-    echo "  -t, --type  Task type (default: unnamed-task)"
-    echo "  -f, --file  Filename in plans/ (required for task/plan/make-plan types)"
+    echo "  -t, --type       Task type (default: unnamed-task)"
+    echo "  -f, --file       Filename in plans/ (required for task/plan/make-plan types)"
+    echo "  --auto-commit    After task: Claude commits automatically"
+    echo "  --stage-commit   After task: Claude stages + drafts message, task pauses for user to commit"
+    echo "  --manual-commit  After task: task pauses at awaiting-commit (user stages and commits manually)"
     echo "  Task types: unnamed-task (default), task, plan, make-plan, manual-test, manual-commit, manual-task"
     echo ""
     echo "  For make-plan, -f specifies the prompt filename (make-plan-*.md); Claude writes plan-*.md:"

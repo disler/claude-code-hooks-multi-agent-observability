@@ -44,14 +44,16 @@ export interface PlanqTaskRow {
   position: number;
   status: string;
   auto_commit: boolean;
+  commit_mode: 'none' | 'auto' | 'stage' | 'manual';
 }
 
 export interface PlanqItem {
   task_type: string;
   filename: string | null;
   description: string | null;
-  status: 'pending' | 'done' | 'underway' | 'auto-queue';
+  status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit';
   auto_commit: boolean;
+  commit_mode: 'none' | 'auto' | 'stage' | 'manual';
 }
 
 export function initContainerDatabase(): void {
@@ -91,6 +93,7 @@ export function initContainerDatabase(): void {
       position INTEGER NOT NULL,
       status TEXT DEFAULT 'pending',
       auto_commit INTEGER DEFAULT 0,
+      commit_mode TEXT DEFAULT 'none',
       FOREIGN KEY (container_id) REFERENCES containers(id)
     )
   `);
@@ -143,6 +146,11 @@ export function initContainerDatabase(): void {
   const taskColumns = (db.prepare('PRAGMA table_info(planq_tasks)').all() as any[]).map((r: any) => r.name);
   if (!taskColumns.includes('auto_commit')) {
     db.exec('ALTER TABLE planq_tasks ADD COLUMN auto_commit INTEGER DEFAULT 0');
+  }
+  if (!taskColumns.includes('commit_mode')) {
+    db.exec("ALTER TABLE planq_tasks ADD COLUMN commit_mode TEXT DEFAULT 'none'");
+    // Migrate existing auto_commit=1 rows to commit_mode='auto'
+    db.exec("UPDATE planq_tasks SET commit_mode = 'auto' WHERE auto_commit = 1");
   }
 }
 
@@ -279,7 +287,7 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    let status: 'pending' | 'done' | 'underway' | 'auto-queue' = 'pending';
+    let status: PlanqItem['status'] = 'pending';
     let activeLine = trimmed;
     if (trimmed.startsWith('# done:')) {
       status = 'done';
@@ -290,6 +298,9 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
     } else if (trimmed.startsWith('# auto-queue:')) {
       status = 'auto-queue';
       activeLine = trimmed.slice('# auto-queue:'.length).trim();
+    } else if (trimmed.startsWith('# awaiting-commit:')) {
+      status = 'awaiting-commit';
+      activeLine = trimmed.slice('# awaiting-commit:'.length).trim();
     } else if (trimmed.startsWith('#')) {
       continue; // regular comment
     }
@@ -302,17 +313,25 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
     const validTypes = ['task', 'plan', 'make-plan', 'manual-test', 'manual-commit', 'manual-task', 'unnamed-task', 'auto-test', 'auto-commit'];
     if (!validTypes.includes(taskType)) continue;
 
-    // Parse +auto-commit suffix (not part of filename/description)
+    // Parse commit mode flags (mutually exclusive suffixes)
     let auto_commit = false;
+    let commit_mode: PlanqItem['commit_mode'] = 'none';
     if (value.endsWith(' +auto-commit')) {
       auto_commit = true;
+      commit_mode = 'auto';
       value = value.slice(0, -' +auto-commit'.length);
+    } else if (value.endsWith(' +stage-commit')) {
+      commit_mode = 'stage';
+      value = value.slice(0, -' +stage-commit'.length);
+    } else if (value.endsWith(' +manual-commit')) {
+      commit_mode = 'manual';
+      value = value.slice(0, -' +manual-commit'.length);
     }
 
     if (taskType === 'task' || taskType === 'plan' || taskType === 'make-plan') {
-      items.push({ task_type: taskType, filename: value, description: null, status, auto_commit });
+      items.push({ task_type: taskType, filename: value, description: null, status, auto_commit, commit_mode });
     } else {
-      items.push({ task_type: taskType, filename: null, description: value, status, auto_commit });
+      items.push({ task_type: taskType, filename: null, description: value, status, auto_commit, commit_mode });
     }
   }
   return items;
@@ -323,10 +342,14 @@ export function serializePlanqOrder(tasks: PlanqTaskRow[]): string {
   const lines: string[] = [];
   for (const t of sorted) {
     let value = t.filename ? `${t.task_type}: ${t.filename}` : `${t.task_type}: ${t.description || ''}`;
-    if (t.auto_commit) value += ' +auto-commit';
+    const mode = t.commit_mode ?? (t.auto_commit ? 'auto' : 'none');
+    if (mode === 'auto') value += ' +auto-commit';
+    else if (mode === 'stage') value += ' +stage-commit';
+    else if (mode === 'manual') value += ' +manual-commit';
     if (t.status === 'done') value = `# done: ${value}`;
     else if (t.status === 'underway') value = `# underway: ${value}`;
     else if (t.status === 'auto-queue') value = `# auto-queue: ${value}`;
+    else if (t.status === 'awaiting-commit') value = `# awaiting-commit: ${value}`;
     lines.push(value);
   }
   return lines.join('\n') + '\n';
@@ -335,11 +358,11 @@ export function serializePlanqOrder(tasks: PlanqTaskRow[]): string {
 export function syncPlanqTasksFromParsed(containerId: string, items: PlanqItem[]): void {
   db.prepare('DELETE FROM planq_tasks WHERE container_id = ?').run(containerId);
   const insert = db.prepare(`
-    INSERT INTO planq_tasks (container_id, task_type, filename, description, position, status, auto_commit)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO planq_tasks (container_id, task_type, filename, description, position, status, auto_commit, commit_mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   items.forEach((item, i) => {
-    insert.run(containerId, item.task_type, item.filename ?? null, item.description ?? null, i, item.status, item.auto_commit ? 1 : 0);
+    insert.run(containerId, item.task_type, item.filename ?? null, item.description ?? null, i, item.status, item.auto_commit ? 1 : 0, item.commit_mode ?? 'none');
   });
 }
 
@@ -347,7 +370,11 @@ export function getPlanqTasks(containerId: string): PlanqTaskRow[] {
   const rows = db.prepare(
     'SELECT * FROM planq_tasks WHERE container_id = ? ORDER BY position'
   ).all(containerId) as any[];
-  return rows.map(r => ({ ...r, auto_commit: Boolean(r.auto_commit) })) as PlanqTaskRow[];
+  return rows.map(r => ({
+    ...r,
+    auto_commit: Boolean(r.auto_commit),
+    commit_mode: (r.commit_mode ?? (r.auto_commit ? 'auto' : 'none')) as PlanqTaskRow['commit_mode'],
+  })) as PlanqTaskRow[];
 }
 
 export function addPlanqTask(
@@ -355,34 +382,43 @@ export function addPlanqTask(
   taskType: string,
   filename: string | null,
   description: string | null,
-  autoCommit = false
+  autoCommit = false,
+  commitMode: 'none' | 'auto' | 'stage' | 'manual' = 'none'
 ): PlanqTaskRow {
   const maxPos = (db.prepare(
     'SELECT MAX(position) as m FROM planq_tasks WHERE container_id = ?'
   ).get(containerId) as any)?.m ?? -1;
+  // Reconcile: if autoCommit=true and commitMode='none', treat as 'auto'
+  const effectiveMode = commitMode !== 'none' ? commitMode : (autoCommit ? 'auto' : 'none');
   const result = db.prepare(`
-    INSERT INTO planq_tasks (container_id, task_type, filename, description, position, status, auto_commit)
-    VALUES (?, ?, ?, ?, ?, 'pending', ?)
-  `).run(containerId, taskType, filename ?? null, description ?? null, maxPos + 1, autoCommit ? 1 : 0);
+    INSERT INTO planq_tasks (container_id, task_type, filename, description, position, status, auto_commit, commit_mode)
+    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+  `).run(containerId, taskType, filename ?? null, description ?? null, maxPos + 1, effectiveMode === 'auto' ? 1 : 0, effectiveMode);
   const row = db.prepare('SELECT * FROM planq_tasks WHERE id = ?').get(result.lastInsertRowid) as any;
-  return { ...row, auto_commit: Boolean(row.auto_commit) } as PlanqTaskRow;
+  return { ...row, auto_commit: Boolean(row.auto_commit), commit_mode: row.commit_mode ?? 'none' } as PlanqTaskRow;
 }
 
 export function updatePlanqTask(
   taskId: number,
-  updates: { description?: string; status?: string; auto_commit?: boolean }
+  updates: { description?: string; status?: string; auto_commit?: boolean; commit_mode?: 'none' | 'auto' | 'stage' | 'manual' }
 ): PlanqTaskRow | null {
   const fields: string[] = [];
   const values: any[] = [];
   if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
   if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
-  if (updates.auto_commit !== undefined) { fields.push('auto_commit = ?'); values.push(updates.auto_commit ? 1 : 0); }
+  if (updates.commit_mode !== undefined) {
+    fields.push('commit_mode = ?'); values.push(updates.commit_mode);
+    fields.push('auto_commit = ?'); values.push(updates.commit_mode === 'auto' ? 1 : 0);
+  } else if (updates.auto_commit !== undefined) {
+    fields.push('auto_commit = ?'); values.push(updates.auto_commit ? 1 : 0);
+    fields.push('commit_mode = ?'); values.push(updates.auto_commit ? 'auto' : 'none');
+  }
   if (!fields.length) return null;
   values.push(taskId);
   db.prepare(`UPDATE planq_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   const row = db.prepare('SELECT * FROM planq_tasks WHERE id = ?').get(taskId) as any;
   if (!row) return null;
-  return { ...row, auto_commit: Boolean(row.auto_commit) } as PlanqTaskRow;
+  return { ...row, auto_commit: Boolean(row.auto_commit), commit_mode: row.commit_mode ?? 'none' } as PlanqTaskRow;
 }
 
 export function deletePlanqTask(taskId: number): boolean {
@@ -406,7 +442,7 @@ export function getArchiveTasks(containerId: string): PlanqItem[] {
 export function archiveTask(taskId: number): { ok: boolean; historyContent: string; containerId: string } {
   const row = db.prepare('SELECT * FROM planq_tasks WHERE id = ?').get(taskId) as any;
   if (!row) return { ok: false, historyContent: '', containerId: '' };
-  const task: PlanqTaskRow = { ...row, auto_commit: Boolean(row.auto_commit) };
+  const task: PlanqTaskRow = { ...row, auto_commit: Boolean(row.auto_commit), commit_mode: row.commit_mode ?? 'none' };
   const containerId: string = row.container_id;
 
   const existingRow = db.prepare('SELECT planq_history FROM containers WHERE id = ?').get(containerId) as any;
@@ -486,7 +522,7 @@ export function getGitCommitRefs(sourceRepo: string): Array<{ hash: string; mach
 export function archiveDoneTasks(containerId: string): { count: number; historyContent: string } {
   const doneTasks = (db.prepare(
     "SELECT * FROM planq_tasks WHERE container_id = ? AND status = 'done' ORDER BY position"
-  ).all(containerId) as any[]).map(r => ({ ...r, auto_commit: Boolean(r.auto_commit) })) as PlanqTaskRow[];
+  ).all(containerId) as any[]).map(r => ({ ...r, auto_commit: Boolean(r.auto_commit), commit_mode: r.commit_mode ?? 'none' })) as PlanqTaskRow[];
 
   if (doneTasks.length === 0) return { count: 0, historyContent: '' };
 
