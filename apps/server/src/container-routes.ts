@@ -1062,7 +1062,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   if (pathname === '/dashboard/hostname-aliases' && method === 'GET') {
     try {
       const home = process.env.HOME || process.env.USERPROFILE || '/root';
-      const aliasPath = `${home}/.local/devcontainer/hostname-aliases.json`;
+      const aliasPath = `${home}/.local/devcontainer-sandbox/hostname-aliases.json`;
       const content = await Bun.file(aliasPath).text();
       return json(JSON.parse(content));
     } catch {
