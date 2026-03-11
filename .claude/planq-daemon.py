@@ -377,11 +377,11 @@ def _do_auto_fetch():
             log.info('Auto-fetch: new commits from %s (mode=%s)', host, mode)
             if mode == 'github':
                 if not fetched_origin:
-                    _run(['git', 'fetch', 'origin'], cwd=str(WORKSPACE_ROOT))
+                    _run(['git', 'fetch', '--no-auto-gc', 'origin'], cwd=str(WORKSPACE_ROOT))
                     fetched_origin = True
                     did_fetch = True
             else:
-                _run(['git', 'fetch', host], cwd=str(WORKSPACE_ROOT))
+                _run(['git', 'fetch', '--no-auto-gc', host], cwd=str(WORKSPACE_ROOT))
                 did_fetch = True
 
     if did_fetch:
