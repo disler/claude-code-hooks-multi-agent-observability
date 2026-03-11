@@ -37,6 +37,10 @@ const gitShowCache = new Map<string, string>();
 // sourceRepo → host → epoch ms
 const branchLastCommit = new Map<string, Map<string, number>>();
 
+// ── GitHub PR cache (in-memory, 5-minute TTL) ─────────────────────────────────
+interface GithubPrData { prs: Array<{ branch: string; number: number; url: string; state: string; draft: boolean }> }
+const githubPrCache = new Map<string, { fetchedAt: number; data: GithubPrData }>();
+
 // ── Planq sync tracking (in-memory) ───────────────────────────────────────────
 // Records timestamp of the last successful planq file write to each daemon.
 // Used to detect unsynced server-side changes on daemon reconnection.
@@ -1001,6 +1005,40 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const hostMap = branchLastCommit.get(repo) ?? new Map<string, number>();
     const updates = [...hostMap.entries()].map(([host, lastCommitAt]) => ({ host, lastCommitAt }));
     return json(updates);
+  }
+
+  // GET /dashboard/github-prs/:owner/:repo — fetch open PRs from GitHub API
+  if (pathname.match(/^\/dashboard\/github-prs\/[^/]+\/[^/]+$/) && method === 'GET') {
+    const parts = pathname.split('/');
+    const owner = decodeURIComponent(parts[3]);
+    const repo = decodeURIComponent(parts[4]);
+    if (!/^[a-zA-Z0-9._-]+$/.test(owner) || !/^[a-zA-Z0-9._-]+$/.test(repo)) return err('Invalid owner/repo', 400);
+    try {
+      const cacheKey = `${owner}/${repo}`;
+      const cached = githubPrCache.get(cacheKey);
+      if (cached && Date.now() - cached.fetchedAt < 300_000) {
+        return json(cached.data);
+      }
+      const token = process.env.GITHUB_TOKEN;
+      const headers: Record<string, string> = { 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      // Fetch open PRs (up to 100)
+      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=100`, { headers });
+      if (!res.ok) return json({ prs: [], error: `GitHub API ${res.status}` });
+      const rawPrs = await res.json() as any[];
+      const prs = rawPrs.map((pr: any) => ({
+        branch: pr.head?.ref as string,
+        number: pr.number as number,
+        url: pr.html_url as string,
+        state: pr.state as string,
+        draft: Boolean(pr.draft),
+      }));
+      const data = { prs };
+      githubPrCache.set(cacheKey, { fetchedAt: Date.now(), data });
+      return json(data);
+    } catch (e: any) {
+      return json({ prs: [], error: e?.message ?? 'fetch failed' });
+    }
   }
 
   // GET /dashboard/session-log/:containerId/:sessionId

@@ -170,14 +170,14 @@
             target="_blank"
             @click.stop
             class="cursor-pointer"
-            title="Create pull request on GitHub"
+            :title="badge.prExists ? (badge.prDraft ? 'View draft PR on GitHub' : 'View PR on GitHub') : 'Create pull request on GitHub'"
           >
             <g :transform="`translate(${badgeOffsets[i]?.[bi]?.prX ?? 0}, -6) scale(0.875)`">
-              <rect width="16" height="13" fill="#052e16" rx="2" opacity="0.85" />
+              <rect width="16" height="13" :fill="badge.prExists ? (badge.prDraft ? '#1e1e3f' : '#0c1a2e') : '#052e16'" rx="2" opacity="0.85" />
               <path
                 d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"
                 transform="translate(1, 0) scale(0.8)"
-                fill="#4ade80"
+                :fill="badge.prExists ? (badge.prDraft ? '#a78bfa' : '#60a5fa') : '#4ade80'"
               />
             </g>
           </a>
@@ -261,12 +261,31 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { computeLayout, formatRef, laneColor, containerDirLabel } from '../composables/useGitGraph'
 import { useHostnameAliases } from '../composables/useHostnameAliases'
+import { API_BASE } from '../config'
 import type { GitCommit, GitContainer } from '../types'
 
 const { alias } = useHostnameAliases()
+
+// PR data: branch → { number, url, draft }
+interface PrInfo { number: number; url: string; draft: boolean }
+const prByBranch = ref<Map<string, PrInfo>>(new Map())
+
+async function fetchPrs() {
+  if (!githubInfo.value) return
+  try {
+    const res = await fetch(`${API_BASE}/dashboard/github-prs/${encodeURIComponent(githubInfo.value.owner)}/${encodeURIComponent(githubInfo.value.repo)}`)
+    if (!res.ok) return
+    const data = await res.json()
+    const map = new Map<string, PrInfo>()
+    for (const pr of data.prs ?? []) {
+      map.set(pr.branch, { number: pr.number, url: pr.url, draft: pr.draft })
+    }
+    prByBranch.value = map
+  } catch { /* ignore */ }
+}
 
 const LANE_W = 18
 const ROW_H = 24
@@ -419,7 +438,7 @@ const conflictBranches = computed(() => {
   return conflicts
 })
 
-interface BadgeInfo { text: string; bgColor: string; textColor: string; opacity: string; prUrl?: string; sourceHash?: string }
+interface BadgeInfo { text: string; bgColor: string; textColor: string; opacity: string; prUrl?: string; prExists?: boolean; prDraft?: boolean; sourceHash?: string }
 
 function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
   const badges: BadgeInfo[] = []
@@ -433,10 +452,19 @@ function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
         const dim = !isConflicted
         // Show PR button if this branch has a remote tracking ref at this commit and isn't the default branch
         let prUrl: string | undefined
+        let prExists = false
+        let prDraft = false
         if (githubInfo.value && branch !== defaultBranch.value) {
           const hasRemote = commit.refs.some(r => r === `origin/${branch}` || (r.includes('/') && r.split('/').slice(1).join('/') === branch))
           if (hasRemote) {
-            prUrl = `https://github.com/${githubInfo.value.owner}/${githubInfo.value.repo}/compare/${defaultBranch.value}...${branch}?expand=1`
+            const existingPr = prByBranch.value.get(branch)
+            if (existingPr) {
+              prUrl = existingPr.url
+              prExists = true
+              prDraft = existingPr.draft
+            } else {
+              prUrl = `https://github.com/${githubInfo.value.owner}/${githubInfo.value.repo}/compare/${defaultBranch.value}...${branch}?expand=1`
+            }
           }
         }
         // Amber styling + ↑ button for conflicted branches on non-source hosts
@@ -453,7 +481,7 @@ function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
             sourceHash = tip
           }
         }
-        badges.push({ text: `${branch}@${alias(host)}`, bgColor, textColor, opacity, prUrl, sourceHash })
+        badges.push({ text: `${branch}@${alias(host)}`, bgColor, textColor, opacity, prUrl, prExists, prDraft, sourceHash })
       }
     }
   }
@@ -615,8 +643,12 @@ function onDocumentClick() {
   if (activeDirtyPopover.value) activeDirtyPopover.value = null
 }
 
-onMounted(() => document.addEventListener('click', onDocumentClick))
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick)
+  fetchPrs()
+})
 onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
+watch(() => props.remoteUrl, fetchPrs)
 
 defineExpose({ scrollToHash })
 </script>
