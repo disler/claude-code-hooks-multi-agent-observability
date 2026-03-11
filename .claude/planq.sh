@@ -13,7 +13,28 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Walk up from SCRIPT_DIR to find the workspace root. A git submodule has a
+# .git *file* (not directory), so we skip it and keep walking until we find a
+# .git directory — that's the actual project root.
+_find_workspace_root() {
+    local dir
+    dir="$(cd "$1/.." && pwd)"
+    while [ "$dir" != "/" ]; do
+        if [ -d "$dir/.git" ]; then
+            echo "$dir"
+            return
+        fi
+        if [ -f "$dir/.git" ] && [ -d "$dir/plans" ]; then
+            echo "$dir"
+            return
+        fi
+        dir="$(dirname "$dir")"
+    done
+    # Fallback: one level up from SCRIPT_DIR
+    cd "$1/.." && pwd
+}
+WORKSPACE_ROOT="$(_find_workspace_root "$SCRIPT_DIR")"
 PLANS_DIR="$WORKSPACE_ROOT/plans"
 
 # ── Determine planq file ──────────────────────────────────────────────────────
