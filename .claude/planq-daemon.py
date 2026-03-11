@@ -240,6 +240,46 @@ def _git_submodule_info(ws):
         })
     return submodules
 
+def _git_log_for_path(cwd) -> list:
+    """Return recent commits (up to 50) for a given git repo path."""
+    raw = _run(
+        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '50'],
+        cwd=cwd,
+    )
+    commits = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split('|', 3)
+        if len(parts) < 4:
+            continue
+        hash_, parents_str, refs_str, subject = parts
+        hash_ = hash_.strip()
+        if not hash_:
+            continue
+        parents = [p for p in parents_str.split() if p]
+        refs = [r.strip() for r in refs_str.split(',') if r.strip()]
+        commits.append({'hash': hash_, 'parents': parents, 'refs': refs, 'subject': subject})
+    return commits
+
+
+def _git_log_for_submodules() -> dict:
+    """Return git commits for each submodule, keyed by submodule source_repo."""
+    result = {}
+    ws = str(WORKSPACE_ROOT)
+    submodules = _git_submodule_info(ws)
+    for sub in submodules:
+        sub_path = sub.get('path', '')
+        if not sub_path:
+            continue
+        sub_abs = str(WORKSPACE_ROOT / sub_path)
+        sub_source_repo = f"{SOURCE_REPO}/{sub_path}"
+        commits = _git_log_for_path(sub_abs)
+        if commits:
+            result[sub_source_repo] = commits
+    return result
+
+
 def _git_log_incremental() -> list:
     """Return commits reachable from any ref that the server has not yet seen.
 
@@ -545,6 +585,7 @@ def _send_heartbeat(ws_app):
 
     auto_test = _auto_test_pending()
     git_commits = _git_log_incremental()
+    submodule_commits = _git_log_for_submodules()
 
     heartbeat = {
         'type': 'heartbeat',
@@ -559,6 +600,7 @@ def _send_heartbeat(ws_app):
         'active_session_ids': active_ids,
         'running_session_ids': running_ids,
         'git_commits': git_commits,
+        'submodule_commits': submodule_commits,
         **git,
     }
 

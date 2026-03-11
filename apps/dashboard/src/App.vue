@@ -111,7 +111,12 @@ watch(connectionFilter, v => setParam('conn', v))
 
 const allRepos = computed(() => {
   const repos = new Set<string>()
-  for (const c of containers.value.values()) repos.add(c.source_repo)
+  for (const c of containers.value.values()) {
+    repos.add(c.source_repo)
+    for (const sub of c.git_submodules ?? []) {
+      repos.add(`${c.source_repo}/${sub.path}`)
+    }
+  }
   return [...repos].sort()
 })
 

@@ -458,6 +458,16 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       upsertGitCommitRefs(sourceRepo, container.machine_hostname, msg.git_commits);
     }
 
+    // Upsert submodule commits sent by daemon
+    if (msg.submodule_commits && typeof msg.submodule_commits === 'object') {
+      for (const [subRepo, commits] of Object.entries(msg.submodule_commits)) {
+        if (Array.isArray(commits) && commits.length > 0) {
+          upsertGitCommits(subRepo, commits as any[]);
+          upsertGitCommitRefs(subRepo, container.machine_hostname, commits as any[]);
+        }
+      }
+    }
+
     // Send DAG frontier back so daemon can send only new commits next time
     const tips = getGitTips(sourceRepo);
     try { ws.send(JSON.stringify({ type: 'git_known_hashes', hashes: tips })); } catch {}
@@ -872,7 +882,18 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       : fallbackRefsPerHost;
 
     const remoteUrl = allContainers.find(c => c.git_remote_url)?.git_remote_url ?? null;
-    return json({ containers, commits: storedCommits, refsPerHost, remote_url: remoteUrl });
+
+    // Collect unique submodules across all containers for this repo
+    const submoduleMap = new Map<string, string>()  // path → source_repo
+    for (const c of allContainers) {
+      for (const sub of (c.git_submodules ?? [])) {
+        const subPath = (sub as any).path as string
+        if (subPath) submoduleMap.set(subPath, `${repo}/${subPath}`)
+      }
+    }
+    const submodules = [...submoduleMap.entries()].map(([path, source_repo]) => ({ path, source_repo }))
+
+    return json({ containers, commits: storedCommits, refsPerHost, remote_url: remoteUrl, submodules });
   }
 
   // GET /dashboard/git-show/:repo/:hash

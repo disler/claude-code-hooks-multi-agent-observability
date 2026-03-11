@@ -12,9 +12,20 @@
             @change="$emit('switch-repo', ($event.target as HTMLSelectElement).value)"
             class="text-sm font-semibold text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 cursor-pointer"
           >
-            <option v-for="r in allRepos" :key="r" :value="r">{{ r }}</option>
+            <option v-for="r in sortedRepoItems" :key="r.value" :value="r.value">{{ r.label }}</option>
           </select>
-          <span v-else class="text-sm font-semibold text-slate-200">{{ sourceRepo }}</span>
+          <span v-else class="text-sm font-semibold text-slate-200">{{ repoDisplayName(sourceRepo) }}</span>
+          <!-- Submodule quick links -->
+          <template v-if="gitData?.submodules?.length">
+            <span class="text-slate-600 text-xs">·</span>
+            <button
+              v-for="sub in gitData.submodules"
+              :key="sub.source_repo"
+              class="text-xs text-slate-400 hover:text-blue-300 cursor-pointer"
+              :class="sourceRepo === sub.source_repo ? 'text-blue-400 font-semibold' : ''"
+              @click="$emit('switch-repo', sub.source_repo)"
+            >{{ sub.path }}</button>
+          </template>
         </div>
         <div class="flex items-center gap-3">
           <!-- Host filter -->
@@ -144,6 +155,30 @@ const loadingDiffstat = ref(false)
 const selectedHost = ref<string | null>(null)
 const graphRef = ref<InstanceType<typeof GitGraphView> | null>(null)
 const listRef = ref<InstanceType<typeof GitListView> | null>(null)
+
+// Compute display name for a repo path (basename, or parent/subname for submodules)
+function repoDisplayName(repo: string): string {
+  const allRepoList = props.allRepos ?? []
+  const parent = allRepoList.find(p => p !== repo && repo.startsWith(p + '/'))
+  if (parent) {
+    const parentBase = parent.split('/').pop() ?? parent
+    const subName = repo.slice(parent.length + 1)
+    return `${parentBase}/${subName}`
+  }
+  return repo.split('/').pop() ?? repo
+}
+
+// Sorted repo list with display labels (submodules indented under parents)
+const sortedRepoItems = computed(() => {
+  const allRepoList = [...(props.allRepos ?? [])].sort()
+  return allRepoList.map(r => {
+    const parent = allRepoList.find(p => p !== r && r.startsWith(p + '/'))
+    const label = parent
+      ? `  ${r.slice(parent.length + 1)}`
+      : (r.split('/').pop() ?? r)
+    return { value: r, label }
+  })
+})
 
 const sortedContainers = computed(() => {
   if (!gitData.value?.containers) return []

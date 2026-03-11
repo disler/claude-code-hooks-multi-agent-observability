@@ -99,6 +99,7 @@ export interface GitViewData {
   commits: GitCommit[]
   refsPerHost: Array<{ hash: string; host: string; localBranches: string[] }>
   remote_url?: string | null
+  submodules?: Array<{ path: string; source_repo: string }>
 }
 
 export type DashboardMessage =
