@@ -247,10 +247,31 @@ def _git_submodule_info(ws):
         })
     return submodules
 
+def _filter_valid_hashes(hashes, cwd):
+    """Return only hashes that actually exist in the git repo at cwd."""
+    if not hashes:
+        return []
+    try:
+        r = subprocess.run(
+            ['git', 'cat-file', '--batch-check'],
+            input='\n'.join(hashes), capture_output=True, text=True, timeout=5, cwd=cwd,
+        )
+        if r.returncode != 0:
+            return []
+        valid = []
+        for line in r.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] != 'missing':
+                valid.append(parts[0])
+        return valid
+    except Exception:
+        return []
+
+
 def _git_log_for_path(cwd, known=None) -> list:
     """Return commits for a git repo path, excluding already-known hashes."""
     not_args = []
-    for h in (known or []):
+    for h in _filter_valid_hashes(known or [], cwd):
         not_args.extend(['--not', h])
     raw = _run(
         ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'] + not_args,
@@ -302,7 +323,7 @@ def _git_log_incremental() -> list:
     with _git_known_hashes_lock:
         known = list(_git_known_hashes)
     not_args = []
-    for h in known:
+    for h in _filter_valid_hashes(known, WORKSPACE_ROOT):
         not_args.extend(['--not', h])
     raw = _run(
         ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'] + not_args,
