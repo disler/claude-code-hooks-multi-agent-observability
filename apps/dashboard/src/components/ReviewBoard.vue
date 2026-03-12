@@ -3,20 +3,6 @@
 
     <!-- Kanban area -->
     <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
-      <!-- Filter bar row -->
-      <div class="px-4 py-2 border-b border-slate-700/50 flex items-center gap-3 flex-wrap shrink-0">
-        <span class="text-xs text-slate-500 font-semibold">Review Board</span>
-        <FilterBar
-          :repos="allRepos"
-          :hosts="allHosts"
-          :model-repo-filter="repoFilter"
-          :model-host-filter="hostFilter"
-          :model-connection-filter="connFilter"
-          @update:repo-filter="repoFilter = $event"
-          @update:host-filter="hostFilter = $event"
-          @update:connection-filter="connFilter = $event"
-        />
-      </div>
 
       <!-- Columns -->
       <div class="flex gap-3 p-3 overflow-x-auto flex-1 min-h-0">
@@ -112,8 +98,13 @@ import { ref, computed } from 'vue'
 import { useContainers } from '../composables/useContainers'
 import type { ContainerWithState } from '../types'
 import { API_BASE } from '../config'
-import FilterBar from './FilterBar.vue'
 import ContainerCard from './ContainerCard.vue'
+
+const props = defineProps<{
+  repoFilter: string
+  hostFilter: string
+  connFilter: string
+}>()
 
 const emit = defineEmits<{
   'open-git-view': [repo: string, hash?: string | null]
@@ -122,10 +113,6 @@ const emit = defineEmits<{
 
 const { containers } = useContainers()
 
-
-const repoFilter = ref('')
-const hostFilter = ref('')
-const connFilter = ref('')
 const selectedContainerId = ref<string | null>(null)
 const dragTarget = ref<string | null>(null)
 
@@ -147,24 +134,12 @@ function reviewStateOf(c: ContainerWithState): string {
   } catch { return c.review_state ?? 'developing' }
 }
 
-const allRepos = computed(() => {
-  const repos = new Set<string>()
-  for (const c of containers.value.values()) repos.add(c.source_repo)
-  return [...repos].sort()
-})
-
-const allHosts = computed(() => {
-  const hosts = new Set<string>()
-  for (const c of containers.value.values()) hosts.add(c.machine_hostname)
-  return [...hosts].sort()
-})
-
 const filteredContainers = computed(() => {
   return [...containers.value.values()].filter(c => {
-    if (repoFilter.value && c.source_repo !== repoFilter.value) return false
-    if (hostFilter.value && c.machine_hostname !== hostFilter.value) return false
-    if (connFilter.value === 'online' && !c.connected) return false
-    if (connFilter.value === 'offline' && c.connected) return false
+    if (props.repoFilter && c.source_repo !== props.repoFilter) return false
+    if (props.hostFilter && c.machine_hostname !== props.hostFilter) return false
+    if (props.connFilter === 'online' && !c.connected) return false
+    if (props.connFilter === 'offline' && c.connected) return false
     return true
   })
 })

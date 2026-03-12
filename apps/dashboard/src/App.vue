@@ -82,6 +82,9 @@
     <!-- Review Board -->
     <ReviewBoard
       v-if="showReviewBoard"
+      :repo-filter="repoFilter"
+      :host-filter="hostFilter"
+      :conn-filter="connectionFilter"
       @open-git-view="openGitView"
       @open-history="openHistory"
     />
