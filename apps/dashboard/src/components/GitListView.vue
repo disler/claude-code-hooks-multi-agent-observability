@@ -11,7 +11,7 @@
         <span class="inline-block w-2 h-2 rounded-full" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
         <span class="text-xs text-slate-200 font-semibold font-mono">{{ containerDirLabel(c) }}</span>
         <span class="text-xs text-slate-500">{{ alias(c.machine_hostname) }} / {{ c.container_hostname }}</span>
-        <button v-if="c.git_branch" class="text-xs bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded font-mono hover:bg-blue-800/60 cursor-pointer" @click="$emit('switch-to-graph', c.git_commit_hash)">{{ c.git_branch }}</button>
+        <button v-if="c.git_branch && c.git_commit_hash" class="text-xs bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded font-mono hover:bg-blue-800/60 cursor-pointer" @click="$emit('switch-to-graph', c.git_commit_hash)">{{ c.git_branch }}</button>
         <span v-if="c.git_worktree" class="text-xs text-slate-500 font-mono">{{ c.git_worktree }}</span>
       </div>
 
@@ -40,7 +40,7 @@
       >
         <span class="text-slate-500">submodule</span>
         <span class="font-mono text-slate-300">{{ sub.path }}</span>
-        <button v-if="sub.branch" class="font-mono text-cyan-400 hover:text-cyan-300 cursor-pointer" @click="$emit('switch-to-graph-sub', sub.path, sub.commit_hash)">{{ sub.branch }}</button>
+        <button v-if="sub.branch && sub.commit_hash" class="font-mono text-cyan-400 hover:text-cyan-300 cursor-pointer" @click="$emit('switch-to-graph-sub', sub.path, sub.commit_hash)">{{ sub.branch }}</button>
         <button v-if="sub.commit_hash" class="font-mono text-yellow-400 hover:text-yellow-300 cursor-pointer" @click="$emit('switch-to-graph-sub', sub.path, sub.commit_hash)">{{ sub.commit_hash.slice(0, 8) }}</button>
         <span v-if="sub.staged_count > 0" class="text-yellow-400">+{{ sub.staged_count }}</span>
         <span v-if="sub.unstaged_count > 0" class="text-orange-400">~{{ sub.unstaged_count }}</span>

@@ -305,13 +305,13 @@ async function handleSwitchToGraph(hash: string) {
   graphRef.value?.scrollToHash(fullHash)
 }
 
-async function handleSwitchToGraphSub(subPath: string, hash: string) {
+async function handleSwitchToGraphSub(subPath: string, _hash: string) {
   const sub = gitData.value?.submodules?.find((s: any) => s.path === subPath)
   if (!sub) return
   emit('switch-repo', (sub as any).source_repo)
 }
 
-function jumpToSubmodule(subPath: string, commitHash: string | null) {
+function jumpToSubmodule(subPath: string, _commitHash: string | null) {
   const sub = gitData.value?.submodules?.find((s: any) => s.path === subPath)
   if (!sub) return
   emit('switch-repo', (sub as any).source_repo)
