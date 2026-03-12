@@ -76,7 +76,7 @@
       :send-ws="sendWs"
       :git-refresh-signal="gitRefreshSignal"
       @close="gitRepo = null; gitFocusHash = null"
-      @switch-repo="gitRepo = $event; gitFocusHash = null"
+      @switch-repo="(repo, hash) => { gitRepo = repo; gitFocusHash = hash ?? null }"
     />
 
     <!-- Review Board (replaces body when active) -->

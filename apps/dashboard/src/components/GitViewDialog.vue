@@ -173,7 +173,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  'switch-repo': [repo: string]
+  'switch-repo': [repo: string, hash?: string | null]
 }>()
 
 const { data: gitData, loading, error, fetchGitView, fetchDiffstat } = useGitView()
@@ -341,13 +341,13 @@ async function handleSwitchToGraphSub(subPath: string, _hash: string) {
   const subRepo = _resolveSubmoduleRepo(subPath)
   if (subRepo) {
     mode.value = 'graph'
-    emit('switch-repo', subRepo)
+    emit('switch-repo', subRepo, _hash || null)
   }
 }
 
 function jumpToSubmodule(subPath: string, _commitHash: string | null) {
   const subRepo = _resolveSubmoduleRepo(subPath)
-  if (subRepo) emit('switch-repo', subRepo)
+  if (subRepo) emit('switch-repo', subRepo, _commitHash)
 }
 
 // Resolve a submodule path to its source_repo.
@@ -363,6 +363,11 @@ function _resolveSubmoduleRepo(subPath: string): string | null {
 
 async function jumpToContainer(c: GitContainer) {
   if (!c.git_commit_hash) return
+  // If we're in submodule view, container chips belong to the parent repo — switch back.
+  if (isSubmoduleRepo(props.sourceRepo) && c.parent_commit_hash) {
+    emit('switch-repo', parentRepo.value, c.parent_commit_hash)
+    return
+  }
   // Resolve short hash (from daemon %h) to full hash used in the commit graph
   const fullHash = gitData.value?.commits.find(cm => cm.hash.startsWith(c.git_commit_hash!))?.hash ?? c.git_commit_hash
   await selectHash(fullHash)

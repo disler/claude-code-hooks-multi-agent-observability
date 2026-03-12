@@ -1152,6 +1152,9 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
         // Use the submodule's commit_hash so container chips navigate correctly within the submodule graph.
         git_branch: c.git_branch,
         git_worktree: c.git_worktree,
+        // Preserve the parent's original commit hash so clicking a container chip in submodule view
+        // can navigate back to the parent repo at the correct position.
+        parent_commit_hash: subData ? c.git_commit_hash : null,
         git_commit_hash: subData ? (subData as any).commit_hash ?? null : c.git_commit_hash,
         git_staged_count: subData ? (subData as any).staged_count ?? 0 : c.git_staged_count,
         git_unstaged_count: subData ? (subData as any).unstaged_count ?? 0 : c.git_unstaged_count,

@@ -92,6 +92,7 @@ export interface GitContainer {
   git_branch: string | null
   git_worktree: string | null
   git_commit_hash: string | null
+  parent_commit_hash?: string | null
   git_staged_count: number
   git_unstaged_count: number
   git_unstaged_diffstat: string | null
