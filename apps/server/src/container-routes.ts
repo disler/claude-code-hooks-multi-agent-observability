@@ -880,10 +880,14 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     // Fallback: if DB is empty and server has local filesystem access, run git log directly
     const fallbackRefsPerHost: Array<{ hash: string; host: string; localBranches: string[] }> = [];
     if (storedCommits.length === 0) {
-      const paths = [...new Set(allContainers.filter(c => c.workspace_host_path).map(c => c.workspace_host_path!))];
+      const basePaths = [...new Set(allContainers.filter(c => c.workspace_host_path).map(c => c.workspace_host_path!))];
+      const paths = basePaths.map(p => submodulePath ? `${p}/${submodulePath}` : p);
       const commitMap = new Map<string, { hash: string; parents: string[]; refs: string[]; subject: string }>();
       for (const wpath of paths) {
-        const host = allContainers.find(c => c.workspace_host_path === wpath)?.machine_hostname ?? 'unknown';
+        const host = allContainers.find(c => {
+          const p = submodulePath ? `${c.workspace_host_path}/${submodulePath}` : c.workspace_host_path;
+          return p === wpath;
+        })?.machine_hostname ?? 'unknown';
         const proc = Bun.spawn(
           ['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'],
           { stdout: 'pipe', stderr: 'ignore' }

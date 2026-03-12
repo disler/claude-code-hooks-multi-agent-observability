@@ -11,12 +11,12 @@
         <span class="inline-block w-2 h-2 rounded-full" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
         <span class="text-xs text-slate-200 font-semibold font-mono">{{ containerDirLabel(c) }}</span>
         <span class="text-xs text-slate-500">{{ alias(c.machine_hostname) }} / {{ c.container_hostname }}</span>
-        <span v-if="c.git_branch" class="text-xs bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded font-mono">{{ c.git_branch }}</span>
+        <button v-if="c.git_branch" class="text-xs bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded font-mono hover:bg-blue-800/60 cursor-pointer" @click="$emit('switch-to-graph', c.git_commit_hash)">{{ c.git_branch }}</button>
         <span v-if="c.git_worktree" class="text-xs text-slate-500 font-mono">{{ c.git_worktree }}</span>
       </div>
 
       <div v-if="c.git_commit_hash" class="flex items-center gap-2 text-xs">
-        <span class="font-mono text-yellow-400">{{ c.git_commit_hash.slice(0, 8) }}</span>
+        <button class="font-mono text-yellow-400 hover:text-yellow-300 cursor-pointer" @click="$emit('switch-to-graph', c.git_commit_hash)">{{ c.git_commit_hash.slice(0, 8) }}</button>
         <span class="text-slate-400 truncate">{{ headCommitSubject(c.git_commit_hash) }}</span>
         <button
           v-if="c.git_commit_hash"
@@ -40,8 +40,8 @@
       >
         <span class="text-slate-500">submodule</span>
         <span class="font-mono text-slate-300">{{ sub.path }}</span>
-        <span v-if="sub.branch" class="font-mono text-cyan-400">{{ sub.branch }}</span>
-        <span v-if="sub.commit_hash" class="font-mono text-yellow-400">{{ sub.commit_hash.slice(0, 8) }}</span>
+        <button v-if="sub.branch" class="font-mono text-cyan-400 hover:text-cyan-300 cursor-pointer" @click="$emit('switch-to-graph-sub', sub.path, sub.commit_hash)">{{ sub.branch }}</button>
+        <button v-if="sub.commit_hash" class="font-mono text-yellow-400 hover:text-yellow-300 cursor-pointer" @click="$emit('switch-to-graph-sub', sub.path, sub.commit_hash)">{{ sub.commit_hash.slice(0, 8) }}</button>
         <span v-if="sub.staged_count > 0" class="text-yellow-400">+{{ sub.staged_count }}</span>
         <span v-if="sub.unstaged_count > 0" class="text-orange-400">~{{ sub.unstaged_count }}</span>
       </div>
@@ -74,6 +74,8 @@ const props = defineProps<{
 
 defineEmits<{
   'select-hash': [hash: string]
+  'switch-to-graph': [hash: string]
+  'switch-to-graph-sub': [subPath: string, hash: string]
 }>()
 
 const flashId = ref<string | null>(null)

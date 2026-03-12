@@ -166,18 +166,19 @@
             v-for="(badge, bi) in allBadgesForCommit(row.commit)"
             :key="'pr-' + bi"
             v-show="badge.prUrl && (badgeOffsets[i]?.[bi]?.prW ?? 0) > 0"
-            :href="badge.prUrl"
+            :href="badge.prDirty ? undefined : badge.prUrl"
             target="_blank"
-            @click.stop
+            @click.stop="badge.prDirty ? undefined : undefined"
+            @dblclick.stop="badge.prDirty && badge.prUrl ? openPrUrl(badge.prUrl) : undefined"
             class="cursor-pointer"
-            :title="badge.prExists ? (badge.prDraft ? 'View draft PR on GitHub' : 'View PR on GitHub') : 'Create pull request on GitHub'"
+            :title="badge.prDirty ? 'Has unstaged changes — double-click to open PR anyway' : (badge.prExists ? (badge.prDraft ? 'View draft PR on GitHub' : 'View PR on GitHub') : 'Create pull request on GitHub')"
           >
             <g :transform="`translate(${badgeOffsets[i]?.[bi]?.prX ?? 0}, -6) scale(0.875)`">
-              <rect width="16" height="13" :fill="badge.prExists ? (badge.prDraft ? '#1e1e3f' : '#0c1a2e') : '#052e16'" rx="2" opacity="0.85" />
+              <rect width="16" height="13" :fill="badge.prDirty ? '#1a1a1a' : (badge.prExists ? (badge.prDraft ? '#1e1e3f' : '#0c1a2e') : '#052e16')" rx="2" opacity="0.85" />
               <path
                 d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"
                 transform="translate(1, 0) scale(0.8)"
-                :fill="badge.prExists ? (badge.prDraft ? '#a78bfa' : '#60a5fa') : '#4ade80'"
+                :fill="badge.prDirty ? '#4b5563' : (badge.prExists ? (badge.prDraft ? '#a78bfa' : '#60a5fa') : '#4ade80')"
               />
             </g>
           </a>
@@ -438,7 +439,7 @@ const conflictBranches = computed(() => {
   return conflicts
 })
 
-interface BadgeInfo { text: string; bgColor: string; textColor: string; opacity: string; prUrl?: string; prExists?: boolean; prDraft?: boolean; sourceHash?: string }
+interface BadgeInfo { text: string; bgColor: string; textColor: string; opacity: string; prUrl?: string; prExists?: boolean; prDraft?: boolean; sourceHash?: string; prDirty?: boolean }
 
 function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
   const badges: BadgeInfo[] = []
@@ -481,7 +482,12 @@ function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
             sourceHash = tip
           }
         }
-        badges.push({ text: `${branch}@${alias(host)}`, bgColor, textColor, opacity, prUrl, prExists, prDraft, sourceHash })
+        // Check if any container on this host at this commit has dirty changes
+        const hostContainers = props.containers.filter(c =>
+          c.machine_hostname === host && c.git_commit_hash && commit.hash.startsWith(c.git_commit_hash)
+        )
+        const prDirty = prUrl && !prExists ? hostContainers.some(c => c.git_staged_count > 0 || c.git_unstaged_count > 0) : false
+        badges.push({ text: `${branch}@${alias(host)}`, bgColor, textColor, opacity, prUrl, prExists, prDraft, sourceHash, prDirty })
       }
     }
   }
@@ -579,6 +585,10 @@ const badgeOffsets = computed(() => {
   }
   return result
 })
+
+function openPrUrl(url: string) {
+  window.open(url, '_blank')
+}
 
 function onRefClick(hash: string) {
   emit('select-hash', hash)

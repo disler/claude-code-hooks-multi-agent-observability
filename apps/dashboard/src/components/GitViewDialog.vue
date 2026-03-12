@@ -69,17 +69,28 @@
       <div v-if="gitData?.containers?.length" class="flex flex-col gap-0.5 px-4 py-1.5 border-b border-slate-700 shrink-0">
         <div v-for="[host, conts] in visibleContainersByHost" :key="host" class="flex flex-wrap items-center gap-1">
           <span class="text-xs text-slate-500 font-mono shrink-0 mr-0.5">{{ alias(host) }}</span>
-          <button
-            v-for="c in conts"
-            :key="c.id"
-            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-700/60 hover:bg-slate-600/60 text-xs cursor-pointer transition-colors"
-            :title="`Jump to ${c.container_hostname}`"
-            @click="jumpToContainer(c)"
-          >
-            <span class="w-1.5 h-1.5 rounded-full inline-block" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
-            <span class="text-slate-200 font-mono">{{ containerDirLabel(c) }}</span>
-            <span v-if="c.git_branch" class="text-blue-400 font-bold">{{ c.git_branch }}</span>
-          </button>
+          <template v-for="c in conts" :key="c.id">
+            <button
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-700/60 hover:bg-slate-600/60 text-xs cursor-pointer transition-colors"
+              :title="`Jump to ${c.container_hostname}`"
+              @click="jumpToContainer(c)"
+            >
+              <span class="w-1.5 h-1.5 rounded-full inline-block" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
+              <span class="text-slate-200 font-mono">{{ containerDirLabel(c) }}</span>
+              <span v-if="c.git_branch" class="text-blue-400 font-bold">{{ c.git_branch }}</span>
+            </button>
+            <!-- Submodule branch chips -->
+            <button
+              v-for="sub in (c.git_submodules ?? []).filter((s: any) => s.branch)"
+              :key="`${c.id}-sub-${sub.path}`"
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700/60 text-xs cursor-pointer transition-colors border border-slate-600/50"
+              :title="`Jump to submodule ${sub.path}`"
+              @click.stop="jumpToSubmodule(sub.path, sub.commit_hash)"
+            >
+              <span class="text-slate-500 font-mono">{{ sub.path.split('/').pop() }}</span>
+              <span class="text-cyan-400 font-bold">{{ sub.branch }}</span>
+            </button>
+          </template>
         </div>
       </div>
 
@@ -107,6 +118,8 @@
             :selected-hash="selectedHash"
             :diffstat="currentDiffstat"
             @select-hash="selectHash"
+            @switch-to-graph="handleSwitchToGraph"
+            @switch-to-graph-sub="handleSwitchToGraphSub"
           />
 
           <!-- Diffstat popover (graph mode) -->
@@ -147,7 +160,7 @@ const props = defineProps<{
   initialHash?: string | null
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   close: []
   'switch-repo': [repo: string]
 }>()
@@ -161,15 +174,20 @@ const selectedHost = ref<string | null>(null)
 const graphRef = ref<InstanceType<typeof GitGraphView> | null>(null)
 const listRef = ref<InstanceType<typeof GitListView> | null>(null)
 
-// Returns true if repo is a submodule of another repo in allRepos
+// Merge props.allRepos with submodule source_repos discovered from gitData
+const effectiveAllRepos = computed(() => {
+  const subRepos = (gitData.value?.submodules ?? []).map((s: any) => s.source_repo)
+  return [...new Set([...(props.allRepos ?? []), ...subRepos])].sort()
+})
+
+// Returns true if repo is a submodule of another repo in effectiveAllRepos
 function isSubmoduleRepo(repo: string): boolean {
-  return (props.allRepos ?? []).some(p => p !== repo && repo.startsWith(p + '/'))
+  return effectiveAllRepos.value.some(p => p !== repo && repo.startsWith(p + '/'))
 }
 
 // The parent repo of the current sourceRepo (if it's a submodule)
 const parentRepo = computed((): string => {
-  const allRepoList = props.allRepos ?? []
-  return allRepoList.find(p => p !== props.sourceRepo && props.sourceRepo.startsWith(p + '/')) ?? props.sourceRepo
+  return effectiveAllRepos.value.find(p => p !== props.sourceRepo && props.sourceRepo.startsWith(p + '/')) ?? props.sourceRepo
 })
 
 // True when in list mode AND currently viewing a submodule
@@ -177,8 +195,7 @@ const isSubmoduleInListMode = computed(() => mode.value === 'list' && isSubmodul
 
 // Compute display name for a repo path (basename, or parent/subname for submodules)
 function repoDisplayName(repo: string): string {
-  const allRepoList = props.allRepos ?? []
-  const parent = allRepoList.find(p => p !== repo && repo.startsWith(p + '/'))
+  const parent = effectiveAllRepos.value.find(p => p !== repo && repo.startsWith(p + '/'))
   if (parent) {
     const parentBase = parent.split('/').pop() ?? parent
     const subName = repo.slice(parent.length + 1)
@@ -189,7 +206,7 @@ function repoDisplayName(repo: string): string {
 
 // All repo items with proper display labels (parent/subName format)
 const sortedRepoItems = computed(() => {
-  return [...(props.allRepos ?? [])].sort().map(r => ({ value: r, label: repoDisplayName(r) }))
+  return effectiveAllRepos.value.map(r => ({ value: r, label: repoDisplayName(r) }))
 })
 
 // In list mode, hide submodule repos from the dropdown
@@ -277,6 +294,27 @@ async function selectHash(hash: string) {
   loadingDiffstat.value = true
   currentDiffstat.value = await fetchDiffstat(fetchRepo.value, hash)
   loadingDiffstat.value = false
+}
+
+async function handleSwitchToGraph(hash: string) {
+  mode.value = 'graph'
+  await nextTick()
+  const fullHash = gitData.value?.commits.find((cm: any) => cm.hash.startsWith(hash) || hash.startsWith(cm.hash))?.hash ?? hash
+  await selectHash(fullHash)
+  await nextTick()
+  graphRef.value?.scrollToHash(fullHash)
+}
+
+async function handleSwitchToGraphSub(subPath: string, hash: string) {
+  const sub = gitData.value?.submodules?.find((s: any) => s.path === subPath)
+  if (!sub) return
+  emit('switch-repo', (sub as any).source_repo)
+}
+
+function jumpToSubmodule(subPath: string, commitHash: string | null) {
+  const sub = gitData.value?.submodules?.find((s: any) => s.path === subPath)
+  if (!sub) return
+  emit('switch-repo', (sub as any).source_repo)
 }
 
 async function jumpToContainer(c: GitContainer) {
