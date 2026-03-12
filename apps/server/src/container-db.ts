@@ -27,6 +27,7 @@ export interface ContainerRow {
   git_unstaged_diffstat: string | null;
   git_remote_url: string | null;
   git_submodules: GitSubmoduleInfo[]; // parsed from JSON
+  versions: Record<string, string | null>;
   planq_order: string | null;
   planq_history: string | null;
   auto_test_pending: { command: string; output: string; exit_code: number } | null;
@@ -152,6 +153,21 @@ export function initContainerDatabase(): void {
   if (!columns.includes('git_remote_url')) {
     db.exec('ALTER TABLE containers ADD COLUMN git_remote_url TEXT');
   }
+  if (!columns.includes('versions')) {
+    db.exec("ALTER TABLE containers ADD COLUMN versions TEXT DEFAULT '{}'");
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS host_source_reports (
+      machine_hostname TEXT PRIMARY KEY,
+      sandbox_dir TEXT,
+      sandbox_commit TEXT,
+      sandbox_commit_ts TEXT,
+      observability_commit TEXT,
+      observability_commit_ts TEXT,
+      last_reported_at INTEGER
+    )
+  `);
 
   // Migration for planq_tasks columns added after initial schema
   const taskColumns = (db.prepare('PRAGMA table_info(planq_tasks)').all() as any[]).map((r: any) => r.name);
@@ -195,8 +211,8 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       (id, source_repo, machine_hostname, container_hostname, workspace_host_path,
        git_branch, git_worktree, git_commit_hash, git_commit_message,
        git_staged_count, git_staged_diffstat, git_unstaged_count, git_unstaged_diffstat,
-       git_remote_url, git_submodules, planq_order, planq_history, auto_test_pending, active_session_ids, running_session_ids, last_seen, connected)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+       git_remote_url, git_submodules, versions, planq_order, planq_history, auto_test_pending, active_session_ids, running_session_ids, last_seen, connected)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
     ON CONFLICT(id) DO UPDATE SET
       source_repo=excluded.source_repo,
       machine_hostname=excluded.machine_hostname,
@@ -212,6 +228,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       git_unstaged_diffstat=excluded.git_unstaged_diffstat,
       git_remote_url=excluded.git_remote_url,
       git_submodules=excluded.git_submodules,
+      versions=excluded.versions,
       planq_order=excluded.planq_order,
       planq_history=COALESCE(excluded.planq_history, planq_history),
       auto_test_pending=excluded.auto_test_pending,
@@ -237,6 +254,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
     data.git_unstaged_diffstat ?? null,
     data.git_remote_url ?? null,
     JSON.stringify(data.git_submodules ?? []),
+    JSON.stringify(data.versions ?? {}),
     data.planq_order ?? null,
     data.planq_history ?? null,
     data.auto_test_pending ? JSON.stringify(data.auto_test_pending) : null,
@@ -298,6 +316,7 @@ function rowToContainer(row: any): ContainerRow {
     git_unstaged_diffstat: row.git_unstaged_diffstat,
     git_remote_url: row.git_remote_url ?? null,
     git_submodules: JSON.parse(row.git_submodules || '[]'),
+    versions: JSON.parse(row.versions || '{}'),
     planq_order: row.planq_order,
     planq_history: row.planq_history ?? null,
     auto_test_pending: row.auto_test_pending ? JSON.parse(row.auto_test_pending) : null,
@@ -578,6 +597,38 @@ export function getGitCommitRefs(sourceRepo: string): Array<{ hash: string; mach
     'SELECT hash, machine_hostname, refs FROM git_commit_refs WHERE source_repo = ?'
   ).all(sourceRepo) as any[];
   return rows.map(r => ({ hash: r.hash, machine_hostname: r.machine_hostname, refs: JSON.parse(r.refs) }));
+}
+
+export interface HostSourceReport {
+  machine_hostname: string;
+  sandbox_dir: string | null;
+  sandbox_commit: string | null;
+  sandbox_commit_ts: string | null;
+  observability_commit: string | null;
+  observability_commit_ts: string | null;
+  last_reported_at: number | null;
+}
+
+export function upsertHostSourceReport(data: HostSourceReport): void {
+  db.prepare(`
+    INSERT INTO host_source_reports
+      (machine_hostname, sandbox_dir, sandbox_commit, sandbox_commit_ts, observability_commit, observability_commit_ts, last_reported_at)
+    VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(machine_hostname) DO UPDATE SET
+      sandbox_dir=excluded.sandbox_dir,
+      sandbox_commit=excluded.sandbox_commit,
+      sandbox_commit_ts=excluded.sandbox_commit_ts,
+      observability_commit=excluded.observability_commit,
+      observability_commit_ts=excluded.observability_commit_ts,
+      last_reported_at=excluded.last_reported_at
+  `).run(
+    data.machine_hostname, data.sandbox_dir, data.sandbox_commit, data.sandbox_commit_ts,
+    data.observability_commit, data.observability_commit_ts, data.last_reported_at
+  );
+}
+
+export function getAllHostSourceReports(): HostSourceReport[] {
+  return db.prepare('SELECT * FROM host_source_reports ORDER BY machine_hostname').all() as HostSourceReport[];
 }
 
 export function archiveDoneTasks(containerId: string): { count: number; historyContent: string } {

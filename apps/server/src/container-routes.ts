@@ -25,9 +25,12 @@ import {
   getGitTips,
   upsertGitCommitRefs,
   getGitCommitRefs,
+  upsertHostSourceReport,
+  getAllHostSourceReports,
   type ContainerRow,
   type PlanqTaskRow,
   type StoredGitCommit,
+  type HostSourceReport,
 } from './container-db';
 
 // ── Git show cache (LRU-style, max 200 entries) ───────────────────────────────
@@ -543,6 +546,20 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       pendingFileRequests.delete(msg.request_id);
       pending.resolve(JSON.stringify(Array.isArray(msg.files) ? msg.files : []));
     }
+    return;
+  }
+
+  // Host source report (from host-source-reporter.py running outside containers)
+  if (msg.type === 'host_source_report') {
+    upsertHostSourceReport({
+      machine_hostname: msg.machine_hostname,
+      sandbox_dir: msg.sandbox_dir ?? null,
+      sandbox_commit: msg.sandbox_commit ?? null,
+      sandbox_commit_ts: msg.sandbox_commit_ts ?? null,
+      observability_commit: msg.observability_commit ?? null,
+      observability_commit_ts: msg.observability_commit_ts ?? null,
+      last_reported_at: Date.now(),
+    });
     return;
   }
 
@@ -1298,6 +1315,30 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       return json({ ok: true });
     } catch (e: any) {
       return err(e.message || 'File write failed', 503);
+    }
+  }
+
+  // GET /dashboard/system-versions
+  if (pathname === '/dashboard/system-versions' && method === 'GET') {
+    const containers = getAllContainers().map(c => ({
+      id: c.id,
+      machine_hostname: c.machine_hostname,
+      versions: c.versions,
+    }));
+    const host_source_reports = getAllHostSourceReports();
+    return json({ containers, host_source_reports });
+  }
+
+  // POST /dashboard/restart-planq/:containerId
+  if (pathname.match(/^\/dashboard\/restart-planq\/[^/]+$/) && method === 'POST') {
+    const containerId = decodeURIComponent(pathname.slice('/dashboard/restart-planq/'.length));
+    const ws = containerWsMap.get(containerId);
+    if (!ws) return err('Container offline or not found', 404);
+    try {
+      ws.send(JSON.stringify({ type: 'restart' }));
+      return json({ ok: true });
+    } catch (e: any) {
+      return err(e.message || 'Send failed', 503);
     }
   }
 

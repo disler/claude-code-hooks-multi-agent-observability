@@ -80,6 +80,17 @@ AUTO_FETCH_ENABLED = os.environ.get('AUTO_FETCH_ENABLED', 'false').lower() == 't
 AUTO_FETCH_INTERVAL = int(os.environ.get('AUTO_FETCH_INTERVAL', '60'))
 AUTO_FETCH_MODE = os.environ.get('AUTO_FETCH_MODE', 'ssh')
 
+def _read_version_stamp(category: str) -> str | None:
+    """Read a version stamp from .devcontainer/versions/<category>."""
+    if not WORKSPACE_HOST_PATH:
+        return None
+    stamp_file = os.path.join(WORKSPACE_HOST_PATH, '.devcontainer', 'versions', category)
+    try:
+        with open(stamp_file) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
 _SANDBOX_DIR = Path.home() / '.local' / 'devcontainer-sandbox'
 _LOG_FILE = _SANDBOX_DIR / 'logs' / 'planq-daemon.log'
 _STATUS_FILE = _SANDBOX_DIR / 'planq' / 'planq-daemon.status'
@@ -733,6 +744,12 @@ def _send_heartbeat(ws_app):
     git_commits = _git_log_incremental()
     submodule_commits = _git_log_for_submodules()
 
+    versions = {
+        'planq_daemon': _read_version_stamp('planq-daemon'),
+        'planq_shell': _read_version_stamp('planq-shell'),
+        'devcontainer': _read_version_stamp('devcontainer'),
+    }
+
     heartbeat = {
         'type': 'heartbeat',
         'source_repo': source_repo,
@@ -747,6 +764,7 @@ def _send_heartbeat(ws_app):
         'running_session_ids': running_ids,
         'git_commits': git_commits,
         'submodule_commits': submodule_commits,
+        'versions': versions,
         **git,
     }
 

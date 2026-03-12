@@ -72,6 +72,8 @@
 
     <!-- Body -->
     <main class="px-4 py-4 max-w-7xl mx-auto">
+      <SystemVersionPanel />
+
       <div v-if="filteredHosts.size === 0" class="text-slate-500 text-sm italic mt-8 text-center">
         No containers connected yet. Start a devcontainer with planq-daemon.py configured.
       </div>
@@ -99,6 +101,7 @@ import FilterBar from './components/FilterBar.vue'
 import HostGroup from './components/HostGroup.vue'
 import GitViewDialog from './components/GitViewDialog.vue'
 import PromptHistoryDialog from './components/PromptHistoryDialog.vue'
+import SystemVersionPanel from './components/SystemVersionPanel.vue'
 
 const { byHost, summary, handleMessage, containers } = useContainers()
 const { load: loadAliases } = useHostnameAliases()
