@@ -80,7 +80,11 @@
     />
 
     <!-- Review Board -->
-    <ReviewBoard v-if="showReviewBoard" @open-git-view="openGitView" />
+    <ReviewBoard
+      v-if="showReviewBoard"
+      @open-git-view="openGitView"
+      @open-history="openHistory"
+    />
 
     <!-- Body -->
     <main class="px-4 py-4 max-w-7xl mx-auto">
