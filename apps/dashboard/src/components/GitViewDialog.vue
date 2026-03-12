@@ -339,7 +339,10 @@ async function handleSwitchToGraph(hash: string) {
 
 async function handleSwitchToGraphSub(subPath: string, _hash: string) {
   const subRepo = _resolveSubmoduleRepo(subPath)
-  if (subRepo) emit('switch-repo', subRepo)
+  if (subRepo) {
+    mode.value = 'graph'
+    emit('switch-repo', subRepo)
+  }
 }
 
 function jumpToSubmodule(subPath: string, _commitHash: string | null) {

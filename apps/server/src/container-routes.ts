@@ -1168,8 +1168,10 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     // Only show branch@host badges for commits where a container currently exists on that host.
     // This prevents stale badges from appearing at old commit positions after container rebuilds.
+    // Use the `containers` array here (not `allContainers`) because when viewing a submodule,
+    // `containers` has been remapped to use the submodule's commit_hash instead of the parent's.
     const currentPositions = new Map<string, Set<string>>(); // host → Set of short commit hashes
-    for (const c of allContainers) {
+    for (const c of containers) {
       if (!c.git_commit_hash) continue;
       if (!currentPositions.has(c.machine_hostname)) currentPositions.set(c.machine_hostname, new Set());
       currentPositions.get(c.machine_hostname)!.add(c.git_commit_hash);
