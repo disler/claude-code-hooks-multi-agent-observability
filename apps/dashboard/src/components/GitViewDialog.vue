@@ -102,18 +102,20 @@
         </div>
       </div>
 
-      <!-- Body: main content + side panel -->
-      <div class="flex-1 flex overflow-hidden">
+      <!-- Body: main content fills all space; side panel overlays from the right -->
+      <div class="flex-1 relative overflow-hidden">
 
-        <!-- Main content (graph or list) -->
-        <div class="flex-1 overflow-auto p-4 min-w-0">
+        <!-- Main content: graph fills full height, list scrolls with padding -->
+        <div class="w-full h-full">
           <!-- Show loading/error only on initial load (no data yet); during refreshes keep graph mounted -->
-          <div v-if="loading && !gitData" class="text-xs text-slate-500 italic">Loading…</div>
-          <div v-else-if="error && !gitData" class="text-xs text-red-400">{{ error }}</div>
+          <div v-if="loading && !gitData" class="p-4 text-xs text-slate-500 italic">Loading…</div>
+          <div v-else-if="error && !gitData" class="p-4 text-xs text-red-400">{{ error }}</div>
           <template v-else-if="gitData">
+            <!-- Graph: manages its own scroll, fills full height, no outer overflow -->
             <GitGraphView
               v-if="mode === 'graph'"
               ref="graphRef"
+              class="h-full"
               :commits="gitData.commits"
               :containers="filteredContainers"
               :refs-per-host="filteredRefsPerHost"
@@ -123,25 +125,27 @@
               :source-repo="fetchRepo"
               @select-hash="selectHash"
             />
-            <GitListView
-              v-else
-              ref="listRef"
-              :containers="filteredContainers"
-              :commits="gitData.commits"
-              :selected-hash="selectedHash"
-              :diffstat="currentDiffstat"
-              @select-hash="selectHash"
-              @switch-to-graph="handleSwitchToGraph"
-              @switch-to-graph-sub="handleSwitchToGraphSub"
-            />
+            <!-- List: outer div scrolls, content has padding -->
+            <div v-else class="h-full overflow-auto p-4">
+              <GitListView
+                ref="listRef"
+                :containers="filteredContainers"
+                :commits="gitData.commits"
+                :selected-hash="selectedHash"
+                :diffstat="currentDiffstat"
+                @select-hash="selectHash"
+                @switch-to-graph="handleSwitchToGraph"
+                @switch-to-graph-sub="handleSwitchToGraphSub"
+              />
+            </div>
           </template>
-          <div v-else class="text-xs text-slate-500 italic">No git data available.</div>
+          <div v-else class="p-4 text-xs text-slate-500 italic">No git data available.</div>
         </div>
 
-        <!-- Commit detail side panel -->
+        <!-- Commit detail panel: absolute overlay, right side, full height -->
         <div
           v-if="selectedHash"
-          class="w-80 shrink-0 border-l border-slate-700 flex flex-col overflow-hidden"
+          class="absolute right-0 top-0 bottom-0 w-80 z-10 bg-slate-900 border-l border-slate-700 flex flex-col shadow-2xl"
         >
           <!-- Panel header -->
           <div class="flex items-center justify-between px-3 py-2 border-b border-slate-700 shrink-0">

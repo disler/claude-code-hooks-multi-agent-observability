@@ -1,5 +1,5 @@
 <template>
-  <div ref="scrollEl" class="overflow-auto max-h-[60vh] relative">
+  <div ref="scrollEl" class="overflow-auto h-full relative">
     <svg
       ref="svgEl"
       :width="svgWidth"
