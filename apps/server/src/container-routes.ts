@@ -20,6 +20,8 @@ import {
   archiveDoneTasks,
   touchPlanqServerModified,
   getPlanqServerModifiedAt,
+  setPlanqLastSynced,
+  getPlanqLastSynced,
   upsertGitCommits,
   getGitCommits,
   getGitTips,
@@ -29,6 +31,7 @@ import {
   getAllHostSourceReports,
   type ContainerRow,
   type PlanqTaskRow,
+  type PlanqItem,
   type StoredGitCommit,
   type HostSourceReport,
 } from './container-db';
@@ -421,23 +424,46 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
 
     console.log(`[heartbeat] ${hbCtx}: upserted connected=${container.connected} sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}] git: staged=${msg.git_staged_count ?? 'n/a'} unstaged=${msg.git_unstaged_count ?? 'n/a'} branch=${msg.git_branch ?? '-'}`);
 
-    // Sync planq tasks: if the server has unsynced changes (e.g. edits made while daemon
-    // was offline), push server state to daemon. Otherwise accept daemon's planq_order,
-    // subject to a 30s grace period to avoid a race where the heartbeat file read predates
-    // a server-initiated file write.
-    const serverModified = getPlanqServerModifiedAt(containerId);
-    const serverSynced = planqSyncedAt.get(containerId) ?? 0;
-    const hasUnsyncedServerChanges = serverModified > serverSynced;
-    if (hasUnsyncedServerChanges && isReconnect) {
-      // Push server's authoritative state to the reconnected daemon
-      console.log(`[heartbeat] ${hbCtx}: pushing unsynced server planq state to daemon (serverModified=${serverModified} serverSynced=${serverSynced})`);
-      writePlanqFile(containerId, container).then(() => {
-        planqSyncedAt.set(containerId, Date.now());
-      }).catch(() => {});
-    } else if (msg.planq_order && !hasUnsyncedServerChanges) {
-      if (Date.now() - serverModified > 30_000) {
-        const items = parsePlanqOrder(msg.planq_order);
-        syncPlanqTasksFromParsed(containerId, items);
+    // Sync planq tasks using three-way merge.
+    // base = planq_last_synced (last state both sides agreed on)
+    // server = current DB task list
+    // container = daemon's reported planq_order
+    if (msg.planq_order) {
+      const rawBase = getPlanqLastSynced(containerId);
+      const baseItems: PlanqItem[] = rawBase ? parsePlanqOrder(rawBase) : [];
+      const serverItems: PlanqItem[] = getPlanqTasks(containerId).map(t => ({
+        task_type: t.task_type,
+        filename: t.filename,
+        description: t.description,
+        status: t.status as PlanqItem['status'],
+        auto_commit: t.auto_commit,
+        commit_mode: t.commit_mode,
+        plan_disposition: t.plan_disposition,
+        auto_queue_plan: t.auto_queue_plan,
+      }));
+      const containerItems: PlanqItem[] = parsePlanqOrder(msg.planq_order);
+
+      const { merged, conflicts, hasChanges } = mergePlanqLists(baseItems, serverItems, containerItems);
+
+      if (conflicts.length > 0) {
+        console.log(`[heartbeat] ${hbCtx}: ${conflicts.length} planq conflict(s) detected`);
+      }
+
+      // Update server DB to reflect merged state
+      syncPlanqTasksFromParsed(containerId, merged);
+
+      // If merged differs from container, push the merged state to the container
+      if (hasChanges) {
+        const mergedSerialized = serializePlanqOrder(getPlanqTasks(containerId));
+        setPlanqLastSynced(containerId, mergedSerialized);
+        console.log(`[heartbeat] ${hbCtx}: pushing merged planq state to daemon (${merged.length} tasks, ${conflicts.length} conflicts)`);
+        writePlanqFile(containerId, container).then(() => {
+          planqSyncedAt.set(containerId, Date.now());
+        }).catch(() => {});
+      } else {
+        // Container state matches merged — record this as the new base
+        const currentSerialized = serializePlanqOrder(getPlanqTasks(containerId));
+        setPlanqLastSynced(containerId, currentSerialized);
       }
     }
 
@@ -1402,10 +1428,195 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   return null; // not handled
 }
 
+// ── Planq three-way merge ─────────────────────────────────────────────────────
+
+// Status ordering: higher = more advanced/done
+const STATUS_ORDER: Record<string, number> = {
+  'pending': 0,
+  'auto-queue': 1,
+  'underway': 2,
+  'awaiting-commit': 3,
+  'awaiting-plan': 3,
+  'done': 4,
+};
+
+function taskKey(item: PlanqItem): string {
+  return item.filename ?? item.description ?? '';
+}
+
+function statusLevel(status: string): number {
+  return STATUS_ORDER[status] ?? 0;
+}
+
+interface MergeConflict {
+  key: string;
+  type: 'text-changed' | 'status-conflict' | 'new-in-both';
+  base?: PlanqItem;
+  server: PlanqItem;
+  container: PlanqItem;
+}
+
+/**
+ * Three-way merge of planq task lists.
+ * base: last state that was successfully synced to both sides
+ * server: current server DB state
+ * container: current container state (from daemon heartbeat)
+ * Returns: { merged: PlanqItem[], conflicts: MergeConflict[], hasChanges: boolean }
+ * hasChanges is true if the merged result differs from the container state (need to push to container)
+ */
+function mergePlanqLists(
+  base: PlanqItem[],
+  server: PlanqItem[],
+  container: PlanqItem[]
+): { merged: PlanqItem[]; conflicts: MergeConflict[]; hasChanges: boolean } {
+  const baseMap = new Map<string, PlanqItem>();
+  const serverMap = new Map<string, PlanqItem>();
+  const containerMap = new Map<string, PlanqItem>();
+
+  for (const t of base) { const k = taskKey(t); if (k) baseMap.set(k, t); }
+  for (const t of server) { const k = taskKey(t); if (k) serverMap.set(k, t); }
+  for (const t of container) { const k = taskKey(t); if (k) containerMap.set(k, t); }
+
+  const allKeys = new Set([...baseMap.keys(), ...serverMap.keys(), ...containerMap.keys()]);
+  const result: PlanqItem[] = [];
+  const conflicts: MergeConflict[] = [];
+
+  // Preserve container ordering: process container tasks first, then append server-only tasks
+  const containerKeysInOrder = container.map(taskKey).filter(k => k);
+  const processedKeys = new Set<string>();
+
+  function mergeOne(key: string): PlanqItem | null {
+    const baseTask = baseMap.get(key);
+    const serverTask = serverMap.get(key);
+    const containerTask = containerMap.get(key);
+
+    // Not in server at all: keep container's version (container added it, or server removed it — keep container's)
+    if (!serverTask) {
+      return containerTask ?? null;
+    }
+
+    // In server but not in container
+    if (!containerTask) {
+      if (!baseTask) {
+        // New in server, not in container → add to container
+        return serverTask;
+      }
+      // Was in base, container removed it → respect container removal
+      return null;
+    }
+
+    // In both server and container
+    if (!baseTask) {
+      // New in both — conflict, keep container's version
+      conflicts.push({ key, type: 'new-in-both', server: serverTask, container: containerTask });
+      return containerTask;
+    }
+
+    // Three-way merge
+    const serverStatusChanged = serverTask.status !== baseTask.status;
+    const containerStatusChanged = containerTask.status !== baseTask.status;
+    const serverTextChanged = serverTask.description !== baseTask.description;
+    const containerTextChanged = containerTask.description !== baseTask.description;
+    const serverCommitModeChanged = serverTask.commit_mode !== baseTask.commit_mode;
+    const containerCommitModeChanged = containerTask.commit_mode !== baseTask.commit_mode;
+
+    let mergedStatus = containerTask.status;
+    let mergedDescription = containerTask.description;
+    let mergedCommitMode = containerTask.commit_mode;
+
+    // Status merge
+    if (serverStatusChanged && containerStatusChanged && serverTask.status !== containerTask.status) {
+      // Both changed status to different values
+      const containerLevel = statusLevel(containerTask.status);
+      const serverLevel = statusLevel(serverTask.status);
+      if (containerLevel >= statusLevel('done') && serverLevel < statusLevel('done')) {
+        // Container is done, server tries to re-activate → container wins (no re-activation)
+        mergedStatus = containerTask.status;
+      } else if (serverLevel > containerLevel) {
+        // Server is more advanced → server wins
+        mergedStatus = serverTask.status;
+      } else if (containerLevel > serverLevel) {
+        // Container is more advanced → container wins
+        mergedStatus = containerTask.status;
+      } else {
+        // Same level, different statuses → conflict, container wins
+        conflicts.push({ key, type: 'status-conflict', base: baseTask, server: serverTask, container: containerTask });
+        mergedStatus = containerTask.status;
+      }
+    } else if (serverStatusChanged && !containerStatusChanged) {
+      // Only server changed status, but check: if container is done, don't downgrade
+      if (statusLevel(containerTask.status) >= statusLevel('done') && statusLevel(serverTask.status) < statusLevel('done')) {
+        mergedStatus = containerTask.status; // Keep container done
+      } else {
+        mergedStatus = serverTask.status; // Apply server change
+      }
+    } else if (containerStatusChanged) {
+      mergedStatus = containerTask.status; // Keep container change
+    }
+
+    // Text merge
+    if (serverTextChanged && containerTextChanged && serverTask.description !== containerTask.description) {
+      // Both changed text differently — conflict: add duplicate with conflict suffix
+      conflicts.push({ key, type: 'text-changed', base: baseTask, server: serverTask, container: containerTask });
+      mergedDescription = containerTask.description; // Keep container's text
+    } else if (serverTextChanged && !containerTextChanged) {
+      mergedDescription = serverTask.description; // Apply server text change
+    }
+
+    // Commit mode merge (server wins if container unchanged)
+    if (serverCommitModeChanged && !containerCommitModeChanged) {
+      mergedCommitMode = serverTask.commit_mode;
+    }
+
+    return {
+      ...containerTask,
+      status: mergedStatus,
+      description: mergedDescription,
+      commit_mode: mergedCommitMode,
+    };
+  }
+
+  // Process in container order first
+  for (const key of containerKeysInOrder) {
+    if (processedKeys.has(key)) continue;
+    processedKeys.add(key);
+    const merged = mergeOne(key);
+    if (merged) result.push(merged);
+  }
+
+  // Append server-only new tasks (not in container at all)
+  for (const key of allKeys) {
+    if (processedKeys.has(key)) continue;
+    processedKeys.add(key);
+    const merged = mergeOne(key);
+    if (merged) result.push(merged);
+  }
+
+  // Add conflict tasks (text conflicts: append duplicate with conflict marker)
+  for (const conflict of conflicts) {
+    if (conflict.type === 'text-changed' && conflict.server) {
+      result.push({
+        ...conflict.server,
+        description: `[CONFLICT: text changed] ${conflict.server.description ?? ''}`.trim(),
+        status: 'pending',
+      });
+    }
+  }
+
+  // Check if merged differs from container
+  const containerSerialized = container.map(t => `${taskKey(t)}|${t.status}|${t.description ?? ''}`).join('\n');
+  const mergedSerialized = result.map(t => `${taskKey(t)}|${t.status}|${t.description ?? ''}`).join('\n');
+  const hasChanges = mergedSerialized !== containerSerialized;
+
+  return { merged: result, conflicts, hasChanges };
+}
+
 // Write the planq-order.txt through the daemon for a given container
 async function writePlanqFile(containerId: string, _container: ContainerRow): Promise<void> {
   const tasks = getPlanqTasks(containerId);
   const content = serializePlanqOrder(tasks);
   await relayFileWrite(containerId, 'planq-order.txt', content);
   planqSyncedAt.set(containerId, Date.now());
+  const currentSerialized = serializePlanqOrder(getPlanqTasks(containerId));
+  setPlanqLastSynced(containerId, currentSerialized);
 }
