@@ -31,18 +31,24 @@ Run `bash .claude/planq.sh show $REMAINING_ARGS` and show the output. Stop.
 
 Run auto-queued tasks continuously in this Claude session (inline, no subprocess).
 
-Step 1 — Check for auto-queue tasks:
+Step 1 — Reload the full task list to get current state:
 ```bash
-bash .claude/planq.sh show
+bash .claude/planq.sh list
 ```
-Filter for tasks with `auto-queue` status (shown as `⏱` in the list). If none exist, run `bash .claude/planq.sh list` to show the queue and tell the user there are no auto-queue tasks.
+Find the first task with `auto-queue` status (shown as `⏱`). If none exist, show the list and tell the user there are no auto-queue tasks. Stop.
 
-Step 2 — Execute each auto-queue task inline using the same steps as `run`, but only for tasks with auto-queue status:
+Step 2 — Get full details for that task using its identifier (filename or description text, NOT its position number — position numbers shift as tasks complete):
+```bash
+bash .claude/planq.sh show <filename-or-next-with-no-arg>
+```
+
+Step 3 — Execute the task inline using the same steps as `run`:
 - Mark the task underway: `bash .claude/planq.sh mark:underway <identifier>`
 - Execute the task inline (do NOT call `claude` or spawn any subprocess) per the task-type table below
 - Mark the task done: `bash .claude/planq.sh mark:done <identifier>`
+- If `Auto-commit after: yes` was shown in the details, perform a git commit now.
 
-Step 3 — After completing a task, immediately check for the next auto-queue task (go to Step 1). Repeat until no more auto-queue tasks remain, then report "No more auto-queue tasks."
+Step 4 — After completing a task, go back to Step 1 (reload the full list fresh — do NOT reuse cached task numbers or positions). Repeat until no more auto-queue tasks remain.
 
 If the user interrupts (says stop, or presses Ctrl-C), stop the loop immediately without running further tasks.
 
@@ -51,13 +57,13 @@ Run `bash .claude/planq.sh $ARGUMENTS` and show the output. Stop.
 
 **For `run` / `r [N]`, or no subcommand (default: run next):**
 
-Step 1 — Get task details:
+Step 1 — Reload the task list to get current state, then get task details:
 ```bash
 bash .claude/planq.sh show [N]
 ```
-If there are no pending tasks, report that and stop.
+If there are no pending tasks, report that and stop. Note: if N was specified, verify the task at that position matches expectations — task positions shift as tasks complete.
 
-Step 1b — Mark the task as underway:
+Step 1b — Mark the task as underway using its **identifier** (filename or description), never by position number:
 - If the task has a filename (task/plan/make-plan): `bash .claude/planq.sh mark:underway <filename>`
 - If the task is an unnamed-task or other description-only type: `bash .claude/planq.sh mark:underway "<exact description text>"`
 
