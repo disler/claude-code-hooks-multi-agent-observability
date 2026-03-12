@@ -349,10 +349,17 @@ async function selectHash(hash: string) {
 
 async function handleSwitchToGraph(hash: string) {
   if (isSubmoduleInListMode.value) {
-    // Commits in the list are from the parent repo (fetchRepo = parentRepo in submodule list mode).
-    // Switch back to the parent graph view so the hash can actually be found.
+    // Commits shown are from the parent repo (fetchRepo = parentRepo in submodule list mode).
+    // fetchRepo stays parentRepo after the mode switch (parent graph mode also uses parentRepo),
+    // so the fetchRepo watcher won't fire and load() won't run. Emit switch-repo to update
+    // App.vue state, then navigate directly since gitData already has the parent commits.
     mode.value = 'graph'
     emit('switch-repo', parentRepo.value, hash)
+    await nextTick()
+    const fullHash = gitData.value?.commits.find((cm: any) => cm.hash.startsWith(hash) || hash.startsWith(cm.hash))?.hash ?? hash
+    if (selectedHash.value !== fullHash) await selectHash(fullHash)
+    await nextTick()
+    graphRef.value?.scrollToHash(fullHash)
     return
   }
   mode.value = 'graph'
