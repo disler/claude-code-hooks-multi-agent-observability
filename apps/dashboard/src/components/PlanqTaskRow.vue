@@ -32,7 +32,7 @@
         v-if="task.filename"
         @click.stop="toggleDescPopup"
         class="hover:text-slate-100 hover:underline cursor-pointer"
-        :title="descPopupOpen ? 'Hide description' : 'Show description'"
+        :title="isOpen(task.id) ? 'Hide description' : 'Show description'"
       >{{ task.filename }}</button>
       <span v-else>{{ task.description }}</span>
       <span v-if="task.commit_mode === 'auto' || task.auto_commit" class="ml-1 text-green-500 text-xs" title="Auto-commit after">⇒</span>
@@ -140,14 +140,14 @@
 
   <!-- Description popup (shown when filename is clicked) -->
   <div
-    v-if="descPopupOpen"
+    v-if="isOpen(task.id)"
     class="mx-2 mb-1 rounded border border-slate-700 bg-slate-900 p-2"
   >
     <div v-if="loadingDesc" class="text-xs text-slate-500">Loading…</div>
     <pre
-      v-else-if="descContent"
+      v-else-if="getCached(task.id)"
       class="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words overflow-y-auto max-h-48"
-    >{{ descContent }}</pre>
+    >{{ getCached(task.id) }}</pre>
     <div v-else class="text-xs text-slate-500 italic">No description available.</div>
   </div>
   </div>
@@ -156,6 +156,7 @@
 <script setup lang="ts">
 import { ref, nextTick, computed } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
+import { useExpandedTasks } from '../composables/useExpandedTasks'
 import type { PlanqTask } from '../types'
 
 const props = defineProps<{
@@ -178,6 +179,7 @@ const emit = defineEmits<{
 }>()
 
 const { readFile } = usePlanq()
+const { isOpen, toggle, getCached, setCached } = useExpandedTasks()
 
 const editingDesc = ref(false)
 const editDesc = ref('')
@@ -245,21 +247,19 @@ function saveDesc() {
 
 // ── Description popup ─────────────────────────────────────────────────────────
 
-const descPopupOpen = ref(false)
-const descContent = ref<string | null>(null)
 const loadingDesc = ref(false)
 
 async function toggleDescPopup() {
-  descPopupOpen.value = !descPopupOpen.value
-  if (!descPopupOpen.value || descContent.value !== null) return
+  toggle(props.task.id)
+  if (!isOpen(props.task.id) || getCached(props.task.id) !== undefined) return
 
   if (props.task.description) {
-    descContent.value = props.task.description
+    setCached(props.task.id, props.task.description)
     return
   }
   if (props.task.filename) {
     loadingDesc.value = true
-    descContent.value = await readFile(props.containerId, props.task.filename)
+    setCached(props.task.id, await readFile(props.containerId, props.task.filename))
     loadingDesc.value = false
   }
 }

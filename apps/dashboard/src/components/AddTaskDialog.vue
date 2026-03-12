@@ -1,6 +1,6 @@
 <template>
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="emit('close')" @keydown="onConfirmKey($event, submit)">
-    <div class="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-5 w-[32rem] flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+    <div class="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-5 min-w-[32rem] flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-semibold text-slate-200">Add Task</h3>
         <button @click="emit('close')" class="text-slate-500 hover:text-slate-300 text-sm">✕</button>
