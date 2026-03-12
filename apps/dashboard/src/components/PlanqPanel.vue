@@ -7,7 +7,7 @@
     >
       <span>{{ open ? '▾' : '▸' }}</span>
       <span>Plan Queue</span>
-      <span class="text-slate-500">({{ pendingCount }} pending{{ autoQueueCount > 0 ? `, ${autoQueueCount} queued` : '' }}{{ underwayCount > 0 ? `, ${underwayCount} underway` : '' }}{{ awaitingCommitCount > 0 ? `, ${awaitingCommitCount} awaiting commit` : '' }}{{ doneCount > 0 ? `, ${doneCount} done` : '' }})</span>
+      <span class="text-slate-500">({{ pendingCount }} pending{{ autoQueueCount > 0 ? `, ${autoQueueCount} queued` : '' }}{{ underwayCount > 0 ? `, ${underwayCount} underway` : '' }}{{ awaitingCommitCount > 0 ? `, ${awaitingCommitCount} awaiting commit` : '' }}{{ awaitingPlanCount > 0 ? `, ${awaitingPlanCount} awaiting plan` : '' }}{{ doneCount > 0 ? `, ${doneCount} done` : '' }})</span>
     </button>
 
     <div v-if="open" class="mt-1 bg-slate-900/50 rounded-lg border border-slate-700 p-2">
@@ -27,6 +27,12 @@
       <div v-if="awaitingCommitCount > 0" class="text-xs text-purple-400 mb-2 flex items-center gap-1">
         <span>💾</span>
         <span>{{ awaitingCommitCount }} task{{ awaitingCommitCount > 1 ? 's' : '' }} awaiting commit — commit staged changes to continue</span>
+      </div>
+
+      <!-- Awaiting-plan notice -->
+      <div v-if="awaitingPlanCount > 0" class="text-xs text-teal-400 mb-2 flex items-center gap-1">
+        <span>📋</span>
+        <span>{{ awaitingPlanCount }} task{{ awaitingPlanCount > 1 ? 's' : '' }} awaiting plan review — add the generated plan to the queue to continue</span>
       </div>
 
       <!-- Auto-test pending prompt -->
@@ -122,7 +128,7 @@
       v-if="showAddDialog"
       :container-id="containerId"
       @close="showAddDialog = false"
-      @add="(type, fn, desc, createFile, commitMode) => addTask(type, fn, desc, createFile, commitMode)"
+      @add="(type, fn, desc, createFile, commitMode, planDisposition, autoQueuePlan) => addTask(type, fn, desc, createFile, commitMode, planDisposition, autoQueuePlan)"
     />
 
     <PlanqFileEditor
@@ -180,6 +186,7 @@ const underwayCount = computed(() => props.tasks.filter(t => t.status === 'under
 const doneCount = computed(() => props.tasks.filter(t => t.status === 'done').length)
 const autoQueueCount = computed(() => props.tasks.filter(t => t.status === 'auto-queue').length)
 const awaitingCommitCount = computed(() => props.tasks.filter(t => t.status === 'awaiting-commit').length)
+const awaitingPlanCount = computed(() => props.tasks.filter(t => t.status === 'awaiting-plan').length)
 // Warn if there are multiple underway tasks alongside auto-queue tasks (suggests >1 auto runner)
 const multipleAutoWarning = computed(() => autoQueueCount.value > 0 && underwayCount.value > 1)
 
@@ -199,13 +206,13 @@ function archiveBadgeClass(taskType: string): string {
 
 const cid = () => props.containerId
 
-async function addTask(taskType: string, filename: string | null, description: string | null, createFile = false, commitMode: 'none' | 'auto' | 'stage' | 'manual' = 'none') {
+async function addTask(taskType: string, filename: string | null, description: string | null, createFile = false, commitMode: 'none' | 'auto' | 'stage' | 'manual' = 'none', planDisposition?: 'manual' | 'add-after' | 'add-end', autoQueuePlan?: boolean) {
   console.log(`[planq] add task type=${taskType} file=${filename ?? '—'} commit_mode=${commitMode} container=${cid()}`)
-  await apiAdd(props.containerId, taskType, filename, description, createFile, commitMode)
+  await apiAdd(props.containerId, taskType, filename, description, createFile, commitMode, planDisposition, autoQueuePlan)
   emit('tasks-changed')
 }
 
-async function setStatus(task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit') {
+async function setStatus(task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan') {
   console.log(`[planq] set status ${task.status}→${status} task=${task.filename ?? task.description} container=${cid()}`)
   await apiUpdate(props.containerId, task.id, { status })
   emit('tasks-changed')

@@ -8,13 +8,15 @@ export function usePlanq() {
     filename: string | null,
     description: string | null,
     createFile = false,
-    commitMode: 'none' | 'auto' | 'stage' | 'manual' = 'none'
+    commitMode: 'none' | 'auto' | 'stage' | 'manual' = 'none',
+    planDisposition?: 'manual' | 'add-after' | 'add-end',
+    autoQueuePlan?: boolean
   ): Promise<PlanqTask | null> {
     try {
       const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task_type: taskType, filename, description, create_file: createFile, commit_mode: commitMode, auto_commit: commitMode === 'auto' }),
+        body: JSON.stringify({ task_type: taskType, filename, description, create_file: createFile, commit_mode: commitMode, auto_commit: commitMode === 'auto', plan_disposition: planDisposition, auto_queue_plan: autoQueuePlan }),
       })
       if (!res.ok) return null
       const data = await res.json()

@@ -159,9 +159,36 @@
         />
       </div>
 
-      <!-- Commit mode selector (for non-auto-commit and non-manual task types) -->
+      <!-- Plan disposition selector (for make-plan type only) -->
+      <div v-if="taskType === 'make-plan'" class="flex flex-col gap-1">
+        <label class="text-xs text-slate-400">After plan is created</label>
+        <div class="flex gap-1">
+          <button
+            v-for="opt in planDispositionOptions"
+            :key="opt.value"
+            type="button"
+            @click="planDisposition = opt.value"
+            class="text-xs px-2 py-1 rounded border transition-colors"
+            :class="planDisposition === opt.value
+              ? opt.activeClass
+              : 'border-slate-600 bg-slate-700 text-slate-400 hover:bg-slate-600'"
+          >{{ opt.label }}</button>
+        </div>
+        <div v-if="planDisposition !== 'manual'" class="flex items-center gap-2 mt-1">
+          <input
+            id="auto-queue-plan"
+            v-model="autoQueuePlan"
+            type="checkbox"
+            class="rounded"
+          />
+          <label for="auto-queue-plan" class="text-xs text-slate-400">Auto-queue the added plan <span class="text-slate-500">(⏱ mark it for auto-run)</span></label>
+        </div>
+        <p v-if="planDisposition === 'manual'" class="text-xs text-slate-500">Auto-queue will pause until you add the plan to the queue manually.</p>
+      </div>
+
+      <!-- Commit mode selector (for non-auto-commit, non-manual, non-make-plan task types) -->
       <div
-        v-if="taskType !== 'auto-commit' && taskType !== 'manual-commit' && taskType !== 'manual-test' && taskType !== 'manual-task'"
+        v-if="taskType !== 'auto-commit' && taskType !== 'manual-commit' && taskType !== 'manual-test' && taskType !== 'manual-task' && taskType !== 'make-plan'"
         class="flex flex-col gap-1"
       >
         <label class="text-xs text-slate-400">After this task</label>
@@ -203,7 +230,7 @@ const props = defineProps<{ containerId: string }>()
 
 const emit = defineEmits<{
   close: []
-  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, commitMode?: 'none' | 'auto' | 'stage' | 'manual']
+  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, commitMode: 'none' | 'auto' | 'stage' | 'manual' | undefined, planDisposition?: 'manual' | 'add-after' | 'add-end', autoQueuePlan?: boolean]
 }>()
 
 const { readFile, listPlansFiles } = usePlanq()
@@ -215,12 +242,20 @@ const planSlug = ref('')
 const makePlanSlug = ref('')
 const description = ref('')
 const commitMode = ref<'none' | 'auto' | 'stage' | 'manual'>('none')
+const planDisposition = ref<'manual' | 'add-after' | 'add-end'>('manual')
+const autoQueuePlan = ref(false)
 
 const commitModeOptions = [
   { value: 'none' as const, label: 'Nothing', activeClass: 'border-slate-500 bg-slate-600 text-slate-200' },
   { value: 'auto' as const, label: '⇒ Auto-commit', activeClass: 'border-green-600 bg-green-900/50 text-green-300' },
   { value: 'stage' as const, label: '⇒ Stage-commit', activeClass: 'border-blue-600 bg-blue-900/50 text-blue-300' },
   { value: 'manual' as const, label: '⇒ Manual-commit', activeClass: 'border-orange-600 bg-orange-900/50 text-orange-300' },
+]
+
+const planDispositionOptions = [
+  { value: 'manual' as const, label: 'Manual review', activeClass: 'border-slate-500 bg-slate-600 text-slate-200' },
+  { value: 'add-after' as const, label: '⇒ Add after current', activeClass: 'border-teal-600 bg-teal-900/50 text-teal-300' },
+  { value: 'add-end' as const, label: '⇒ Add to end', activeClass: 'border-cyan-600 bg-cyan-900/50 text-cyan-300' },
 ]
 
 const plansFiles = ref<string[]>([])
@@ -322,7 +357,7 @@ function submit() {
   } else if (taskType.value === 'plan') {
     emit('add', 'plan', planFilename.value, null, false, cm)
   } else if (taskType.value === 'make-plan') {
-    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, cm)
+    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, undefined, planDisposition.value, planDisposition.value !== 'manual' ? autoQueuePlan.value : undefined)
   } else if (taskType.value === 'auto-commit') {
     const opts = description.value.trim() || null
     emit('add', 'auto-commit', null, opts, false, 'none')

@@ -2,7 +2,7 @@
   <div class="flex flex-col">
   <div
     class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-700/50 group"
-    :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue', 'bg-purple-900/20': task.status === 'awaiting-commit' }"
+    :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue', 'bg-purple-900/20': task.status === 'awaiting-commit', 'bg-teal-900/20': task.status === 'awaiting-plan' }"
     draggable="true"
     @dragstart="emit('dragstart', task.id)"
     @dragenter.prevent
@@ -20,6 +20,7 @@
     <span v-else-if="task.status === 'underway'" class="text-yellow-400 text-xs">⏳</span>
     <span v-else-if="task.status === 'auto-queue'" class="text-cyan-400 text-xs">⏱</span>
     <span v-else-if="task.status === 'awaiting-commit'" class="text-purple-400 text-xs">💾</span>
+    <span v-else-if="task.status === 'awaiting-plan'" class="text-teal-400 text-xs">📋</span>
     <span v-else class="text-slate-600 text-xs">▶</span>
 
     <!-- Type badge -->
@@ -37,6 +38,10 @@
       <span v-if="task.commit_mode === 'auto' || task.auto_commit" class="ml-1 text-green-500 text-xs" title="Auto-commit after">⇒</span>
       <span v-else-if="task.commit_mode === 'stage'" class="ml-1 text-blue-400 text-xs" title="Stage-commit after (Claude stages, you commit)">⇒</span>
       <span v-else-if="task.commit_mode === 'manual'" class="ml-1 text-orange-400 text-xs" title="Manual-commit after (you stage and commit)">⇒</span>
+      <template v-if="task.task_type === 'make-plan'">
+        <span v-if="task.plan_disposition === 'add-after'" class="ml-1 text-teal-400 text-xs" :title="task.auto_queue_plan ? 'Plan will be added after this task (auto-queued)' : 'Plan will be added after this task'">📋⇒{{ task.auto_queue_plan ? '⏱' : '' }}</span>
+        <span v-else-if="task.plan_disposition === 'add-end'" class="ml-1 text-cyan-400 text-xs" :title="task.auto_queue_plan ? 'Plan will be added to end of queue (auto-queued)' : 'Plan will be added to end of queue'">📋↓{{ task.auto_queue_plan ? '⏱' : '' }}</span>
+      </template>
     </span>
     <input
       v-else
@@ -91,13 +96,13 @@
         :title="task.status === 'auto-queue' ? 'Remove from auto-queue' : 'Add to auto-queue'"
       >⏱</button>
 
-      <!-- Mark underway / un-underway (also from awaiting-commit to abort the wait) -->
+      <!-- Mark underway / un-underway (also from awaiting-commit/awaiting-plan to abort the wait) -->
       <button
-        v-if="task.status === 'pending' || task.status === 'underway' || task.status === 'awaiting-commit'"
+        v-if="task.status === 'pending' || task.status === 'underway' || task.status === 'awaiting-commit' || task.status === 'awaiting-plan'"
         @click="emit('set-status', task, task.status === 'underway' ? 'pending' : 'underway')"
         class="text-xs px-1"
         :class="task.status === 'underway' ? 'text-slate-500 hover:text-slate-300' : 'text-yellow-500 hover:text-yellow-300'"
-        :title="task.status === 'awaiting-commit' ? 'Abort commit wait (mark underway)' : task.status === 'underway' ? 'Mark inactive' : 'Mark underway'"
+        :title="task.status === 'awaiting-commit' ? 'Abort commit wait (mark underway)' : task.status === 'awaiting-plan' ? 'Abort plan wait (mark underway)' : task.status === 'underway' ? 'Mark inactive' : 'Mark underway'"
       >⏳</button>
 
       <!-- Mark done / pending -->
@@ -162,7 +167,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'edit-file': [task: PlanqTask]
-  'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit']
+  'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan']
   'delete': [id: number]
   'update-desc': [id: number, desc: string]
   'set-commit-mode': [task: PlanqTask, mode: 'none' | 'auto' | 'stage' | 'manual']
