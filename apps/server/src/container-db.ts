@@ -30,6 +30,7 @@ export interface ContainerRow {
   versions: Record<string, string | null>;
   planq_order: string | null;
   planq_history: string | null;
+  planq_last_synced: string | null;
   auto_test_pending: { command: string; output: string; exit_code: number } | null;
   active_session_ids: string[]; // parsed from JSON
   running_session_ids: string[]; // parsed from JSON — sessions with live claude processes
@@ -115,6 +116,7 @@ export function initContainerDatabase(): void {
       author TEXT,
       author_date INTEGER,
       body TEXT,
+      diffstat TEXT,
       PRIMARY KEY (source_repo, hash)
     )
   `);
@@ -157,6 +159,9 @@ export function initContainerDatabase(): void {
   if (!columns.includes('versions')) {
     db.exec("ALTER TABLE containers ADD COLUMN versions TEXT DEFAULT '{}'");
   }
+  if (!columns.includes('planq_last_synced')) {
+    db.exec('ALTER TABLE containers ADD COLUMN planq_last_synced TEXT');
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS host_source_reports (
@@ -198,6 +203,9 @@ export function initContainerDatabase(): void {
   if (!commitColumns.includes('body')) {
     db.exec('ALTER TABLE git_commits ADD COLUMN body TEXT');
   }
+  if (!commitColumns.includes('diffstat')) {
+    db.exec('ALTER TABLE git_commits ADD COLUMN diffstat TEXT');
+  }
 }
 
 export function touchPlanqServerModified(containerId: string): void {
@@ -209,14 +217,23 @@ export function getPlanqServerModifiedAt(containerId: string): number {
   return row?.planq_server_modified_at ?? 0;
 }
 
+export function setPlanqLastSynced(containerId: string, syncedState: string): void {
+  db.prepare('UPDATE containers SET planq_last_synced = ? WHERE id = ?').run(syncedState, containerId);
+}
+
+export function getPlanqLastSynced(containerId: string): string | null {
+  const row = db.prepare('SELECT planq_last_synced FROM containers WHERE id = ?').get(containerId) as any;
+  return row?.planq_last_synced ?? null;
+}
+
 export function upsertContainer(data: Omit<ContainerRow, 'connected'>): ContainerRow {
   const stmt = db.prepare(`
     INSERT INTO containers
       (id, source_repo, machine_hostname, container_hostname, workspace_host_path,
        git_branch, git_worktree, git_commit_hash, git_commit_message,
        git_staged_count, git_staged_diffstat, git_unstaged_count, git_unstaged_diffstat,
-       git_remote_url, git_submodules, versions, planq_order, planq_history, auto_test_pending, active_session_ids, running_session_ids, last_seen, connected)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+       git_remote_url, git_submodules, versions, planq_order, planq_history, planq_last_synced, auto_test_pending, active_session_ids, running_session_ids, last_seen, connected)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
     ON CONFLICT(id) DO UPDATE SET
       source_repo=excluded.source_repo,
       machine_hostname=excluded.machine_hostname,
@@ -235,6 +252,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       versions=excluded.versions,
       planq_order=excluded.planq_order,
       planq_history=COALESCE(excluded.planq_history, planq_history),
+      planq_last_synced=COALESCE(excluded.planq_last_synced, planq_last_synced),
       auto_test_pending=excluded.auto_test_pending,
       active_session_ids=excluded.active_session_ids,
       running_session_ids=excluded.running_session_ids,
@@ -261,6 +279,7 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
     JSON.stringify(data.versions ?? {}),
     data.planq_order ?? null,
     data.planq_history ?? null,
+    data.planq_last_synced ?? null,
     data.auto_test_pending ? JSON.stringify(data.auto_test_pending) : null,
     JSON.stringify(data.active_session_ids),
     JSON.stringify(data.running_session_ids ?? []),
@@ -323,6 +342,7 @@ function rowToContainer(row: any): ContainerRow {
     versions: JSON.parse(row.versions || '{}'),
     planq_order: row.planq_order,
     planq_history: row.planq_history ?? null,
+    planq_last_synced: row.planq_last_synced ?? null,
     auto_test_pending: row.auto_test_pending ? JSON.parse(row.auto_test_pending) : null,
     active_session_ids: JSON.parse(row.active_session_ids || '[]'),
     running_session_ids: JSON.parse(row.running_session_ids || '[]'),
@@ -544,15 +564,16 @@ export interface StoredGitCommit {
   author?: string;
   author_date?: number;
   body?: string;
+  diffstat?: string;
 }
 
 export function upsertGitCommits(sourceRepo: string, commits: StoredGitCommit[]): void {
   const upsert = db.prepare(
-    'INSERT INTO git_commits (source_repo, hash, parents, refs, subject, author, author_date, body) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source_repo, hash) DO UPDATE SET refs = excluded.refs, subject = excluded.subject, author = COALESCE(excluded.author, author), author_date = COALESCE(excluded.author_date, author_date), body = COALESCE(excluded.body, body)'
+    'INSERT INTO git_commits (source_repo, hash, parents, refs, subject, author, author_date, body, diffstat) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source_repo, hash) DO UPDATE SET refs = excluded.refs, subject = excluded.subject, author = COALESCE(excluded.author, author), author_date = COALESCE(excluded.author_date, author_date), body = COALESCE(excluded.body, body), diffstat = COALESCE(excluded.diffstat, diffstat)'
   );
   const tx = db.transaction(() => {
     for (const c of commits) {
-      upsert.run(sourceRepo, c.hash, JSON.stringify(c.parents), JSON.stringify(c.refs), c.subject, c.author ?? null, c.author_date ?? null, c.body ?? null);
+      upsert.run(sourceRepo, c.hash, JSON.stringify(c.parents), JSON.stringify(c.refs), c.subject, c.author ?? null, c.author_date ?? null, c.body ?? null, c.diffstat ?? null);
     }
   });
   tx();
@@ -560,7 +581,7 @@ export function upsertGitCommits(sourceRepo: string, commits: StoredGitCommit[])
 
 export function getGitCommits(sourceRepo: string): StoredGitCommit[] {
   const rows = db.prepare(
-    'SELECT hash, parents, refs, subject, author, author_date, body FROM git_commits WHERE source_repo = ?'
+    'SELECT hash, parents, refs, subject, author, author_date, body, diffstat FROM git_commits WHERE source_repo = ?'
   ).all(sourceRepo) as any[];
   return rows.map(r => ({
     hash: r.hash,
@@ -570,6 +591,7 @@ export function getGitCommits(sourceRepo: string): StoredGitCommit[] {
     author: r.author ?? undefined,
     author_date: r.author_date ?? undefined,
     body: r.body ?? undefined,
+    diffstat: r.diffstat ?? undefined,
   }));
 }
 

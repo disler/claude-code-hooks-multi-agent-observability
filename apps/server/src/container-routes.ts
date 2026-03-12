@@ -922,15 +922,17 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
           const p = submodulePath ? `${c.workspace_host_path}/${submodulePath}` : c.workspace_host_path;
           return p === wpath;
         })?.machine_hostname ?? 'unknown';
-        const [procMeta, procBody] = [
+        const [procMeta, procBody, procStat] = [
           Bun.spawn(['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s|%an|%at', '--date-order', '-n', '200'], { stdout: 'pipe', stderr: 'ignore' }),
           Bun.spawn(['git', '-C', wpath, 'log', '--all', '-z', '--format=%H%n%B', '--date-order', '-n', '200'], { stdout: 'pipe', stderr: 'ignore' }),
+          Bun.spawn(['git', '-C', wpath, 'log', '--all', '--pretty=tformat:COMMIT_SEP=%H', '--stat', '--date-order', '-n', '200'], { stdout: 'pipe', stderr: 'ignore' }),
         ];
-        const [text, bodyText] = await Promise.all([
+        const [text, bodyText, statText] = await Promise.all([
           new Response(procMeta.stdout).text().catch(() => ''),
           new Response(procBody.stdout).text().catch(() => ''),
+          new Response(procStat.stdout).text().catch(() => ''),
         ]);
-        await Promise.all([procMeta.exited, procBody.exited]);
+        await Promise.all([procMeta.exited, procBody.exited, procStat.exited]);
         const bodyMap = new Map<string, string>();
         for (const record of bodyText.split('\0')) {
           const stripped = record.replace(/^\n+/, '');
@@ -941,6 +943,19 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
           const body = stripped.slice(nl + 1);
           if (bHash && body.trim()) bodyMap.set(bHash, body);
         }
+        const diffstatMap = new Map<string, string>();
+        let dsHash: string | null = null;
+        const dsLines: string[] = [];
+        for (const line of statText.split('\n')) {
+          if (line.startsWith('COMMIT_SEP=')) {
+            if (dsHash && dsLines.length) diffstatMap.set(dsHash, dsLines.join('\n').trim());
+            dsHash = line.slice('COMMIT_SEP='.length).trim();
+            dsLines.length = 0;
+          } else if (dsHash && line.trim()) {
+            dsLines.push(line);
+          }
+        }
+        if (dsHash && dsLines.length) diffstatMap.set(dsHash, dsLines.join('\n').trim());
         const hostRefMap = new Map<string, string[]>();
         for (const line of text.split('\n')) {
           if (!line.trim()) continue;
@@ -960,7 +975,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
             commitMap.set(h, { ...ex, refs: [...new Set([...ex.refs, ...refs])] });
           } else {
             const body = bodyMap.get(h);
-            commitMap.set(h, { hash: h, parents, refs, subject, author: authorName || undefined, author_date: authorTs, body: body?.trim() || undefined });
+            const diffstat = diffstatMap.get(h);
+            commitMap.set(h, { hash: h, parents, refs, subject, author: authorName || undefined, author_date: authorTs, body: body?.trim() || undefined, diffstat: diffstat || undefined });
           }
           hostRefMap.set(h, [...(hostRefMap.get(h) ?? []), ...refs]);
         }
@@ -1027,24 +1043,22 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const cached = gitShowCache.get(hash);
     if (cached !== undefined) return json(cached);
 
-    // Body: prefer what the daemon stored in the DB (works even when server has no filesystem access)
+    // Prefer what the daemon stored in the DB (works even when server has no filesystem access)
     const storedCommits = getGitCommits(repo);
     const storedCommit = storedCommits.find(c => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash));
     const storedMessage = storedCommit?.body?.trim() ?? null;
+    const storedDiffstat = storedCommit?.diffstat?.trim() ?? null;
 
     const allContainers = getAllContainers().filter(c => c.source_repo === repo && c.workspace_host_path);
     const wpath = allContainers[0]?.workspace_host_path;
-    if (!wpath && storedMessage !== null) {
-      // No local git access but we have the stored message; can't get diffstat
-      const result = { diffstat: '', message: storedMessage };
-      gitShowCache.set(hash, result);
+    if (!wpath) {
+      // No local git access — serve whatever the daemon stored
+      const result = { diffstat: storedDiffstat ?? '', message: storedMessage ?? '' };
+      if (storedMessage !== null || storedDiffstat !== null) gitShowCache.set(hash, result);
       return json(result);
     }
-    if (!wpath) return json({ diffstat: '', message: '' });
 
-    // Always run diffstat fresh (can't be pre-stored); message: use stored if available, else git fallback
-    const procDiff = Bun.spawn(['git', '-C', wpath!, 'diff-tree', '--no-commit-id', '-r', '--stat', hash], { stdout: 'pipe', stderr: 'ignore' });
-    const diffstatPromise = new Response(procDiff.stdout).text().catch(() => '');
+    // Use stored values where available; fall back to fresh git only for fields not yet in DB
     const messagePromise = storedMessage !== null
       ? Promise.resolve(storedMessage)
       : (async () => {
@@ -1053,8 +1067,15 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
           await p.exited;
           return msg;
         })();
-    const [diffstat, message] = await Promise.all([diffstatPromise, messagePromise]);
-    await procDiff.exited;
+    const diffstatPromise = storedDiffstat !== null
+      ? Promise.resolve(storedDiffstat)
+      : (async () => {
+          const p = Bun.spawn(['git', '-C', wpath!, 'diff-tree', '--no-commit-id', '-r', '--stat', hash], { stdout: 'pipe', stderr: 'ignore' });
+          const ds = await new Response(p.stdout).text().catch(() => '');
+          await p.exited;
+          return ds;
+        })();
+    const [message, diffstat] = await Promise.all([messagePromise, diffstatPromise]);
     if (gitShowCache.size >= 200) {
       const firstKey = gitShowCache.keys().next().value;
       if (firstKey !== undefined) gitShowCache.delete(firstKey);

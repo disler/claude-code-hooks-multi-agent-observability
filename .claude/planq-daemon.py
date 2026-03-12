@@ -308,6 +308,37 @@ def _parse_git_log_line(line: str) -> dict | None:
     return commit
 
 
+def _git_diffstats(cwd: str, not_args: list) -> dict:
+    """Return {hash: diffstat_string} for new commits.
+
+    Runs git log --stat once with a COMMIT_SEP=%H sentinel so each commit's
+    file-change summary can be extracted without per-commit subprocesses.
+    """
+    raw = _run(
+        ['git', 'log', '--all', '--pretty=tformat:COMMIT_SEP=%H', '--stat',
+         '--date-order', '-n', '200'] + not_args,
+        cwd=cwd,
+    )
+    result: dict = {}
+    current_hash: str | None = None
+    stat_lines: list = []
+    for line in raw.splitlines():
+        if line.startswith('COMMIT_SEP='):
+            if current_hash is not None:
+                stat = '\n'.join(stat_lines).strip()
+                if stat:
+                    result[current_hash] = stat
+            current_hash = line[len('COMMIT_SEP='):].strip()
+            stat_lines = []
+        elif current_hash is not None and line.strip():
+            stat_lines.append(line)
+    if current_hash is not None:
+        stat = '\n'.join(stat_lines).strip()
+        if stat:
+            result[current_hash] = stat
+    return result
+
+
 def _git_log_bodies(cwd: str, not_args: list) -> dict:
     """Return {hash: body} for commits not covered by not_args.
 
@@ -350,10 +381,14 @@ def _git_log_for_path(cwd, known=None) -> list:
         if commit:
             commits.append(commit)
     bodies = _git_log_bodies(cwd, not_args)
+    diffstats = _git_diffstats(cwd, not_args)
     for c in commits:
         body = bodies.get(c['hash'], '')
         if body.strip():
             c['body'] = body
+        diffstat = diffstats.get(c['hash'], '')
+        if diffstat:
+            c['diffstat'] = diffstat
     return commits
 
 
@@ -398,10 +433,14 @@ def _git_log_incremental() -> list:
         if commit:
             commits.append(commit)
     bodies = _git_log_bodies(str(WORKSPACE_ROOT), not_args)
+    diffstats = _git_diffstats(str(WORKSPACE_ROOT), not_args)
     for c in commits:
         body = bodies.get(c['hash'], '')
         if body.strip():
             c['body'] = body
+        diffstat = diffstats.get(c['hash'], '')
+        if diffstat:
+            c['diffstat'] = diffstat
     return commits
 
 
