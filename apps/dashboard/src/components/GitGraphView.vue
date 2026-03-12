@@ -224,12 +224,14 @@
             font-size="10"
             font-family="sans-serif"
             fill="#cbd5e1"
-          >{{ row.commit.subject.slice(0, 100) }}</text>
+            class="cursor-pointer hover:fill-white"
+            @click.stop="onSubjectClick(i, $event)"
+          >{{ clippedSubject(i) }}</text>
 
           <!-- Author column -->
           <text
             v-if="row.commit.author"
-            :x="svgWidth - AUTHOR_W - DATE_W"
+            :x="svgWidth - AUTHOR_W - DATE_W - labelX"
             y="4"
             font-size="9"
             font-family="sans-serif"
@@ -239,7 +241,7 @@
           <!-- Date column -->
           <text
             v-if="row.commit.author_date"
-            :x="svgWidth - DATE_W + 4"
+            :x="svgWidth - DATE_W + 4 - labelX"
             y="4"
             font-size="9"
             font-family="monospace"
@@ -290,6 +292,27 @@
         <pre class="text-xs text-slate-200 font-mono overflow-x-auto whitespace-pre">{{ activeDirtyPopover.diffstat }}</pre>
       </div>
     </Teleport>
+
+    <!-- Commit message popup (teleported to body) -->
+    <Teleport to="body">
+      <div
+        v-if="activeCommitPopover"
+        class="fixed z-[9999] w-[480px] max-w-[90vw] bg-slate-900 border border-slate-600 rounded-lg shadow-2xl p-3 overflow-auto"
+        :style="{ left: activeCommitPopover.x + 'px', top: activeCommitPopover.y + 'px', maxHeight: '60vh' }"
+        @click.stop
+      >
+        <div class="flex items-center justify-between mb-2 gap-4">
+          <span class="text-xs font-mono text-yellow-400">{{ activeCommitPopover.hash.slice(0, 8) }}</span>
+          <button @click="activeCommitPopover = null" class="text-slate-500 hover:text-slate-300 text-xs shrink-0">✕</button>
+        </div>
+        <div v-if="activeCommitPopover.loading" class="text-xs text-slate-500 italic">Loading…</div>
+        <template v-else>
+          <pre v-if="activeCommitPopover.message" class="text-xs text-slate-200 whitespace-pre-wrap mb-3 font-sans">{{ activeCommitPopover.message.trim() }}</pre>
+          <pre v-if="activeCommitPopover.diffstat" class="text-xs text-slate-400 font-mono whitespace-pre overflow-x-auto border-t border-slate-700 pt-2 mt-1">{{ activeCommitPopover.diffstat.trim() }}</pre>
+          <div v-if="!activeCommitPopover.message && !activeCommitPopover.diffstat" class="text-xs text-slate-500 italic">No details available.</div>
+        </template>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -334,6 +357,7 @@ const props = defineProps<{
   refsPerHost: Array<{ hash: string; host: string; localBranches: string[] }>
   remoteUrl?: string
   sourceHost?: string
+  sourceRepo?: string
 }>()
 
 const emit = defineEmits<{
@@ -620,6 +644,63 @@ const badgeOffsets = computed(() => {
   return result
 })
 
+/** Return subject text clipped to fit before the author column. */
+function clippedSubject(rowIndex: number): string {
+  const row = layout.value[rowIndex]
+  if (!row) return ''
+  const subjectX = (badgeOffsets.value[rowIndex]?.[allBadgesForCommit(row.commit).length]?.x ?? 0) + 60
+  const availableWidth = svgWidth.value - AUTHOR_W - DATE_W - labelX.value - subjectX - 12
+  const maxChars = Math.max(0, Math.floor(availableWidth / 6))
+  const s = row.commit.subject
+  if (s.length <= maxChars) return s
+  return s.slice(0, Math.max(0, maxChars - 1)) + '…'
+}
+
+// --- Commit message popup ---
+
+interface CommitPopover {
+  x: number
+  y: number
+  hash: string
+  message: string
+  diffstat: string
+  loading: boolean
+}
+
+const activeCommitPopover = ref<CommitPopover | null>(null)
+
+async function onSubjectClick(rowIndex: number, event: MouseEvent) {
+  const row = layout.value[rowIndex]
+  if (!row || !props.sourceRepo) return
+
+  if (activeCommitPopover.value?.hash === row.commit.hash) {
+    activeCommitPopover.value = null
+    return
+  }
+
+  // Clamp popup so it stays on screen
+  const popupW = 480
+  const popupMaxH = window.innerHeight * 0.6
+  const x = Math.min(event.clientX + 8, window.innerWidth - popupW - 8)
+  const y = Math.min(event.clientY + 8, window.innerHeight - popupMaxH - 8)
+
+  activeCommitPopover.value = { x, y, hash: row.commit.hash, message: '', diffstat: '', loading: true }
+
+  try {
+    const res = await fetch(`${API_BASE}/dashboard/git-show/${encodeURIComponent(props.sourceRepo)}/${row.commit.hash}`)
+    if (res.ok) {
+      const data = await res.json()
+      if (activeCommitPopover.value?.hash === row.commit.hash) {
+        activeCommitPopover.value = { ...activeCommitPopover.value, message: data.message ?? '', diffstat: data.diffstat ?? '', loading: false }
+      }
+    } else {
+      if (activeCommitPopover.value?.hash === row.commit.hash) activeCommitPopover.value = { ...activeCommitPopover.value, loading: false }
+    }
+  } catch {
+    if (activeCommitPopover.value?.hash === row.commit.hash) activeCommitPopover.value = { ...activeCommitPopover.value, loading: false }
+  }
+}
+
 function relativeDate(unixTs: number): string {
   const diff = Math.floor(Date.now() / 1000) - unixTs
   if (diff < 60) return `${diff}s ago`
@@ -695,6 +776,7 @@ function closeDirtyPopover() {
 
 function onDocumentClick() {
   if (activeDirtyPopover.value) activeDirtyPopover.value = null
+  if (activeCommitPopover.value) activeCommitPopover.value = null
 }
 
 onMounted(() => {

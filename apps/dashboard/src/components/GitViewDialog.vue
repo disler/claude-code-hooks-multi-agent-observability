@@ -108,6 +108,7 @@
             :selected-hash="selectedHash"
             :remote-url="gitData.remote_url ?? undefined"
             :source-host="browserHost ?? undefined"
+            :source-repo="fetchRepo"
             @select-hash="selectHash"
           />
           <GitListView

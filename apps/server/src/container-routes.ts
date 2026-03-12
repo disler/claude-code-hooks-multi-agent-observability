@@ -31,7 +31,7 @@ import {
 } from './container-db';
 
 // ── Git show cache (LRU-style, max 200 entries) ───────────────────────────────
-const gitShowCache = new Map<string, string>();
+const gitShowCache = new Map<string, { diffstat: string; message: string }>();
 
 // ── Branch update tracking (in-memory, per repo per host) ─────────────────────
 // Records timestamp of the last heartbeat where a host sent new commits.
@@ -407,6 +407,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       git_unstaged_diffstat: msg.git_unstaged_diffstat ?? null,
       git_remote_url: msg.git_remote_url ?? null,
       git_submodules: Array.isArray(msg.git_submodules) ? msg.git_submodules : [],
+      versions: (msg.versions && typeof msg.versions === 'object') ? msg.versions : {},
       planq_order: msg.planq_order ?? null,
       planq_history: msg.planq_history ?? null,
       auto_test_pending: msg.auto_test_pending ?? null,
@@ -986,24 +987,27 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const hash = parts[parts.length - 1]!;
     const repo = decodeURIComponent(parts.slice(3, -1).join('/'));
     const cached = gitShowCache.get(hash);
-    if (cached !== undefined) return json({ diffstat: cached });
+    if (cached !== undefined) return json(cached);
 
     const allContainers = getAllContainers().filter(c => c.source_repo === repo && c.workspace_host_path);
     const wpath = allContainers[0]?.workspace_host_path;
-    if (!wpath) return json({ diffstat: '' });
+    if (!wpath) return json({ diffstat: '', message: '' });
 
-    const proc = Bun.spawn(
-      ['git', '-C', wpath!, 'diff-tree', '--no-commit-id', '-r', '--stat', hash],
-      { stdout: 'pipe', stderr: 'ignore' }
-    );
-    const diffstat = await new Response(proc.stdout).text().catch(() => '');
-    await proc.exited;
+    const [procDiff, procMsg] = [
+      Bun.spawn(['git', '-C', wpath!, 'diff-tree', '--no-commit-id', '-r', '--stat', hash], { stdout: 'pipe', stderr: 'ignore' }),
+      Bun.spawn(['git', '-C', wpath!, 'log', '-1', '--format=%B', hash], { stdout: 'pipe', stderr: 'ignore' }),
+    ];
+    const [diffstat, message] = await Promise.all([
+      new Response(procDiff.stdout).text().catch(() => ''),
+      new Response(procMsg.stdout).text().catch(() => ''),
+    ]);
+    await Promise.all([procDiff.exited, procMsg.exited]);
     if (gitShowCache.size >= 200) {
       const firstKey = gitShowCache.keys().next().value;
       if (firstKey !== undefined) gitShowCache.delete(firstKey);
     }
-    gitShowCache.set(hash, diffstat);
-    return json({ diffstat });
+    gitShowCache.set(hash, { diffstat, message });
+    return json({ diffstat, message });
   }
 
   // GET /dashboard/git-hosts/:repo — list known hosts + workspace paths for a repo
