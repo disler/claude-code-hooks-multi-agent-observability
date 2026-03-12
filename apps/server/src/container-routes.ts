@@ -27,6 +27,7 @@ import {
   getGitCommitRefs,
   type ContainerRow,
   type PlanqTaskRow,
+  type StoredGitCommit,
 } from './container-db';
 
 // ── Git show cache (LRU-style, max 200 entries) ───────────────────────────────
@@ -834,7 +835,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
   // POST /dashboard/containers/:id/merge — merge an offline container's sessions into another
   if (pathname.match(/^\/dashboard\/containers\/[^/]+\/merge$/) && method === 'POST') {
-    const containerId = decodeURIComponent(pathname.split('/')[3]);
+    const containerId = decodeURIComponent(pathname.split('/')[3]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
     if (container.connected) return err('Cannot merge a connected container', 409);
@@ -897,7 +898,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (storedCommits.length === 0) {
       const basePaths = [...new Set(allContainers.filter(c => c.workspace_host_path).map(c => c.workspace_host_path!))];
       const paths = basePaths.map(p => submodulePath ? `${p}/${submodulePath}` : p);
-      const commitMap = new Map<string, { hash: string; parents: string[]; refs: string[]; subject: string }>();
+      const commitMap = new Map<string, StoredGitCommit>();
       for (const wpath of paths) {
         const host = allContainers.find(c => {
           const p = submodulePath ? `${c.workspace_host_path}/${submodulePath}` : c.workspace_host_path;
@@ -982,7 +983,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // GET /dashboard/git-show/:repo/:hash
   if (pathname.match(/^\/dashboard\/git-show\/[^/]+\/[0-9a-f]+$/) && method === 'GET') {
     const parts = pathname.split('/');
-    const hash = parts[parts.length - 1];
+    const hash = parts[parts.length - 1]!;
     const repo = decodeURIComponent(parts.slice(3, -1).join('/'));
     const cached = gitShowCache.get(hash);
     if (cached !== undefined) return json({ diffstat: cached });
@@ -992,7 +993,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!wpath) return json({ diffstat: '' });
 
     const proc = Bun.spawn(
-      ['git', '-C', wpath, 'diff-tree', '--no-commit-id', '-r', '--stat', hash],
+      ['git', '-C', wpath!, 'diff-tree', '--no-commit-id', '-r', '--stat', hash],
       { stdout: 'pipe', stderr: 'ignore' }
     );
     const diffstat = await new Response(proc.stdout).text().catch(() => '');
@@ -1034,8 +1035,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // GET /dashboard/github-prs/:owner/:repo — fetch open PRs from GitHub API
   if (pathname.match(/^\/dashboard\/github-prs\/[^/]+\/[^/]+$/) && method === 'GET') {
     const parts = pathname.split('/');
-    const owner = decodeURIComponent(parts[3]);
-    const repo = decodeURIComponent(parts[4]);
+    const owner = decodeURIComponent(parts[3]!);
+    const repo = decodeURIComponent(parts[4]!);
     if (!/^[a-zA-Z0-9._-]+$/.test(owner) || !/^[a-zA-Z0-9._-]+$/.test(repo)) return err('Invalid owner/repo', 400);
     try {
       const cacheKey = `${owner}/${repo}`;
@@ -1068,8 +1069,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // GET /dashboard/session-log/:containerId/:sessionId
   if (pathname.match(/^\/dashboard\/session-log\/[^/]+\/[^/]+$/) && method === 'GET') {
     const parts = pathname.split('/');
-    const containerId = decodeURIComponent(parts[3]);
-    const sessionId = decodeURIComponent(parts[4]);
+    const containerId = decodeURIComponent(parts[3]!);
+    const sessionId = decodeURIComponent(parts[4]!);
     if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return err('Invalid session ID', 400);
     if (!getContainer(containerId)) return err('Container not found', 404);
     try {
@@ -1094,21 +1095,21 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
   // GET /planq/:id
   if (pathname.match(/^\/planq\/[^/]+$/) && method === 'GET') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     const tasks = getPlanqTasks(containerId);
     return json(tasks);
   }
 
   // GET /planq/:id/archive
   if (pathname.match(/^\/planq\/[^/]+\/archive$/) && method === 'GET') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     const tasks = getArchiveTasks(containerId);
     return json(tasks);
   }
 
   // POST /planq/:id/tasks
   if (pathname.match(/^\/planq\/[^/]+\/tasks$/) && method === 'POST') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
@@ -1143,8 +1144,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // PUT /planq/:id/tasks/:taskId
   if (pathname.match(/^\/planq\/[^/]+\/tasks\/\d+$/) && method === 'PUT') {
     const parts = pathname.split('/');
-    const containerId = decodeURIComponent(parts[2]);
-    const taskId = parseInt(parts[4]);
+    const containerId = decodeURIComponent(parts[2]!);
+    const taskId = parseInt(parts[4]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
@@ -1169,8 +1170,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // POST /planq/:id/tasks/:taskId/archive
   if (pathname.match(/^\/planq\/[^/]+\/tasks\/\d+\/archive$/) && method === 'POST') {
     const parts = pathname.split('/');
-    const containerId = decodeURIComponent(parts[2]);
-    const taskId = parseInt(parts[4]);
+    const containerId = decodeURIComponent(parts[2]!);
+    const taskId = parseInt(parts[4]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
@@ -1189,8 +1190,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // DELETE /planq/:id/tasks/:taskId
   if (pathname.match(/^\/planq\/[^/]+\/tasks\/\d+$/) && method === 'DELETE') {
     const parts = pathname.split('/');
-    const containerId = decodeURIComponent(parts[2]);
-    const taskId = parseInt(parts[4]);
+    const containerId = decodeURIComponent(parts[2]!);
+    const taskId = parseInt(parts[4]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
@@ -1205,7 +1206,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
   // POST /planq/:id/tasks/reorder
   if (pathname.match(/^\/planq\/[^/]+\/tasks\/reorder$/) && method === 'POST') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
@@ -1221,7 +1222,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
   // POST /planq/:id/tasks/archive-done
   if (pathname.match(/^\/planq\/[^/]+\/tasks\/archive-done$/) && method === 'POST') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
@@ -1238,7 +1239,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
   // POST /planq/:id/auto-test/respond
   if (pathname.match(/^\/planq\/[^/]+\/auto-test\/respond$/) && method === 'POST') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);
     const body = await req.json() as any;
     const response: string = body.response === 'abort' ? 'abort' : 'continue';
@@ -1252,7 +1253,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
   // GET /planq/:id/plans-files
   if (pathname.match(/^\/planq\/[^/]+\/plans-files$/) && method === 'GET') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);
     try {
       const files = await relayFileList(containerId);
@@ -1265,7 +1266,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // GET /planq/:id/file/:filename
   if (pathname.match(/^\/planq\/[^/]+\/file\/.+$/) && method === 'GET') {
     const parts = pathname.split('/');
-    const containerId = decodeURIComponent(parts[2]);
+    const containerId = decodeURIComponent(parts[2]!);
     const filename = parts.slice(4).join('/'); // everything after /file/
 
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);
@@ -1281,7 +1282,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // PUT /planq/:id/file/:filename
   if (pathname.match(/^\/planq\/[^/]+\/file\/.+$/) && method === 'PUT') {
     const parts = pathname.split('/');
-    const containerId = decodeURIComponent(parts[2]);
+    const containerId = decodeURIComponent(parts[2]!);
     const filename = parts.slice(4).join('/');
 
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);

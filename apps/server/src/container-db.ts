@@ -111,6 +111,8 @@ export function initContainerDatabase(): void {
       parents TEXT NOT NULL,
       refs TEXT NOT NULL,
       subject TEXT NOT NULL,
+      author TEXT,
+      author_date INTEGER,
       PRIMARY KEY (source_repo, hash)
     )
   `);
@@ -166,6 +168,15 @@ export function initContainerDatabase(): void {
   }
   if (!taskColumns.includes('auto_queue_plan')) {
     db.exec('ALTER TABLE planq_tasks ADD COLUMN auto_queue_plan INTEGER DEFAULT 0');
+  }
+
+  // Migration for git_commits columns added after initial schema
+  const commitColumns = (db.prepare('PRAGMA table_info(git_commits)').all() as any[]).map((r: any) => r.name);
+  if (!commitColumns.includes('author')) {
+    db.exec('ALTER TABLE git_commits ADD COLUMN author TEXT');
+  }
+  if (!commitColumns.includes('author_date')) {
+    db.exec('ALTER TABLE git_commits ADD COLUMN author_date INTEGER');
   }
 }
 
@@ -507,15 +518,17 @@ export interface StoredGitCommit {
   parents: string[];
   refs: string[];
   subject: string;
+  author?: string;
+  author_date?: number;
 }
 
 export function upsertGitCommits(sourceRepo: string, commits: StoredGitCommit[]): void {
   const upsert = db.prepare(
-    'INSERT INTO git_commits (source_repo, hash, parents, refs, subject) VALUES (?, ?, ?, ?, ?) ON CONFLICT(source_repo, hash) DO UPDATE SET refs = excluded.refs, subject = excluded.subject'
+    'INSERT INTO git_commits (source_repo, hash, parents, refs, subject, author, author_date) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source_repo, hash) DO UPDATE SET refs = excluded.refs, subject = excluded.subject, author = COALESCE(excluded.author, author), author_date = COALESCE(excluded.author_date, author_date)'
   );
   const tx = db.transaction(() => {
     for (const c of commits) {
-      upsert.run(sourceRepo, c.hash, JSON.stringify(c.parents), JSON.stringify(c.refs), c.subject);
+      upsert.run(sourceRepo, c.hash, JSON.stringify(c.parents), JSON.stringify(c.refs), c.subject, c.author ?? null, c.author_date ?? null);
     }
   });
   tx();
@@ -523,13 +536,15 @@ export function upsertGitCommits(sourceRepo: string, commits: StoredGitCommit[])
 
 export function getGitCommits(sourceRepo: string): StoredGitCommit[] {
   const rows = db.prepare(
-    'SELECT hash, parents, refs, subject FROM git_commits WHERE source_repo = ?'
+    'SELECT hash, parents, refs, subject, author, author_date FROM git_commits WHERE source_repo = ?'
   ).all(sourceRepo) as any[];
   return rows.map(r => ({
     hash: r.hash,
     parents: JSON.parse(r.parents),
     refs: JSON.parse(r.refs),
     subject: r.subject,
+    author: r.author ?? undefined,
+    author_date: r.author_date ?? undefined,
   }));
 }
 

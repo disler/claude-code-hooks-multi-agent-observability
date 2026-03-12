@@ -268,29 +268,49 @@ def _filter_valid_hashes(hashes, cwd):
         return []
 
 
+def _parse_git_log_line(line: str) -> dict | None:
+    """Parse a single line from --pretty=format:%H|%P|%D|%s|%an|%at."""
+    if not line.strip():
+        return None
+    parts = line.split('|')
+    if len(parts) < 4:
+        return None
+    hash_ = parts[0].strip()
+    if not hash_:
+        return None
+    parents_str = parts[1]
+    refs_str = parts[2]
+    # Author name is second-to-last, author timestamp is last
+    # Subject is everything between refs and author name (may contain '|')
+    author_ts_str = parts[-1].strip()
+    author_name = parts[-2].strip() if len(parts) >= 6 else ''
+    subject_parts = parts[3:len(parts) - 2] if len(parts) >= 6 else parts[3:]
+    subject = '|'.join(subject_parts)
+    parents = [p for p in parents_str.split() if p]
+    refs = [r.strip() for r in refs_str.split(',') if r.strip()]
+    author_date = int(author_ts_str) if author_ts_str.isdigit() else None
+    commit: dict = {'hash': hash_, 'parents': parents, 'refs': refs, 'subject': subject}
+    if author_name:
+        commit['author'] = author_name
+    if author_date:
+        commit['author_date'] = author_date
+    return commit
+
+
 def _git_log_for_path(cwd, known=None) -> list:
     """Return commits for a git repo path, excluding already-known hashes."""
     not_args = []
     for h in _filter_valid_hashes(known or [], cwd):
         not_args.extend(['--not', h])
     raw = _run(
-        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'] + not_args,
+        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s|%an|%at', '--date-order', '-n', '200'] + not_args,
         cwd=cwd,
     )
     commits = []
     for line in raw.splitlines():
-        if not line.strip():
-            continue
-        parts = line.split('|', 3)
-        if len(parts) < 4:
-            continue
-        hash_, parents_str, refs_str, subject = parts
-        hash_ = hash_.strip()
-        if not hash_:
-            continue
-        parents = [p for p in parents_str.split() if p]
-        refs = [r.strip() for r in refs_str.split(',') if r.strip()]
-        commits.append({'hash': hash_, 'parents': parents, 'refs': refs, 'subject': subject})
+        commit = _parse_git_log_line(line)
+        if commit:
+            commits.append(commit)
     return commits
 
 
@@ -326,23 +346,14 @@ def _git_log_incremental() -> list:
     for h in _filter_valid_hashes(known, WORKSPACE_ROOT):
         not_args.extend(['--not', h])
     raw = _run(
-        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'] + not_args,
+        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s|%an|%at', '--date-order', '-n', '200'] + not_args,
         cwd=WORKSPACE_ROOT,
     )
     commits = []
     for line in raw.splitlines():
-        if not line.strip():
-            continue
-        parts = line.split('|', 3)
-        if len(parts) < 4:
-            continue
-        hash_, parents_str, refs_str, subject = parts
-        hash_ = hash_.strip()
-        if not hash_:
-            continue
-        parents = [p for p in parents_str.split() if p]
-        refs = [r.strip() for r in refs_str.split(',') if r.strip()]
-        commits.append({'hash': hash_, 'parents': parents, 'refs': refs, 'subject': subject})
+        commit = _parse_git_log_line(line)
+        if commit:
+            commits.append(commit)
     return commits
 
 
