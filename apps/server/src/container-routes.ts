@@ -79,6 +79,26 @@ const pendingGitRefresh = new Map<string, {
   timer: ReturnType<typeof setTimeout>;
 }>();
 
+// ── Host identity helpers ─────────────────────────────────────────────────────
+
+/** Returns true if the string looks like a Docker short container ID (12 lowercase hex chars). */
+function looksLikeContainerId(name: string): boolean {
+  return /^[0-9a-f]{12}$/.test(name);
+}
+
+/**
+ * Resolve the machine_hostname to store, preferring a real hostname over
+ * 'unknown' or a Docker container ID.  If the incoming value is unusable,
+ * fall back to the existing DB value (if it is real), then to 'unknown'.
+ */
+function resolveMachineHostname(incoming: string | undefined, existing: string | undefined): string {
+  const isReal = (h: string | undefined): h is string =>
+    !!h && h !== 'unknown' && !looksLikeContainerId(h);
+  if (isReal(incoming)) return incoming;
+  if (isReal(existing)) return existing;
+  return incoming ?? 'unknown';
+}
+
 // ── Initialisation ────────────────────────────────────────────────────────────
 
 export function initContainerRoutes(): void {
@@ -355,7 +375,8 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     if (existingContainer) {
       const hostChanging = existingContainer.machine_hostname !== 'unknown'
         && msg.machine_hostname
-        && existingContainer.machine_hostname !== msg.machine_hostname;
+        && existingContainer.machine_hostname !== msg.machine_hostname
+        && !looksLikeContainerId(msg.machine_hostname);
       const containerChanging = existingContainer.container_hostname
         && existingContainer.container_hostname !== 'unknown'
         && containerHostname
@@ -403,11 +424,17 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       console.log(`[heartbeat] ${hbCtx}: container_hostname=${JSON.stringify(containerHostname)}, skipping same-container stub search`);
     }
 
+    // Resolve machine_hostname — never downgrade a real hostname to 'unknown' or a container ID
+    const resolvedMachineHostname = resolveMachineHostname(msg.machine_hostname, existingContainer?.machine_hostname);
+    if (resolvedMachineHostname !== (msg.machine_hostname ?? 'unknown')) {
+      console.log(`[heartbeat] ${hbCtx}: machine_hostname in message (${JSON.stringify(msg.machine_hostname)}) rejected — keeping ${JSON.stringify(resolvedMachineHostname)}`);
+    }
+
     // Upsert container row
     const container = upsertContainer({
       id: containerId,
       source_repo: msg.source_repo ?? containerId,
-      machine_hostname: msg.machine_hostname ?? 'unknown',
+      machine_hostname: resolvedMachineHostname,
       container_hostname: msg.container_hostname ?? '',
       workspace_host_path: msg.workspace_host_path ?? null,
       git_branch: msg.git_branch ?? null,

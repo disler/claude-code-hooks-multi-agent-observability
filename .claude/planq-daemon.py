@@ -63,7 +63,7 @@ def _get_machine_hostname():
     # the actual host machine name regardless of what localEnv:HOSTNAME resolves to
     # (localEnv:HOSTNAME is often empty on macOS or Linux hosts).
     try:
-        host_file = Path(os.environ.get('WORKSPACE_PATH', str(Path.cwd()))) / '.devcontainer' / '.sandbox-host-machine'
+        host_file = Path(os.environ.get('WORKSPACE_PATH', '/workspace')) / '.devcontainer' / '.sandbox-host-machine'
         if host_file.exists():
             name = host_file.read_text().strip()
             if name:
