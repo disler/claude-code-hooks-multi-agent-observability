@@ -158,8 +158,25 @@ function toggleSidebar(c: ContainerWithState) {
   selectedContainerId.value = selectedContainerId.value === c.id ? null : c.id
 }
 
+function worktreeSuffix(c: ContainerWithState): string | null {
+  if (c.git_worktree) {
+    return c.git_worktree.replace(/^trees\//, '').split('/').pop() ?? c.git_worktree
+  }
+  if (c.workspace_host_path) {
+    const base = c.workspace_host_path.split('/').pop() ?? ''
+    const repo = c.source_repo?.split('/').pop() ?? ''
+    if (base && repo && base !== repo) {
+      const m = base.match(new RegExp(`^${repo}\\.(.+)$`))
+      return m ? m[1] : null
+    }
+  }
+  return null
+}
+
 function projectName(c: ContainerWithState): string {
-  return c.source_repo?.split('/').pop() ?? c.id.slice(0, 12)
+  const repo = c.source_repo?.split('/').pop() ?? c.id.slice(0, 12)
+  const suffix = worktreeSuffix(c)
+  return suffix ? `${repo}.${suffix}` : repo
 }
 
 function doneTasks(c: ContainerWithState): number {
