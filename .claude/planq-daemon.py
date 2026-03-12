@@ -791,6 +791,8 @@ def _run_connection():
                 global _submodule_known_hashes
                 for repo, hashes in msg.get('tips', {}).items():
                     _submodule_known_hashes[repo] = hashes
+        elif mtype == 'request_heartbeat':
+            threading.Thread(target=_send_heartbeat, args=(ws,), daemon=True).start()
 
     def on_error(ws, error):
         log.error('WebSocket error: %s', error)

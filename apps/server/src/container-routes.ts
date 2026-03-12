@@ -72,6 +72,13 @@ const pendingFileRequests = new Map<string, {
 // Offline grace-period timers: container_id → timer
 const offlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// Pending git fresh-fetch operations: repo → { pendingContainerIds, dashboardClients, timer }
+const pendingGitRefresh = new Map<string, {
+  pendingContainerIds: Set<string>;
+  dashboardClients: Set<any>;
+  timer: ReturnType<typeof setTimeout>;
+}>();
+
 // ── Initialisation ────────────────────────────────────────────────────────────
 
 export function initContainerRoutes(): void {
@@ -541,6 +548,19 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     // Broadcast to dashboard clients
     const containerWithState = buildContainerWithState(container);
     broadcastDashboard({ type: 'container_update', data: containerWithState });
+
+    // Resolve any pending git fresh-fetch waiting on this container
+    for (const [repo, pending] of pendingGitRefresh.entries()) {
+      if (pending.pendingContainerIds.has(containerId)) {
+        pending.pendingContainerIds.delete(containerId);
+        if (pending.pendingContainerIds.size === 0) {
+          clearTimeout(pending.timer);
+          pendingGitRefresh.delete(repo);
+          const payload = JSON.stringify({ type: 'git_refresh_ready', source_repo: repo });
+          pending.dashboardClients.forEach(dws => { try { dws.send(payload); } catch {} });
+        }
+      }
+    }
     return;
   }
 
@@ -644,6 +664,72 @@ export function handleDashboardOpen(ws: any): void {
 
 export function handleDashboardClose(ws: any): void {
   dashboardWsClients.delete(ws);
+}
+
+export function handleDashboardMessage(ws: any, raw: string | Buffer): void {
+  let msg: any;
+  try { msg = JSON.parse(raw as string); } catch { return; }
+
+  if (msg.type === 'git_fetch_fresh') {
+    const repo: string = msg.source_repo ?? '';
+    const hostFilter: string | null = msg.host_filter ?? null;
+    if (!repo) return;
+
+    // Resolve effective repo (submodule → parent)
+    let effectiveRepo = repo;
+    let directContainers = getAllContainers().filter(c => c.source_repo === repo);
+    if (directContainers.length === 0) {
+      const parts = repo.split('/');
+      for (let i = parts.length - 1; i >= 1; i--) {
+        const candidate = parts.slice(0, i).join('/');
+        const parentContainers = getAllContainers().filter(c => c.source_repo === candidate);
+        if (parentContainers.length > 0) {
+          effectiveRepo = candidate;
+          directContainers = parentContainers;
+          break;
+        }
+      }
+    }
+
+    // Apply host filter
+    const targetContainers = hostFilter
+      ? directContainers.filter(c => c.machine_hostname === hostFilter)
+      : directContainers;
+
+    // Find connected containers
+    const connectedIds = targetContainers
+      .filter(c => c.connected && containerWsMap.has(c.id))
+      .map(c => c.id);
+
+    if (connectedIds.length === 0) {
+      // Nothing to wait for — signal immediately
+      try { ws.send(JSON.stringify({ type: 'git_refresh_ready', source_repo: repo })); } catch {}
+      return;
+    }
+
+    // Cancel any existing refresh for this repo
+    const existing = pendingGitRefresh.get(effectiveRepo);
+    if (existing) {
+      clearTimeout(existing.timer);
+    }
+
+    const pendingContainerIds = new Set(connectedIds);
+    const dashboardClients = new Set<any>([ws]);
+
+    const timer = setTimeout(() => {
+      pendingGitRefresh.delete(effectiveRepo);
+      const payload = JSON.stringify({ type: 'git_refresh_ready', source_repo: repo });
+      dashboardClients.forEach(dws => { try { dws.send(payload); } catch {} });
+    }, 8_000);
+
+    pendingGitRefresh.set(effectiveRepo, { pendingContainerIds, dashboardClients, timer });
+
+    // Request fresh heartbeat from each connected container
+    for (const id of connectedIds) {
+      const cws = containerWsMap.get(id);
+      if (cws) try { cws.send(JSON.stringify({ type: 'request_heartbeat' })); } catch {}
+    }
+  }
 }
 
 // ── File relay helpers ────────────────────────────────────────────────────────

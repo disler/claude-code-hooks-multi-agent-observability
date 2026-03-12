@@ -115,3 +115,4 @@ export type DashboardMessage =
   | { type: 'container_removed'; data: { id: string } }
   | { type: 'planq_update'; data: { container_id: string; tasks: PlanqTask[] } }
   | { type: 'agent_update'; data: { source_repo: string; session_id: string; status: string; last_prompt: string | null; last_response_summary: string | null } }
+  | { type: 'git_refresh_ready'; source_repo: string }

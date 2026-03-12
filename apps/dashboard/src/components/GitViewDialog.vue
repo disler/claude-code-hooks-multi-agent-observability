@@ -167,6 +167,8 @@ const props = defineProps<{
   sourceRepo: string
   allRepos?: string[]
   initialHash?: string | null
+  sendWs?: (msg: object) => void
+  gitRefreshSignal?: number
 }>()
 
 const emit = defineEmits<{
@@ -300,6 +302,14 @@ const filteredRefsPerHost = computed(() => {
 const fetchRepo = computed(() => isSubmoduleInListMode.value ? parentRepo.value : props.sourceRepo)
 
 async function load() {
+  // Send request to server to fetch fresh data from connected containers
+  if (props.sendWs) {
+    props.sendWs({
+      type: 'git_fetch_fresh',
+      source_repo: fetchRepo.value,
+      host_filter: effectiveHost.value,
+    })
+  }
   await fetchGitView(fetchRepo.value)
   selectedHash.value = null
   currentDiffstat.value = ''
@@ -363,6 +373,13 @@ async function jumpToContainer(c: GitContainer) {
 
 watch(() => props.sourceRepo, load, { immediate: true })
 watch(fetchRepo, (newRepo, oldRepo) => { if (newRepo !== oldRepo) load() })
+
+// When the server signals that containers have sent fresh heartbeats, re-fetch HTTP data
+watch(() => props.gitRefreshSignal, (newVal, oldVal) => {
+  if (newVal !== undefined && oldVal !== undefined && newVal !== oldVal) {
+    fetchGitView(fetchRepo.value)
+  }
+})
 
 // Focus initial hash after data loads (e.g. opened by clicking branch/commit in ContainerCard)
 watch(gitData, async (data) => {

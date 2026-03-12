@@ -73,6 +73,8 @@
       :source-repo="gitRepo"
       :all-repos="allGitViewRepos"
       :initial-hash="gitFocusHash"
+      :send-ws="sendWs"
+      :git-refresh-signal="gitRefreshSignal"
       @close="gitRepo = null; gitFocusHash = null"
       @switch-repo="gitRepo = $event; gitFocusHash = null"
     />
@@ -122,7 +124,18 @@ const gitFocusHash = ref<string | null>(null)
 const historyContainerId = ref<string | null>(null)
 const historySessionId = ref<string | null>(null)
 
-const { connected } = useDashboardWs(handleMessage)
+// git_refresh_ready signal: incremented each time the server says refresh is ready for the current repo
+const gitRefreshSignal = ref(0)
+
+function handleMessageWithGitRefresh(msg: any) {
+  if (msg.type === 'git_refresh_ready') {
+    gitRefreshSignal.value++
+    return
+  }
+  handleMessage(msg)
+}
+
+const { connected, send: sendWs } = useDashboardWs(handleMessageWithGitRefresh)
 
 onMounted(loadAliases)
 
