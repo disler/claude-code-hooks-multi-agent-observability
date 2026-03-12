@@ -125,7 +125,7 @@ import ReviewBoard from './components/ReviewBoard.vue'
 
 const { byHost, summary, handleMessage, containers } = useContainers()
 const { load: loadAliases } = useHostnameAliases()
-const showReviewBoard = ref(false)
+const showReviewBoard = ref(getParam('review') === '1')
 const gitRepo = ref<string | null>(null)
 const gitFocusHash = ref<string | null>(null)
 const historyContainerId = ref<string | null>(null)
@@ -160,6 +160,7 @@ const connectionFilter = ref(getParam('conn'))
 watch(repoFilter, v => setParam('repo', v))
 watch(hostFilter, v => setParam('host', v))
 watch(connectionFilter, v => setParam('conn', v))
+watch(showReviewBoard, v => setParam('review', v ? '1' : ''))
 
 // Top-level repos only (no submodule paths) — used for the main FilterBar
 const allRepos = computed(() => {
