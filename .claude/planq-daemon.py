@@ -51,6 +51,13 @@ def _run(cmd, cwd=None):
         log.debug('_run %s (cwd=%s) error: %s', cmd[0], cwd, e)
         return ''
 
+def _looks_like_container_id(name: str) -> bool:
+    """Return True if name looks like a Docker container ID (short hex hash).
+    Container IDs are typically 12 lowercase hex characters and should never
+    be used as the machine hostname."""
+    import re
+    return bool(re.fullmatch(r'[0-9a-f]{12}', name))
+
 def _get_machine_hostname():
     # Prefer the file written by setup_git_worktree_on_host.py, which records
     # the actual host machine name regardless of what localEnv:HOSTNAME resolves to
@@ -63,7 +70,13 @@ def _get_machine_hostname():
                 return name
     except Exception:
         pass
-    return _run(['hostname']) or 'unknown'
+    name = _run(['hostname']) or ''
+    # Reject container IDs — if hostname returned a Docker container ID, it is
+    # the container name, not the machine name.  Fall back to 'unknown' so the
+    # server does not group this container under a meaningless hex ID.
+    if name and not _looks_like_container_id(name):
+        return name
+    return 'unknown'
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
