@@ -1,14 +1,7 @@
 #!/usr/bin/env bash
 # planq.sh — Plan queue management for devcontainers.
 #
-# Subcommands:
-#   list / l         Print queue with status
-#   show / s [N]     Show next pending task, or task #N (does not run it)
-#   run  / r [N]     Execute next pending task, or task #N, and mark it done
-#   create / c       Add a task (default type: unnamed-task)
-#   mark / m         Mark a task done/underway/inactive (by number, filename, or text)
-#   delete / x       Delete a task
-#   daemon / d       Manage the planq WebSocket daemon
+# Subcommands described by --help
 
 set -u
 
@@ -1711,7 +1704,7 @@ usage() {
     echo "  delete  / x <N>                                Delete task #N"
     echo "  archive / a [N|…] [--unarchive|-U <N|…>]      Archive done tasks; -a flag on list/show for archive"
     echo "  daemon  / d [start|stop|restart|status]        Manage the planq WebSocket daemon"
-  echo "  logs    / L [-c] [-f] [-n <N>]                Show daemon log (default: tail)"
+    echo "  logs    / L [-c] [-f] [-n <N>]                Show daemon log (default: tail)"
     echo "  shell   / sh                                   Interactive planq REPL"
     echo ""
     echo "Task types:"
