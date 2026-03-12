@@ -1,5 +1,6 @@
 <template>
-  <div class="flex border-b border-slate-700 bg-slate-900" style="max-height: 60vh; min-height: 280px;">
+  <div class="flex border-b border-slate-700 bg-slate-900" style="height: calc(100vh - 57px);">
+
 
     <!-- Kanban area -->
     <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
