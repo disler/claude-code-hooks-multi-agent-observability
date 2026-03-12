@@ -184,8 +184,6 @@ const loadingDiffstat = ref(false)
 const selectedHost = ref<string | null>(null)
 const graphRef = ref<InstanceType<typeof GitGraphView> | null>(null)
 const listRef = ref<InstanceType<typeof GitListView> | null>(null)
-// Track the last initial hash we applied so we apply each new navigation hash once.
-const appliedInitialHash = ref<string | null>(null)
 
 // Merge props.allRepos with submodule source_repos discovered from gitData
 const effectiveAllRepos = computed(() => {
@@ -316,10 +314,9 @@ async function load() {
   selectedHash.value = null
   currentDiffstat.value = ''
   selectedHost.value = null
-  // Apply a navigation hash (e.g. from switch-repo or openGitView) if we haven't yet.
+  // Apply navigation hash if provided (e.g. from switch-repo or openGitView).
   const hashToApply = props.initialHash
-  if (hashToApply && hashToApply !== appliedInitialHash.value && gitData.value) {
-    appliedInitialHash.value = hashToApply
+  if (hashToApply && gitData.value) {
     const fullHash = gitData.value.commits.find(cm => cm.hash.startsWith(hashToApply))?.hash ?? hashToApply
     await nextTick()
     await selectHash(fullHash)
@@ -377,29 +374,26 @@ function _resolveSubmoduleRepo(subPath: string): string | null {
 
 async function jumpToContainer(c: GitContainer) {
   if (!c.git_commit_hash) return
-  // Resolve the hash to its full form. Use bidirectional startsWith to handle
-  // both short hashes (daemon %h) and full hashes (submodule status output).
+  // Container chips in submodule view belong to the parent repo — switch back to it.
+  if (isSubmoduleRepo(props.sourceRepo)) {
+    emit('switch-repo', parentRepo.value, c.parent_commit_hash ?? null)
+    return
+  }
+  // In the parent view: scroll to / highlight the container's commit.
+  // Bidirectional startsWith handles short (7-8 char) and full (40 char) hash formats.
   const found = gitData.value?.commits.find(cm =>
     cm.hash === c.git_commit_hash! ||
     cm.hash.startsWith(c.git_commit_hash!) ||
     c.git_commit_hash!.startsWith(cm.hash)
   )
-  if (!found) {
-    // Hash not in this repo's graph (e.g. detached-HEAD container without the submodule).
-    // Navigate to the parent repo instead if we have a parent position.
-    if (isSubmoduleRepo(props.sourceRepo) && c.parent_commit_hash) {
-      emit('switch-repo', parentRepo.value, c.parent_commit_hash)
-    }
-    return
-  }
-  const fullHash = found.hash
+  const targetHash = found?.hash ?? c.git_commit_hash
   // Don't toggle off if already selected — chip clicks should always navigate, not deselect.
-  if (selectedHash.value !== fullHash) {
-    await selectHash(fullHash)
+  if (selectedHash.value !== targetHash) {
+    await selectHash(targetHash)
   }
   await nextTick()
   if (mode.value === 'graph') {
-    graphRef.value?.scrollToHash(fullHash)
+    graphRef.value?.scrollToHash(targetHash)
   } else {
     listRef.value?.scrollToContainer(c.id)
   }

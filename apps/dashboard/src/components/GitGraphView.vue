@@ -217,6 +217,8 @@
             font-size="10"
             font-family="monospace"
             fill="#94a3b8"
+            class="cursor-pointer hover:fill-white"
+            @click.stop="$emit('select-hash', row.commit.hash)"
           >{{ row.commit.hash.slice(0, 8) }}</text>
           <text
             :x="(badgeOffsets[i]?.[allBadgesForCommit(row.commit).length]?.x ?? 0) + 60"
