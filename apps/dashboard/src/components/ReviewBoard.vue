@@ -48,7 +48,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useContainers } from '../composables/useContainers'
 import type { ContainerWithState } from '../types'
 
