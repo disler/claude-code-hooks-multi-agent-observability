@@ -85,7 +85,7 @@
             >
               <span class="w-1.5 h-1.5 rounded-full inline-block" :class="c.connected ? 'bg-green-500' : 'bg-slate-500'" />
               <span class="text-slate-200 font-mono">{{ containerDirLabel(c) }}</span>
-              <span v-if="c.git_branch" class="text-blue-400 font-bold">{{ c.git_branch }}</span>
+              <span v-if="c.git_branch" class="text-blue-400 font-bold">{{ c.git_branch === 'HEAD' ? (c.git_commit_hash?.slice(0, 8) ?? 'HEAD') : c.git_branch }}</span>
             </button>
             <!-- Submodule branch chips -->
             <button
@@ -96,7 +96,7 @@
               @click.stop="jumpToSubmodule(sub.path, sub.commit_hash)"
             >
               <span class="text-slate-500 font-mono">{{ sub.path.split('/').pop() }}</span>
-              <span class="text-cyan-400 font-bold">{{ sub.branch }}</span>
+              <span class="text-cyan-400 font-bold">{{ sub.branch === 'HEAD' ? (sub.commit_hash?.slice(0, 8) ?? 'HEAD') : sub.branch }}</span>
             </button>
           </template>
         </div>
@@ -184,6 +184,8 @@ const loadingDiffstat = ref(false)
 const selectedHost = ref<string | null>(null)
 const graphRef = ref<InstanceType<typeof GitGraphView> | null>(null)
 const listRef = ref<InstanceType<typeof GitListView> | null>(null)
+// Track the last initial hash we applied so we apply each new navigation hash once.
+const appliedInitialHash = ref<string | null>(null)
 
 // Merge props.allRepos with submodule source_repos discovered from gitData
 const effectiveAllRepos = computed(() => {
@@ -314,6 +316,18 @@ async function load() {
   selectedHash.value = null
   currentDiffstat.value = ''
   selectedHost.value = null
+  // Apply a navigation hash (e.g. from switch-repo or openGitView) if we haven't yet.
+  const hashToApply = props.initialHash
+  if (hashToApply && hashToApply !== appliedInitialHash.value && gitData.value) {
+    appliedInitialHash.value = hashToApply
+    const fullHash = gitData.value.commits.find(cm => cm.hash.startsWith(hashToApply))?.hash ?? hashToApply
+    await nextTick()
+    await selectHash(fullHash)
+    if (mode.value === 'graph') {
+      await nextTick()
+      graphRef.value?.scrollToHash(fullHash)
+    }
+  }
 }
 
 async function selectHash(hash: string) {
@@ -389,15 +403,4 @@ watch(() => props.gitRefreshSignal, (newVal, oldVal) => {
   }
 })
 
-// Focus initial hash after data loads (e.g. opened by clicking branch/commit in ContainerCard)
-watch(gitData, async (data) => {
-  if (!data || !props.initialHash) return
-  const fullHash = data.commits.find(cm => cm.hash.startsWith(props.initialHash!))?.hash ?? props.initialHash
-  await nextTick()
-  await selectHash(fullHash)
-  if (mode.value === 'graph') {
-    await nextTick()
-    graphRef.value?.scrollToHash(fullHash)
-  }
-}, { once: true })
 </script>

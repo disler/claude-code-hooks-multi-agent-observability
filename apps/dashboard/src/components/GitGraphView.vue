@@ -239,14 +239,16 @@
           >{{ row.commit.author.slice(0, 14) }}</text>
 
           <!-- Date column -->
-          <text
-            v-if="row.commit.author_date"
-            :x="svgWidth - DATE_W + 4 - labelX"
-            y="4"
-            font-size="9"
-            font-family="monospace"
-            fill="#64748b"
-          >{{ relativeDate(row.commit.author_date) }}</text>
+          <g v-if="row.commit.author_date">
+            <title>{{ absoluteDate(row.commit.author_date) }}</title>
+            <text
+              :x="svgWidth - DATE_W + 4 - labelX"
+              y="4"
+              font-size="9"
+              font-family="monospace"
+              fill="#64748b"
+            >{{ relativeDate(row.commit.author_date) }}</text>
+          </g>
         </g>
 
         <!-- Selected / flash highlight -->
@@ -413,9 +415,23 @@ interface ContainerLabel {
   unstagedDiffstat: string | null
 }
 
+// When in submodule view, return the submodule basename; otherwise use the workspace dir.
+function effectiveContainerLabel(c: GitContainer): string {
+  const slashIdx = (props.sourceRepo ?? '').indexOf('/')
+  if (slashIdx >= 0) {
+    // Submodule view: show submodule name (last component of the submodule path) + worktree suffix
+    const subPath = props.sourceRepo!.slice(slashIdx + 1)
+    const subName = subPath.split('/').pop() ?? subPath
+    const wt = c.git_worktree ? c.git_worktree.replace(/^trees\//, '').split('/').pop() ?? null : null
+    if (wt && subName !== wt) return `${subName} [${wt}]`
+    return subName
+  }
+  return containerDirLabel(c)
+}
+
 function containerLabels(hash: string): ContainerLabel[] {
   return headContainers(hash).map(c => {
-    const label = containerDirLabel(c)
+    const label = effectiveContainerLabel(c)
     const dirty = c.git_staged_count > 0 || c.git_unstaged_count > 0
     const suffix = `@${alias(c.machine_hostname)}`
     if (c.git_worktree) {
@@ -699,6 +715,10 @@ async function onSubjectClick(rowIndex: number, event: MouseEvent) {
   } catch {
     if (activeCommitPopover.value?.hash === row.commit.hash) activeCommitPopover.value = { ...activeCommitPopover.value, loading: false }
   }
+}
+
+function absoluteDate(unixTs: number): string {
+  return new Date(unixTs * 1000).toLocaleString()
 }
 
 function relativeDate(unixTs: number): string {
