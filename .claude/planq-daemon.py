@@ -113,6 +113,17 @@ _STATUS_FILE = _SANDBOX_DIR / 'planq' / 'planq-daemon.status'
 
 log = _setup_logging(_LOG_FILE)
 
+# Capture the planq-daemon stamp hash at startup — this identifies the version this
+# running process was loaded from.  After apply-daemon copies a new file, the stamp
+# on disk will differ from this value, signalling that a restart is needed.
+def _startup_daemon_stamp() -> str | None:
+    stamp = _read_version_stamp('planq-daemon')
+    if not stamp:
+        return None
+    return stamp.split()[0]  # extract hash from "<hash> <ts> planq-daemon"
+
+DAEMON_RUNNING_STAMP: str | None = _startup_daemon_stamp()
+
 # Set by SIGUSR1 to trigger an immediate heartbeat
 _immediate_heartbeat = threading.Event()
 
@@ -875,6 +886,7 @@ def _send_heartbeat(ws_app):
 
     versions = {
         'planq_daemon': _read_version_stamp('planq-daemon'),
+        'planq_daemon_running': DAEMON_RUNNING_STAMP,
         'planq_shell': _read_version_stamp('planq-shell'),
         'devcontainer': _read_version_stamp('devcontainer'),
     }

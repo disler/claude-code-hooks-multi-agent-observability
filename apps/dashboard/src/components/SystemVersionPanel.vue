@@ -33,10 +33,10 @@
                 <td class="path" :title="c.workspace_host_path ?? c.id">{{ displayPath(c.workspace_host_path ?? c.id) }}</td>
                 <td>
                   <span
-                    :class="stampClass(c.versions?.planq_daemon)"
-                    :title="stampTooltip(c.versions?.planq_daemon)"
-                    @click.stop="showTooltip($event, stampTooltip(c.versions?.planq_daemon))"
-                  >{{ stampSymbol(c.versions?.planq_daemon) }}</span>
+                    :class="daemonStampClass(c.versions)"
+                    :title="daemonStampTooltip(c.versions)"
+                    @click.stop="showTooltip($event, daemonStampTooltip(c.versions))"
+                  >{{ daemonStampSymbol(c.versions) }}</span>
                 </td>
                 <td>
                   <span
@@ -115,6 +115,12 @@ interface ContainerVersion {
   versions: Record<string, string | null> | null;
 }
 
+// Derive the installed stamp hash (first word) from a stamp string.
+function stampHash(stamp: string | null | undefined): string | null {
+  if (!stamp || stamp === '(no stamp)') return null;
+  return stamp.split(' ')[0] ?? null;
+}
+
 interface HostReport {
   machine_hostname: string;
   sandbox_commit: string | null;
@@ -172,6 +178,41 @@ function stampTooltip(stamp: string | null | undefined): string {
   if (hash) lines.push(`hash: ${hash}`);
   if (ts) lines.push(`stamped: ${ts}`);
   return lines.join('\n');
+}
+
+// Daemon-specific helpers: distinguish "needs update" vs "needs restart"
+function daemonStampSymbol(versions: Record<string, string | null> | null | undefined): string {
+  const fileStamp = versions?.planq_daemon;
+  const runningHash = versions?.planq_daemon_running;
+  if (!fileStamp || fileStamp === '(no stamp)') return '\u2014';
+  const fileHash = stampHash(fileStamp);
+  if (runningHash && fileHash && runningHash !== fileHash) return '\u21BA'; // ↺ restart symbol
+  return '\u2713';
+}
+
+function daemonStampClass(versions: Record<string, string | null> | null | undefined): string {
+  const fileStamp = versions?.planq_daemon;
+  const runningHash = versions?.planq_daemon_running;
+  if (!fileStamp || fileStamp === '(no stamp)') return 'stamp stamp-missing';
+  const fileHash = stampHash(fileStamp);
+  if (runningHash && fileHash && runningHash !== fileHash) return 'stamp stamp-restart';
+  return 'stamp stamp-ok';
+}
+
+function daemonStampTooltip(versions: Record<string, string | null> | null | undefined): string {
+  const fileStamp = versions?.planq_daemon;
+  const runningHash = versions?.planq_daemon_running;
+  if (!fileStamp || fileStamp === '(no stamp)') return 'Unknown status — no version stamp found';
+  const [fileHash, ts] = fileStamp.split(' ');
+  if (runningHash && fileHash && runningHash !== fileHash) {
+    return [
+      'File updated — daemon needs restart',
+      `file hash:    ${fileHash}`,
+      `running hash: ${runningHash}`,
+      `stamped: ${ts ?? '?'}`,
+    ].join('\n');
+  }
+  return ['Daemon up to date', `hash: ${fileHash}`, `stamped: ${ts ?? '?'}`].join('\n');
 }
 
 function showTooltip(event: MouseEvent, text: string) {
@@ -248,6 +289,7 @@ onUnmounted(() => {
 .stamp { font-family: monospace; font-size: 1em; padding: 1px 5px; border-radius: 3px; cursor: pointer; }
 .stamp-ok { background: #1a3a1a; color: #6f6; }
 .stamp-missing { background: #3a1a1a; color: #f66; }
+.stamp-restart { background: #3a2a00; color: #fa0; }
 .stamp-hash { font-family: monospace; }
 .actions { margin-top: 8px; }
 .btn-refresh { background: #252545; border: 1px solid #444; color: #ccc; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 0.85em; }
