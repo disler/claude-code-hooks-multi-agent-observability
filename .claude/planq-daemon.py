@@ -922,7 +922,7 @@ def _send_heartbeat(ws_app):
 
 
 def main():
-    log.info('Starting — server=%s, repo=%s', SERVER_URL, SOURCE_REPO)
+    log.info('Starting — server=%s, repo=%s, stamp=%s', SERVER_URL, SOURCE_REPO, DAEMON_RUNNING_STAMP or 'none')
     _write_status('starting')
     backoff = 5
     try:
