@@ -16,6 +16,8 @@
           <table class="version-table">
             <thead>
               <tr>
+                <th>Live</th>
+                <th>Host</th>
                 <th>Worktree</th>
                 <th>daemon</th>
                 <th>shell</th>
@@ -24,21 +26,31 @@
             </thead>
             <tbody>
               <tr v-for="c in containerVersions" :key="c.id">
-                <td class="path" :title="c.id">{{ shortPath(c.id) }}</td>
+                <td class="live-cell">
+                  <span :class="c.connected ? 'live-dot live' : 'live-dot offline'" :title="c.connected ? 'Live' : 'Offline'" />
+                </td>
+                <td class="host-cell">{{ c.machine_hostname }}</td>
+                <td class="path" :title="c.workspace_host_path ?? c.id">{{ displayPath(c.workspace_host_path ?? c.id) }}</td>
                 <td>
-                  <span :class="stampClass(c.versions?.planq_daemon)">
-                    {{ stampShort(c.versions?.planq_daemon) }}
-                  </span>
+                  <span
+                    :class="stampClass(c.versions?.planq_daemon)"
+                    :title="stampTooltip(c.versions?.planq_daemon)"
+                    @click.stop="showTooltip($event, stampTooltip(c.versions?.planq_daemon))"
+                  >{{ stampSymbol(c.versions?.planq_daemon) }}</span>
                 </td>
                 <td>
-                  <span :class="stampClass(c.versions?.planq_shell)">
-                    {{ stampShort(c.versions?.planq_shell) }}
-                  </span>
+                  <span
+                    :class="stampClass(c.versions?.planq_shell)"
+                    :title="stampTooltip(c.versions?.planq_shell)"
+                    @click.stop="showTooltip($event, stampTooltip(c.versions?.planq_shell))"
+                  >{{ stampSymbol(c.versions?.planq_shell) }}</span>
                 </td>
                 <td>
-                  <span :class="stampClass(c.versions?.devcontainer)">
-                    {{ stampShort(c.versions?.devcontainer) }}
-                  </span>
+                  <span
+                    :class="stampClass(c.versions?.devcontainer)"
+                    :title="stampTooltip(c.versions?.devcontainer)"
+                    @click.stop="showTooltip($event, stampTooltip(c.versions?.devcontainer))"
+                  >{{ stampSymbol(c.versions?.devcontainer) }}</span>
                 </td>
               </tr>
             </tbody>
@@ -78,6 +90,16 @@
         </div>
       </template>
     </div>
+
+    <!-- Click tooltip popup -->
+    <Teleport to="body">
+      <div
+        v-if="tooltip.visible"
+        class="stamp-popup"
+        :style="{ top: tooltip.y + 'px', left: tooltip.x + 'px' }"
+        @click.stop="tooltip.visible = false"
+      >{{ tooltip.text }}</div>
+    </Teleport>
   </div>
 </template>
 
@@ -88,6 +110,8 @@ import { API_BASE } from '../config';
 interface ContainerVersion {
   id: string;
   machine_hostname: string;
+  workspace_host_path: string | null;
+  connected: boolean;
   versions: Record<string, string | null> | null;
 }
 
@@ -104,6 +128,8 @@ const error = ref('');
 const containerVersions = ref<ContainerVersion[]>([]);
 const hostReports = ref<HostReport[]>([]);
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+const tooltip = ref({ visible: false, text: '', x: 0, y: 0 });
 
 const hasUpdates = computed(() => {
   return containerVersions.value.some(c => {
@@ -128,10 +154,9 @@ async function refresh() {
   }
 }
 
-function stampShort(stamp: string | null | undefined): string {
+function stampSymbol(stamp: string | null | undefined): string {
   if (!stamp || stamp === '(no stamp)') return '\u2014';
-  const hash = stamp.split(' ')[0];
-  return hash.substring(0, 7);
+  return '\u2713';
 }
 
 function stampClass(stamp: string | null | undefined): string {
@@ -139,10 +164,31 @@ function stampClass(stamp: string | null | undefined): string {
   return 'stamp stamp-ok';
 }
 
-function shortPath(id: string): string {
-  // Show last 2 path components
-  const parts = id.replace(/\\/g, '/').split('/');
-  return parts.slice(-2).join('/');
+function stampTooltip(stamp: string | null | undefined): string {
+  if (!stamp || stamp === '(no stamp)') return 'Unknown status — no version stamp found';
+  const [hash, ts, component] = stamp.split(' ');
+  const lines = ['This version is up to date'];
+  if (component) lines.push(`component: ${component}`);
+  if (hash) lines.push(`hash: ${hash}`);
+  if (ts) lines.push(`stamped: ${ts}`);
+  return lines.join('\n');
+}
+
+function showTooltip(event: MouseEvent, text: string) {
+  const rect = (event.target as HTMLElement).getBoundingClientRect();
+  tooltip.value = {
+    visible: true,
+    text,
+    x: rect.left + window.scrollX,
+    y: rect.bottom + window.scrollY + 4,
+  };
+}
+
+function displayPath(path: string): string {
+  // Strip leading /workspace or common long prefixes, show last 3 components
+  const stripped = path.replace(/^\/workspace\/?/, '').replace(/\\/g, '/');
+  const parts = stripped.split('/').filter(Boolean);
+  return parts.length > 0 ? parts.slice(-3).join('/') : path;
 }
 
 function relativeTime(ms: number | null): string {
@@ -153,13 +199,17 @@ function relativeTime(ms: number | null): string {
   return `${Math.floor(diff / 3600000)}h ago`;
 }
 
+function onDocClick() { tooltip.value.visible = false; }
+
 onMounted(() => {
   refresh();
   refreshTimer = setInterval(refresh, 60000);
+  document.addEventListener('click', onDocClick);
 });
 
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer);
+  document.removeEventListener('click', onDocClick);
 });
 </script>
 
@@ -189,8 +239,13 @@ onUnmounted(() => {
 .version-table th { text-align: left; color: #888; font-weight: normal; padding: 2px 8px; border-bottom: 1px solid #333; }
 .version-table td { padding: 3px 8px; }
 .version-table tr:hover td { background: #252545; }
-.path { font-family: monospace; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stamp { font-family: monospace; font-size: 0.9em; padding: 1px 4px; border-radius: 3px; }
+.live-cell { width: 28px; text-align: center; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.live-dot.live { background: #4ade80; }
+.live-dot.offline { background: #555; }
+.host-cell { white-space: nowrap; }
+.path { font-family: monospace; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stamp { font-family: monospace; font-size: 1em; padding: 1px 5px; border-radius: 3px; cursor: pointer; }
 .stamp-ok { background: #1a3a1a; color: #6f6; }
 .stamp-missing { background: #3a1a1a; color: #f66; }
 .stamp-hash { font-family: monospace; }
@@ -199,4 +254,18 @@ onUnmounted(() => {
 .btn-refresh:hover { background: #333365; }
 .loading, .error { font-size: 0.85em; padding: 4px 0; }
 .error { color: #f66; }
+.stamp-popup {
+  position: absolute;
+  z-index: 9999;
+  background: #1e1e3a;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 0.8em;
+  color: #ccc;
+  white-space: pre;
+  pointer-events: none;
+  max-width: 320px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
 </style>

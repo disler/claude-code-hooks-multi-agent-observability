@@ -1524,6 +1524,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const containers = getAllContainers().map(c => ({
       id: c.id,
       machine_hostname: c.machine_hostname,
+      workspace_host_path: c.workspace_host_path,
+      connected: c.connected,
       versions: c.versions,
     }));
     const host_source_reports = getAllHostSourceReports();
