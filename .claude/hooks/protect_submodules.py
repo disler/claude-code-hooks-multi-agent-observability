@@ -14,7 +14,7 @@
 #   submodule    One or more submodule paths to protect (e.g. "observability").
 #
 # Canonical source: observability/.claude/hooks/protect_submodules.py
-# Copied into projects by install-project-devcontainer-sandbox.sh.
+# Copied into projects by install-into-project.sh.
 
 import argparse
 import json
