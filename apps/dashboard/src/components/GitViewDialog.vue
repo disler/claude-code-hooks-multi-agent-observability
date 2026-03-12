@@ -185,6 +185,8 @@ const loadingDiffstat = ref(false)
 const selectedHost = ref<string | null>(null)
 const graphRef = ref<InstanceType<typeof GitGraphView> | null>(null)
 const listRef = ref<InstanceType<typeof GitListView> | null>(null)
+// Generation counter: incremented on each new load() call so stale concurrent loads bail out.
+let loadGen = 0
 
 // Merge props.allRepos with submodule source_repos discovered from gitData
 const effectiveAllRepos = computed(() => {
@@ -303,6 +305,7 @@ const filteredRefsPerHost = computed(() => {
 const fetchRepo = computed(() => isSubmoduleInListMode.value ? parentRepo.value : props.sourceRepo)
 
 async function load() {
+  const myGen = ++loadGen
   // Send request to server to fetch fresh data from connected containers
   if (props.sendWs) {
     props.sendWs({
@@ -312,6 +315,8 @@ async function load() {
     })
   }
   await fetchGitView(fetchRepo.value)
+  // If a newer load() started while we were fetching, bail out — don't clobber its state.
+  if (myGen !== loadGen) return
   selectedHash.value = null
   currentDiffstat.value = ''
   selectedHost.value = null
@@ -320,9 +325,11 @@ async function load() {
   if (hashToApply && gitData.value) {
     const fullHash = gitData.value.commits.find(cm => cm.hash.startsWith(hashToApply))?.hash ?? hashToApply
     await nextTick()
+    if (myGen !== loadGen) return
     await selectHash(fullHash)
     if (mode.value === 'graph') {
       await nextTick()
+      if (myGen !== loadGen) return
       graphRef.value?.scrollToHash(fullHash)
     }
   }

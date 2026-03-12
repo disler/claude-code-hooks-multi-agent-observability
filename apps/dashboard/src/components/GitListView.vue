@@ -118,7 +118,7 @@ function scrollToContainer(id: string) {
   const el = document.getElementById(`container-${id}`)
   el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   flashId.value = id
-  setTimeout(() => { if (flashId.value === id) flashId.value = null }, 1500)
+  setTimeout(() => { if (flashId.value === id) flashId.value = null }, 3000)
 }
 
 defineExpose({ scrollToContainer })

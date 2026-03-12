@@ -762,7 +762,7 @@ function scrollToHash(hash: string) {
   const targetScroll = y - el.clientHeight / 2
   el.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' })
   flashHash.value = hash
-  setTimeout(() => { if (flashHash.value === hash) flashHash.value = null }, 1500)
+  setTimeout(() => { if (flashHash.value === hash) flashHash.value = null }, 3000)
 }
 
 // --- Dirty diffstat popover ---
