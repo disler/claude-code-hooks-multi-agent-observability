@@ -444,11 +444,17 @@ def _git_log_incremental() -> list:
 
     Uses the server-acknowledged frontier hashes (_git_known_hashes) as --not
     arguments so git only walks the new portion of the DAG.
+
+    Additionally, always re-fetches the known tip commits with --no-walk so
+    that ref decorations (e.g. origin/branch after a push) stay current even
+    when no new commits exist.  The server upserts with refs = excluded.refs,
+    so stale remote-tracking refs get updated without affecting body/diffstat.
     """
     with _git_known_hashes_lock:
         known = list(_git_known_hashes)
     not_args = []
-    for h in _filter_valid_hashes(known, WORKSPACE_ROOT):
+    valid_known = _filter_valid_hashes(known, WORKSPACE_ROOT)
+    for h in valid_known:
         not_args.extend(['--not', h])
     raw = _run(
         ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s|%an|%at', '--date-order', '-n', '200'] + not_args,
@@ -468,6 +474,22 @@ def _git_log_incremental() -> list:
         diffstat = diffstats.get(c['hash'], '')
         if diffstat:
             c['diffstat'] = diffstat
+
+    # Re-fetch known tip commits with current decorators to keep remote-tracking
+    # refs fresh after push/fetch (no body/diffstat needed — server preserves existing).
+    if valid_known:
+        seen = {c['hash'] for c in commits}
+        tip_raw = _run(
+            ['git', 'log', '--no-walk'] + valid_known +
+            ['--pretty=format:%H|%P|%D|%s|%an|%at'],
+            cwd=WORKSPACE_ROOT,
+        )
+        for line in tip_raw.splitlines():
+            tip = _parse_git_log_line(line)
+            if tip and tip['hash'] not in seen:
+                commits.append(tip)
+                seen.add(tip['hash'])
+
     return commits
 
 

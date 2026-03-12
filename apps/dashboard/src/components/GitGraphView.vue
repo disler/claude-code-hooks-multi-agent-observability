@@ -566,10 +566,21 @@ function allBadgesForCommit(commit: GitCommit): BadgeInfo[] {
     }
   }
 
+  // Collect branch names already shown via per-host badges to deduplicate HEAD badges
+  const perHostBranchNames = new Set<string>()
+  if (hostMap) {
+    for (const branches of hostMap.values()) {
+      for (const b of branches) perHostBranchNames.add(b)
+    }
+  }
+
   // 2. Non-local refs: HEAD, remote tracking, tags (from merged commit.refs)
   for (const ref of commit.refs) {
     const fref = formatRef(ref)
     if (fref.type === 'local') continue  // shown via per-host above
+    // Skip HEAD -> branch when that branch is already shown as a per-host badge —
+    // avoids showing e.g. "git-visibility" and "git-visibility@host" on the same row.
+    if (fref.type === 'head' && perHostBranchNames.has(fref.text)) continue
     const bgColor = { head: '#1e40af', remote: '#374151', tag: '#713f12' }[fref.type] ?? '#374151'
     const textColor = { head: '#93c5fd', remote: '#9ca3af', tag: '#fde68a' }[fref.type] ?? '#9ca3af'
     badges.push({ text: fref.text, bgColor, textColor, opacity: '0.8' })
