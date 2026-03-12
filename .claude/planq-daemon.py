@@ -29,10 +29,13 @@ def _setup_logging(log_file: Path) -> logging.Logger:
     fh = logging.FileHandler(log_file)
     fh.setFormatter(fmt)
     logger.addHandler(fh)
-    # Stderr handler
-    sh = logging.StreamHandler(sys.stderr)
-    sh.setFormatter(fmt)
-    logger.addHandler(sh)
+    # Stderr handler — only when stderr is a terminal; when launched by
+    # planq-daemon.sh stderr is redirected to the same log file, so adding
+    # this handler would write every line twice.
+    if sys.stderr.isatty():
+        sh = logging.StreamHandler(sys.stderr)
+        sh.setFormatter(fmt)
+        logger.addHandler(sh)
     return logger
 
 # ── Helpers needed before config ──────────────────────────────────────────────
