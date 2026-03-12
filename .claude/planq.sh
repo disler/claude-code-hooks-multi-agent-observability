@@ -815,6 +815,20 @@ _invoke_claude() {
     fi
 }
 
+# Print the relative path of each git submodule that has staged or unstaged changes.
+_get_dirty_submodule_paths() {
+    local sub_path sub_full staged unst
+    while IFS= read -r sub_path; do
+        [ -z "$sub_path" ] && continue
+        sub_full="${WORKSPACE_ROOT}/${sub_path}"
+        staged="$(git -C "$sub_full" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
+        unst="$(git -C "$sub_full" diff --name-only 2>/dev/null | wc -l | tr -d ' ')"
+        if [ "$staged" -gt 0 ] || [ "$unst" -gt 0 ]; then
+            printf '%s\n' "$sub_path"
+        fi
+    done < <(git -C "$WORKSPACE_ROOT" submodule --quiet foreach 'echo $sm_path' 2>/dev/null || true)
+}
+
 # Run an auto-commit task by delegating to Claude.
 # $1 = task_value (optional extra instructions for Claude)
 # Returns 0 on success, 1 on error/abort.
@@ -830,8 +844,10 @@ _run_auto_commit() {
     local staged_count unstaged_count
     staged_count="$(git -C "$WORKSPACE_ROOT" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
     unstaged_count="$(git -C "$WORKSPACE_ROOT" diff --name-only 2>/dev/null | wc -l | tr -d ' ')"
+    local dirty_subs
+    dirty_subs="$(_get_dirty_submodule_paths)"
 
-    if [ "$staged_count" -eq 0 ] && [ "$unstaged_count" -eq 0 ]; then
+    if [ "$staged_count" -eq 0 ] && [ "$unstaged_count" -eq 0 ] && [ -z "$dirty_subs" ]; then
         echo "auto-commit: nothing to commit (working tree clean)."
         return 0
     fi
@@ -848,6 +864,12 @@ _run_auto_commit() {
         [ -n "$conf_desc" ] && extra_instructions="${extra_instructions}Description source: ${conf_desc}. "
     fi
     [ -n "$task_value" ] && extra_instructions="${extra_instructions}${task_value}"
+
+    if [ -n "$dirty_subs" ]; then
+        local sub_list
+        sub_list="$(printf '%s' "$dirty_subs" | tr '\n' ' ' | sed 's/ $//')"
+        extra_instructions="${extra_instructions} The following git submodules also have changes and must be committed as part of this task: ${sub_list}. Commit each submodule first (in its own directory), then stage the updated submodule pointer(s) and commit the parent repository."
+    fi
 
     [ -n "$extra_instructions" ] && claude_prompt="${claude_prompt} ${extra_instructions}"
 
@@ -870,8 +892,10 @@ _run_stage_commit() {
     local staged_count unstaged_count
     staged_count="$(git -C "$WORKSPACE_ROOT" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
     unstaged_count="$(git -C "$WORKSPACE_ROOT" diff --name-only 2>/dev/null | wc -l | tr -d ' ')"
+    local dirty_subs
+    dirty_subs="$(_get_dirty_submodule_paths)"
 
-    if [ "$staged_count" -eq 0 ] && [ "$unstaged_count" -eq 0 ]; then
+    if [ "$staged_count" -eq 0 ] && [ "$unstaged_count" -eq 0 ] && [ -z "$dirty_subs" ]; then
         echo "stage-commit: nothing to stage (working tree clean)."
         return 0
     fi
@@ -889,6 +913,12 @@ _run_stage_commit() {
     fi
     [ -n "$task_value" ] && extra_instructions="${extra_instructions}${task_value}"
 
+    if [ -n "$dirty_subs" ]; then
+        local sub_list
+        sub_list="$(printf '%s' "$dirty_subs" | tr '\n' ' ' | sed 's/ $//')"
+        extra_instructions="${extra_instructions} The following git submodules also have changes: ${sub_list}. For each submodule, stage all relevant changes and write a commit message to <submodule>/.git/COMMIT_EDITMSG (do NOT commit). Then stage the updated submodule pointer(s) in the parent repository."
+    fi
+
     [ -n "$extra_instructions" ] && claude_prompt="${claude_prompt} ${extra_instructions}"
 
     echo "stage-commit: asking Claude to stage changes and prepare commit message..."
@@ -897,8 +927,8 @@ _run_stage_commit() {
 
 # Wait for the user to commit (for awaiting-commit tasks in auto mode).
 # $1 = line_num, $2 = task_line
-# For +stage-commit: waits until no staged changes remain.
-# For +manual-commit: waits until the HEAD commit hash changes.
+# For +stage-commit: waits until no staged changes remain in the parent or any dirty submodule.
+# For +manual-commit: waits until the HEAD commit hash changes in the parent.
 # Returns silently if the task status changes away from awaiting-commit.
 _wait_for_stage_commit() {
     local line_num="$1" task_line="$2"
@@ -909,15 +939,33 @@ _wait_for_stage_commit() {
         wait_mode="manual"
     fi
 
+    # Snapshot which submodules are dirty at wait-start so we can check them throughout
+    local dirty_subs_snapshot
+    dirty_subs_snapshot="$(_get_dirty_submodule_paths)"
+
     if [ "$wait_mode" = "manual" ]; then
         echo "awaiting-commit: waiting for a new commit (manual-commit mode)..."
-        echo "  Stage and commit your changes, then the task will be marked done."
+        if [ -n "$dirty_subs_snapshot" ]; then
+            local sub_list
+            sub_list="$(printf '%s' "$dirty_subs_snapshot" | tr '\n' ' ' | sed 's/ $//')"
+            echo "  Submodules with changes: ${sub_list}"
+            echo "  Commit each submodule first, then stage the pointer(s) and commit the parent."
+        else
+            echo "  Stage and commit your changes, then the task will be marked done."
+        fi
     else
         echo "awaiting-commit: waiting for staged changes to be committed..."
         local git_dir
         git_dir="$(git -C "$WORKSPACE_ROOT" rev-parse --git-dir 2>/dev/null || true)"
         [ -n "$git_dir" ] && echo "  Commit message ready: ${git_dir}/COMMIT_EDITMSG"
-        echo "  Run: git commit"
+        if [ -n "$dirty_subs_snapshot" ]; then
+            local sub_list
+            sub_list="$(printf '%s' "$dirty_subs_snapshot" | tr '\n' ' ' | sed 's/ $//')"
+            echo "  Submodule(s) with staged changes: ${sub_list}"
+            echo "  Commit each submodule first (git commit in its directory), then commit the parent."
+        else
+            echo "  Run: git commit"
+        fi
     fi
     echo "  To abort: planq mark underway <task>"
 
@@ -940,7 +988,7 @@ _wait_for_stage_commit() {
         fi
 
         if [ "$wait_mode" = "manual" ]; then
-            # Detect a new commit by HEAD hash change
+            # Detect a new commit by parent HEAD hash change
             local current_head
             current_head="$(git -C "$WORKSPACE_ROOT" rev-parse HEAD 2>/dev/null || true)"
             if [ -n "$current_head" ] && [ "$current_head" != "$initial_head" ]; then
@@ -950,10 +998,25 @@ _wait_for_stage_commit() {
                 return
             fi
         else
-            # Detect commit by absence of staged changes
-            local staged_count
+            # Detect commit by absence of staged changes in parent and all dirty submodules
+            local staged_count all_committed
             staged_count="$(git -C "$WORKSPACE_ROOT" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
-            if [ "$staged_count" -eq 0 ]; then
+            all_committed=1
+            if [ "$staged_count" -gt 0 ]; then
+                all_committed=0
+            else
+                local sub_path
+                while IFS= read -r sub_path; do
+                    [ -z "$sub_path" ] && continue
+                    local sub_staged
+                    sub_staged="$(git -C "${WORKSPACE_ROOT}/${sub_path}" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')"
+                    if [ "$sub_staged" -gt 0 ]; then
+                        all_committed=0
+                        break
+                    fi
+                done <<< "$dirty_subs_snapshot"
+            fi
+            if [ "$all_committed" -eq 1 ]; then
                 echo "awaiting-commit: commit detected, marking task as done."
                 _mark_done "$line_num" "$task_line"
                 _notify_daemon
