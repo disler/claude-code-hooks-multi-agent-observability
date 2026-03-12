@@ -20,17 +20,39 @@ import {
   archiveDoneTasks,
   touchPlanqServerModified,
   getPlanqServerModifiedAt,
+  setPlanqLastSynced,
+  getPlanqLastSynced,
   upsertGitCommits,
   getGitCommits,
   getGitTips,
   upsertGitCommitRefs,
   getGitCommitRefs,
+  upsertHostSourceReport,
+  getAllHostSourceReports,
   type ContainerRow,
   type PlanqTaskRow,
+  type PlanqItem,
+  type StoredGitCommit,
+  type HostSourceReport,
 } from './container-db';
 
 // ── Git show cache (LRU-style, max 200 entries) ───────────────────────────────
-const gitShowCache = new Map<string, string>();
+const gitShowCache = new Map<string, { diffstat: string; message: string }>();
+
+// ── Branch update tracking (in-memory, per repo per host) ─────────────────────
+// Records timestamp of the last heartbeat where a host sent new commits.
+// sourceRepo → host → epoch ms
+const branchLastCommit = new Map<string, Map<string, number>>();
+
+// ── GitHub PR cache (in-memory, 5-minute TTL) ─────────────────────────────────
+interface GithubPrData { prs: Array<{ branch: string; number: number; url: string; state: string; draft: boolean }> }
+const githubPrCache = new Map<string, { fetchedAt: number; data: GithubPrData }>();
+
+// ── Planq sync tracking (in-memory) ───────────────────────────────────────────
+// Records timestamp of the last successful planq file write to each daemon.
+// Used to detect unsynced server-side changes on daemon reconnection.
+// containerId → epoch ms
+const planqSyncedAt = new Map<string, number>();
 
 // ── WebSocket connection stores ───────────────────────────────────────────────
 
@@ -49,6 +71,33 @@ const pendingFileRequests = new Map<string, {
 
 // Offline grace-period timers: container_id → timer
 const offlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Pending git fresh-fetch operations: repo → { pendingContainerIds, dashboardClients, timer }
+const pendingGitRefresh = new Map<string, {
+  pendingContainerIds: Set<string>;
+  dashboardClients: Set<any>;
+  timer: ReturnType<typeof setTimeout>;
+}>();
+
+// ── Host identity helpers ─────────────────────────────────────────────────────
+
+/** Returns true if the string looks like a Docker short container ID (12 lowercase hex chars). */
+function looksLikeContainerId(name: string): boolean {
+  return /^[0-9a-f]{12}$/.test(name);
+}
+
+/**
+ * Resolve the machine_hostname to store, preferring a real hostname over
+ * 'unknown' or a Docker container ID.  If the incoming value is unusable,
+ * fall back to the existing DB value (if it is real), then to 'unknown'.
+ */
+function resolveMachineHostname(incoming: string | undefined, existing: string | undefined): string {
+  const isReal = (h: string | undefined): h is string =>
+    !!h && h !== 'unknown' && !looksLikeContainerId(h);
+  if (isReal(incoming)) return incoming;
+  if (isReal(existing)) return existing;
+  return incoming ?? 'unknown';
+}
 
 // ── Initialisation ────────────────────────────────────────────────────────────
 
@@ -308,8 +357,11 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       console.log(`[heartbeat] ${hbCtx}: cancelled pending offline timer (reconnected)`);
     }
 
+    // Detect reconnection: WS not yet registered for this container
+    const isReconnect = !containerWsMap.has(containerId);
+
     // Register WS if not already and update its label with full identity
-    if (!containerWsMap.has(containerId)) {
+    if (isReconnect) {
       containerWsMap.set(containerId, ws);
       ws.__containerId = containerId;
       const addr = (ws.data as any)?.addr ?? 'unknown';
@@ -323,7 +375,8 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     if (existingContainer) {
       const hostChanging = existingContainer.machine_hostname !== 'unknown'
         && msg.machine_hostname
-        && existingContainer.machine_hostname !== msg.machine_hostname;
+        && existingContainer.machine_hostname !== msg.machine_hostname
+        && !looksLikeContainerId(msg.machine_hostname);
       const containerChanging = existingContainer.container_hostname
         && existingContainer.container_hostname !== 'unknown'
         && containerHostname
@@ -371,11 +424,17 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       console.log(`[heartbeat] ${hbCtx}: container_hostname=${JSON.stringify(containerHostname)}, skipping same-container stub search`);
     }
 
+    // Resolve machine_hostname — never downgrade a real hostname to 'unknown' or a container ID
+    const resolvedMachineHostname = resolveMachineHostname(msg.machine_hostname, existingContainer?.machine_hostname);
+    if (resolvedMachineHostname !== (msg.machine_hostname ?? 'unknown')) {
+      console.log(`[heartbeat] ${hbCtx}: machine_hostname in message (${JSON.stringify(msg.machine_hostname)}) rejected — keeping ${JSON.stringify(resolvedMachineHostname)}`);
+    }
+
     // Upsert container row
     const container = upsertContainer({
       id: containerId,
       source_repo: msg.source_repo ?? containerId,
-      machine_hostname: msg.machine_hostname ?? 'unknown',
+      machine_hostname: resolvedMachineHostname,
       container_hostname: msg.container_hostname ?? '',
       workspace_host_path: msg.workspace_host_path ?? null,
       git_branch: msg.git_branch ?? null,
@@ -386,25 +445,61 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       git_staged_diffstat: msg.git_staged_diffstat ?? null,
       git_unstaged_count: msg.git_unstaged_count ?? 0,
       git_unstaged_diffstat: msg.git_unstaged_diffstat ?? null,
+      git_remote_url: msg.git_remote_url ?? null,
       git_submodules: Array.isArray(msg.git_submodules) ? msg.git_submodules : [],
+      versions: (msg.versions && typeof msg.versions === 'object') ? msg.versions : {},
       planq_order: msg.planq_order ?? null,
       planq_history: msg.planq_history ?? null,
       auto_test_pending: msg.auto_test_pending ?? null,
       active_session_ids: mergedSessionIds,
       running_session_ids: Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [],
+      review_state: msg.review_state != null ? JSON.stringify(msg.review_state) : null,
+      test_results: Array.isArray(msg.test_results) ? JSON.stringify(msg.test_results) : null,
       last_seen: Date.now(),
     });
 
     console.log(`[heartbeat] ${hbCtx}: upserted connected=${container.connected} sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}] git: staged=${msg.git_staged_count ?? 'n/a'} unstaged=${msg.git_unstaged_count ?? 'n/a'} branch=${msg.git_branch ?? '-'}`);
 
-    // Sync planq tasks from planq_order text — but only if the server hasn't made local
-    // edits more recently (30s grace period avoids a race where the heartbeat file read
-    // predates a server-initiated file write, which would revert server-side changes).
+    // Sync planq tasks using three-way merge.
+    // base = planq_last_synced (last state both sides agreed on)
+    // server = current DB task list
+    // container = daemon's reported planq_order
     if (msg.planq_order) {
-      const lastServerEdit = getPlanqServerModifiedAt(containerId);
-      if (Date.now() - lastServerEdit > 30_000) {
-        const items = parsePlanqOrder(msg.planq_order);
-        syncPlanqTasksFromParsed(containerId, items);
+      const rawBase = getPlanqLastSynced(containerId);
+      const baseItems: PlanqItem[] = rawBase ? parsePlanqOrder(rawBase) : [];
+      const serverItems: PlanqItem[] = getPlanqTasks(containerId).map(t => ({
+        task_type: t.task_type,
+        filename: t.filename,
+        description: t.description,
+        status: t.status as PlanqItem['status'],
+        auto_commit: t.auto_commit,
+        commit_mode: t.commit_mode,
+        plan_disposition: t.plan_disposition,
+        auto_queue_plan: t.auto_queue_plan,
+      }));
+      const containerItems: PlanqItem[] = parsePlanqOrder(msg.planq_order);
+
+      const { merged, conflicts, hasChanges } = mergePlanqLists(baseItems, serverItems, containerItems);
+
+      if (conflicts.length > 0) {
+        console.log(`[heartbeat] ${hbCtx}: ${conflicts.length} planq conflict(s) detected`);
+      }
+
+      // Update server DB to reflect merged state
+      syncPlanqTasksFromParsed(containerId, merged);
+
+      // If merged differs from container, push the merged state to the container
+      if (hasChanges) {
+        const mergedSerialized = serializePlanqOrder(getPlanqTasks(containerId));
+        setPlanqLastSynced(containerId, mergedSerialized);
+        console.log(`[heartbeat] ${hbCtx}: pushing merged planq state to daemon (${merged.length} tasks, ${conflicts.length} conflicts)`);
+        writePlanqFile(containerId, container).then(() => {
+          planqSyncedAt.set(containerId, Date.now());
+        }).catch(() => {});
+      } else {
+        // Container state matches merged — record this as the new base
+        const currentSerialized = serializePlanqOrder(getPlanqTasks(containerId));
+        setPlanqLastSynced(containerId, currentSerialized);
       }
     }
 
@@ -455,6 +550,22 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     if (Array.isArray(msg.git_commits) && msg.git_commits.length > 0) {
       upsertGitCommits(sourceRepo, msg.git_commits);
       upsertGitCommitRefs(sourceRepo, container.machine_hostname, msg.git_commits);
+      // Record that this host has new commits (for auto-fetch polling)
+      if (!branchLastCommit.has(sourceRepo)) branchLastCommit.set(sourceRepo, new Map());
+      branchLastCommit.get(sourceRepo)!.set(container.machine_hostname, Date.now());
+    }
+
+    // Upsert submodule commits sent by daemon, then send back tips per submodule
+    if (msg.submodule_commits && typeof msg.submodule_commits === 'object') {
+      const submoduleTips: Record<string, string[]> = {};
+      for (const [subRepo, commits] of Object.entries(msg.submodule_commits)) {
+        if (Array.isArray(commits) && commits.length > 0) {
+          upsertGitCommits(subRepo, commits as any[]);
+          upsertGitCommitRefs(subRepo, container.machine_hostname, commits as any[]);
+        }
+        submoduleTips[subRepo] = getGitTips(subRepo);
+      }
+      try { ws.send(JSON.stringify({ type: 'submodule_git_known_hashes', tips: submoduleTips })); } catch {}
     }
 
     // Send DAG frontier back so daemon can send only new commits next time
@@ -464,6 +575,19 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     // Broadcast to dashboard clients
     const containerWithState = buildContainerWithState(container);
     broadcastDashboard({ type: 'container_update', data: containerWithState });
+
+    // Resolve any pending git fresh-fetch waiting on this container
+    for (const [repo, pending] of pendingGitRefresh.entries()) {
+      if (pending.pendingContainerIds.has(containerId)) {
+        pending.pendingContainerIds.delete(containerId);
+        if (pending.pendingContainerIds.size === 0) {
+          clearTimeout(pending.timer);
+          pendingGitRefresh.delete(repo);
+          const payload = JSON.stringify({ type: 'git_refresh_ready', source_repo: repo });
+          pending.dashboardClients.forEach(dws => { try { dws.send(payload); } catch {} });
+        }
+      }
+    }
     return;
   }
 
@@ -497,6 +621,20 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       pendingFileRequests.delete(msg.request_id);
       pending.resolve(JSON.stringify(Array.isArray(msg.files) ? msg.files : []));
     }
+    return;
+  }
+
+  // Host source report (from host-source-reporter.py running outside containers)
+  if (msg.type === 'host_source_report') {
+    upsertHostSourceReport({
+      machine_hostname: msg.machine_hostname,
+      sandbox_dir: msg.sandbox_dir ?? null,
+      sandbox_commit: msg.sandbox_commit ?? null,
+      sandbox_commit_ts: msg.sandbox_commit_ts ?? null,
+      observability_commit: msg.observability_commit ?? null,
+      observability_commit_ts: msg.observability_commit_ts ?? null,
+      last_reported_at: Date.now(),
+    });
     return;
   }
 
@@ -555,7 +693,88 @@ export function handleDashboardClose(ws: any): void {
   dashboardWsClients.delete(ws);
 }
 
+export function handleDashboardMessage(ws: any, raw: string | Buffer): void {
+  let msg: any;
+  try { msg = JSON.parse(raw as string); } catch { return; }
+
+  if (msg.type === 'git_fetch_fresh') {
+    const repo: string = msg.source_repo ?? '';
+    const hostFilter: string | null = msg.host_filter ?? null;
+    if (!repo) return;
+
+    // Resolve effective repo (submodule → parent)
+    let effectiveRepo = repo;
+    let directContainers = getAllContainers().filter(c => c.source_repo === repo);
+    if (directContainers.length === 0) {
+      const parts = repo.split('/');
+      for (let i = parts.length - 1; i >= 1; i--) {
+        const candidate = parts.slice(0, i).join('/');
+        const parentContainers = getAllContainers().filter(c => c.source_repo === candidate);
+        if (parentContainers.length > 0) {
+          effectiveRepo = candidate;
+          directContainers = parentContainers;
+          break;
+        }
+      }
+    }
+
+    // Apply host filter
+    const targetContainers = hostFilter
+      ? directContainers.filter(c => c.machine_hostname === hostFilter)
+      : directContainers;
+
+    // Find connected containers
+    const connectedIds = targetContainers
+      .filter(c => c.connected && containerWsMap.has(c.id))
+      .map(c => c.id);
+
+    if (connectedIds.length === 0) {
+      // Nothing to wait for — signal immediately
+      try { ws.send(JSON.stringify({ type: 'git_refresh_ready', source_repo: repo })); } catch {}
+      return;
+    }
+
+    // Cancel any existing refresh for this repo
+    const existing = pendingGitRefresh.get(effectiveRepo);
+    if (existing) {
+      clearTimeout(existing.timer);
+    }
+
+    const pendingContainerIds = new Set(connectedIds);
+    const dashboardClients = new Set<any>([ws]);
+
+    const timer = setTimeout(() => {
+      pendingGitRefresh.delete(effectiveRepo);
+      const payload = JSON.stringify({ type: 'git_refresh_ready', source_repo: repo });
+      dashboardClients.forEach(dws => { try { dws.send(payload); } catch {} });
+    }, 8_000);
+
+    pendingGitRefresh.set(effectiveRepo, { pendingContainerIds, dashboardClients, timer });
+
+    // Request fresh heartbeat from each connected container
+    for (const id of connectedIds) {
+      const cws = containerWsMap.get(id);
+      if (cws) try { cws.send(JSON.stringify({ type: 'request_heartbeat' })); } catch {}
+    }
+  }
+}
+
 // ── File relay helpers ────────────────────────────────────────────────────────
+
+async function relaySessionLogRead(containerId: string, sessionId: string): Promise<string> {
+  const ws = containerWsMap.get(containerId);
+  if (!ws) throw new Error('Container offline');
+
+  const requestId = crypto.randomUUID();
+  return new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingFileRequests.delete(requestId);
+      reject(new Error('Session log read timeout'));
+    }, 15_000);
+    pendingFileRequests.set(requestId, { resolve, reject, timer });
+    ws.send(JSON.stringify({ type: 'session_log_read', request_id: requestId, session_id: sessionId }));
+  });
+}
 
 async function relayFileRead(containerId: string, filename: string): Promise<string> {
   const ws = containerWsMap.get(containerId);
@@ -775,7 +994,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
   // POST /dashboard/containers/:id/merge — merge an offline container's sessions into another
   if (pathname.match(/^\/dashboard\/containers\/[^/]+\/merge$/) && method === 'POST') {
-    const containerId = decodeURIComponent(pathname.split('/')[3]);
+    const containerId = decodeURIComponent(pathname.split('/')[3]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
     if (container.connected) return err('Cannot merge a connected container', 409);
@@ -799,10 +1018,39 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     return json({ ok: true });
   }
 
+  // POST /dashboard/review-state
+  if (pathname === '/dashboard/review-state' && method === 'POST') {
+    const body = await req.json().catch(() => null);
+    if (!body?.containerId || !body?.state) return new Response('Bad request', { status: 400 });
+    const validStates = ['developing', 'ready-for-review', 'in-review', 'approved', 'merged'];
+    if (!validStates.includes(body.state)) return new Response('Invalid state', { status: 400 });
+    const stateObj = { state: body.state, notes: body.notes ?? undefined, updated: new Date().toISOString() };
+    db.prepare('UPDATE containers SET review_state = ? WHERE id = ?').run(JSON.stringify(stateObj), body.containerId);
+    const updated = getContainer(body.containerId);
+    if (updated) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(updated) });
+    return json({ ok: true });
+  }
+
   // GET /dashboard/git-view/:repo
   if (pathname.match(/^\/dashboard\/git-view\//) && method === 'GET') {
     const repo = decodeURIComponent(pathname.slice('/dashboard/git-view/'.length));
-    const allContainers = getAllContainers().filter(c => c.source_repo === repo);
+    let allContainers = getAllContainers().filter(c => c.source_repo === repo);
+
+    // If no containers found, check if this is a submodule repo (e.g. "myproject/observability")
+    // and fall back to parent containers with submodule git info substituted.
+    let submodulePath = '';
+    if (allContainers.length === 0) {
+      const parts = repo.split('/');
+      for (let i = parts.length - 1; i >= 1; i--) {
+        const candidate = parts.slice(0, i).join('/');
+        const parentContainers = getAllContainers().filter(c => c.source_repo === candidate);
+        if (parentContainers.length > 0) {
+          submodulePath = parts.slice(i).join('/');
+          allContainers = parentContainers;
+          break;
+        }
+      }
+    }
 
     // Primary: use DB-stored commits sent by daemons (works for local and remote hosts)
     let storedCommits = getGitCommits(repo);
@@ -820,30 +1068,69 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     // Fallback: if DB is empty and server has local filesystem access, run git log directly
     const fallbackRefsPerHost: Array<{ hash: string; host: string; localBranches: string[] }> = [];
     if (storedCommits.length === 0) {
-      const paths = [...new Set(allContainers.filter(c => c.workspace_host_path).map(c => c.workspace_host_path!))];
-      const commitMap = new Map<string, { hash: string; parents: string[]; refs: string[]; subject: string }>();
+      const basePaths = [...new Set(allContainers.filter(c => c.workspace_host_path).map(c => c.workspace_host_path!))];
+      const paths = basePaths.map(p => submodulePath ? `${p}/${submodulePath}` : p);
+      const commitMap = new Map<string, StoredGitCommit>();
       for (const wpath of paths) {
-        const host = allContainers.find(c => c.workspace_host_path === wpath)?.machine_hostname ?? 'unknown';
-        const proc = Bun.spawn(
-          ['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'],
-          { stdout: 'pipe', stderr: 'ignore' }
-        );
-        const text = await new Response(proc.stdout).text().catch(() => '');
-        await proc.exited;
+        const host = allContainers.find(c => {
+          const p = submodulePath ? `${c.workspace_host_path}/${submodulePath}` : c.workspace_host_path;
+          return p === wpath;
+        })?.machine_hostname ?? 'unknown';
+        const [procMeta, procBody, procStat] = [
+          Bun.spawn(['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s|%an|%at', '--date-order', '-n', '200'], { stdout: 'pipe', stderr: 'ignore' }),
+          Bun.spawn(['git', '-C', wpath, 'log', '--all', '-z', '--format=%H%n%B', '--date-order', '-n', '200'], { stdout: 'pipe', stderr: 'ignore' }),
+          Bun.spawn(['git', '-C', wpath, 'log', '--all', '--pretty=tformat:COMMIT_SEP=%H', '--stat', '--date-order', '-n', '200'], { stdout: 'pipe', stderr: 'ignore' }),
+        ];
+        const [text, bodyText, statText] = await Promise.all([
+          new Response(procMeta.stdout).text().catch(() => ''),
+          new Response(procBody.stdout).text().catch(() => ''),
+          new Response(procStat.stdout).text().catch(() => ''),
+        ]);
+        await Promise.all([procMeta.exited, procBody.exited, procStat.exited]);
+        const bodyMap = new Map<string, string>();
+        for (const record of bodyText.split('\0')) {
+          const stripped = record.replace(/^\n+/, '');
+          if (!stripped.trim()) continue;
+          const nl = stripped.indexOf('\n');
+          if (nl < 0) continue;
+          const bHash = stripped.slice(0, nl).trim();
+          const body = stripped.slice(nl + 1);
+          if (bHash && body.trim()) bodyMap.set(bHash, body);
+        }
+        const diffstatMap = new Map<string, string>();
+        let dsHash: string | null = null;
+        const dsLines: string[] = [];
+        for (const line of statText.split('\n')) {
+          if (line.startsWith('COMMIT_SEP=')) {
+            if (dsHash && dsLines.length) diffstatMap.set(dsHash, dsLines.join('\n').trim());
+            dsHash = line.slice('COMMIT_SEP='.length).trim();
+            dsLines.length = 0;
+          } else if (dsHash && line.trim()) {
+            dsLines.push(line);
+          }
+        }
+        if (dsHash && dsLines.length) diffstatMap.set(dsHash, dsLines.join('\n').trim());
         const hostRefMap = new Map<string, string[]>();
         for (const line of text.split('\n')) {
           if (!line.trim()) continue;
-          const [hash, parentsStr, refsStr, ...subjectParts] = line.split('|');
+          const parts = line.split('|');
+          const hash = parts[0];
+          const parentsStr = parts[1] ?? '';
+          const refsStr = parts[2] ?? '';
+          const authorTs = parseInt(parts[parts.length - 1] ?? '0', 10) || undefined;
+          const authorName = parts[parts.length - 2] ?? '';
+          const subject = parts.slice(3, parts.length - 2).join('|');
           if (!hash?.trim() || hash.trim().length < 7) continue;
           const parents = parentsStr?.trim() ? parentsStr.trim().split(' ').filter(Boolean) : [];
           const refs = refsStr?.trim() ? refsStr.trim().split(',').map(r => r.trim()).filter(Boolean) : [];
-          const subject = subjectParts.join('|');
           const h = hash.trim();
           if (commitMap.has(h)) {
             const ex = commitMap.get(h)!;
             commitMap.set(h, { ...ex, refs: [...new Set([...ex.refs, ...refs])] });
           } else {
-            commitMap.set(h, { hash: h, parents, refs, subject });
+            const body = bodyMap.get(h);
+            const diffstat = diffstatMap.get(h);
+            commitMap.set(h, { hash: h, parents, refs, subject, author: authorName || undefined, author_date: authorTs, body: body?.trim() || undefined, diffstat: diffstat || undefined });
           }
           hostRefMap.set(h, [...(hostRefMap.get(h) ?? []), ...refs]);
         }
@@ -855,72 +1142,235 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       storedCommits = [...commitMap.values()];
     }
 
-    const containers = allContainers.map(c => ({
-      id: c.id, machine_hostname: c.machine_hostname, container_hostname: c.container_hostname,
-      git_branch: c.git_branch, git_worktree: c.git_worktree, git_commit_hash: c.git_commit_hash,
-      git_staged_count: c.git_staged_count, git_unstaged_count: c.git_unstaged_count,
-      git_unstaged_diffstat: c.git_unstaged_diffstat, git_staged_diffstat: c.git_staged_diffstat,
-      workspace_host_path: c.workspace_host_path, connected: c.connected,
-    }));
+    const containers = allContainers.map(c => {
+      const subData = submodulePath
+        ? (c.git_submodules ?? []).find((s: any) => s.path === submodulePath)
+        : null;
+      return {
+        id: c.id, machine_hostname: c.machine_hostname, container_hostname: c.container_hostname,
+        // When viewing a submodule: keep parent's git_branch so the header shows parent branch context.
+        // Use the submodule's commit_hash so container chips navigate correctly within the submodule graph.
+        git_branch: c.git_branch,
+        git_worktree: c.git_worktree,
+        // Preserve the parent's original commit hash so clicking a container chip in submodule view
+        // can navigate back to the parent repo when the submodule commit isn't in the current graph.
+        // Always set (not just when subData exists) so detached-HEAD containers without the submodule
+        // can still navigate back to the parent.
+        parent_commit_hash: submodulePath ? c.git_commit_hash : null,
+        git_commit_hash: subData ? (subData as any).commit_hash ?? null : c.git_commit_hash,
+        git_staged_count: subData ? (subData as any).staged_count ?? 0 : c.git_staged_count,
+        git_unstaged_count: subData ? (subData as any).unstaged_count ?? 0 : c.git_unstaged_count,
+        git_unstaged_diffstat: subData ? (subData as any).unstaged_diffstat ?? null : c.git_unstaged_diffstat,
+        git_staged_diffstat: subData ? (subData as any).staged_diffstat ?? null : c.git_staged_diffstat,
+        workspace_host_path: c.workspace_host_path, connected: c.connected,
+        // Keep full submodule list so the submodule chips remain visible in the header.
+        git_submodules: c.git_submodules ?? [],
+      };
+    });
 
     // Per-host local branch data (from DB for primary path, from fallback for direct git log)
     const dbRefs = getGitCommitRefs(repo);
+
+    // Only show branch@host badges for commits where a container currently exists on that host.
+    // This prevents stale badges from appearing at old commit positions after container rebuilds.
+    // Use the `containers` array here (not `allContainers`) because when viewing a submodule,
+    // `containers` has been remapped to use the submodule's commit_hash instead of the parent's.
+    const currentPositions = new Map<string, Set<string>>(); // host → Set of short commit hashes
+    for (const c of containers) {
+      if (!c.git_commit_hash) continue;
+      if (!currentPositions.has(c.machine_hostname)) currentPositions.set(c.machine_hostname, new Set());
+      currentPositions.get(c.machine_hostname)!.add(c.git_commit_hash);
+    }
+
     const refsPerHost = dbRefs.length > 0
-      ? dbRefs.map(r => ({ hash: r.hash, host: r.machine_hostname, localBranches: extractLocalBranches(r.refs) }))
+      ? dbRefs
+          .filter(r => {
+            const hashes = currentPositions.get(r.machine_hostname);
+            if (!hashes) return false;
+            // Support short hashes from containers (7-8 chars) vs full hashes in DB
+            return [...hashes].some(h => r.hash.startsWith(h) || h.startsWith(r.hash));
+          })
+          .map(r => ({ hash: r.hash, host: r.machine_hostname, localBranches: extractLocalBranches(r.refs) }))
           .filter(r => r.localBranches.length > 0)
       : fallbackRefsPerHost;
 
-    return json({ containers, commits: storedCommits, refsPerHost });
+    const remoteUrl = allContainers.find(c => c.git_remote_url)?.git_remote_url ?? null;
+
+    // Collect unique submodules across all containers for this repo.
+    // Only collect when viewing the primary repo — skip when viewing a submodule to avoid
+    // producing spurious entries like $project/$submodule/$submodule.
+    const submoduleMap = new Map<string, string>()  // path → source_repo
+    if (!submodulePath) {
+      for (const c of allContainers) {
+        for (const sub of (c.git_submodules ?? [])) {
+          const subPath = (sub as any).path as string
+          if (subPath) submoduleMap.set(subPath, `${repo}/${subPath}`)
+        }
+      }
+    }
+    const submodules = [...submoduleMap.entries()].map(([path, source_repo]) => ({ path, source_repo }))
+
+    return json({ containers, commits: storedCommits, refsPerHost, remote_url: remoteUrl, submodules });
   }
 
   // GET /dashboard/git-show/:repo/:hash
   if (pathname.match(/^\/dashboard\/git-show\/[^/]+\/[0-9a-f]+$/) && method === 'GET') {
     const parts = pathname.split('/');
-    const hash = parts[parts.length - 1];
+    const hash = parts[parts.length - 1]!;
     const repo = decodeURIComponent(parts.slice(3, -1).join('/'));
     const cached = gitShowCache.get(hash);
-    if (cached !== undefined) return json({ diffstat: cached });
+    if (cached !== undefined) return json(cached);
+
+    // Prefer what the daemon stored in the DB (works even when server has no filesystem access)
+    const storedCommits = getGitCommits(repo);
+    const storedCommit = storedCommits.find(c => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash));
+    const storedMessage = storedCommit?.body?.trim() ?? null;
+    const storedDiffstat = storedCommit?.diffstat?.trim() ?? null;
 
     const allContainers = getAllContainers().filter(c => c.source_repo === repo && c.workspace_host_path);
     const wpath = allContainers[0]?.workspace_host_path;
-    if (!wpath) return json({ diffstat: '' });
+    if (!wpath) {
+      // No local git access — serve whatever the daemon stored
+      const result = { diffstat: storedDiffstat ?? '', message: storedMessage ?? '' };
+      if (storedMessage !== null || storedDiffstat !== null) gitShowCache.set(hash, result);
+      return json(result);
+    }
 
-    const proc = Bun.spawn(
-      ['git', '-C', wpath, 'diff-tree', '--no-commit-id', '-r', '--stat', hash],
-      { stdout: 'pipe', stderr: 'ignore' }
-    );
-    const diffstat = await new Response(proc.stdout).text().catch(() => '');
-    await proc.exited;
+    // Use stored values where available; fall back to fresh git only for fields not yet in DB
+    const messagePromise = storedMessage !== null
+      ? Promise.resolve(storedMessage)
+      : (async () => {
+          const p = Bun.spawn(['git', '-C', wpath!, 'log', '-1', '--format=%B', hash], { stdout: 'pipe', stderr: 'ignore' });
+          const msg = await new Response(p.stdout).text().catch(() => '');
+          await p.exited;
+          return msg;
+        })();
+    const diffstatPromise = storedDiffstat !== null
+      ? Promise.resolve(storedDiffstat)
+      : (async () => {
+          const p = Bun.spawn(['git', '-C', wpath!, 'diff-tree', '--no-commit-id', '-r', '--stat', hash], { stdout: 'pipe', stderr: 'ignore' });
+          const ds = await new Response(p.stdout).text().catch(() => '');
+          await p.exited;
+          return ds;
+        })();
+    const [message, diffstat] = await Promise.all([messagePromise, diffstatPromise]);
     if (gitShowCache.size >= 200) {
       const firstKey = gitShowCache.keys().next().value;
       if (firstKey !== undefined) gitShowCache.delete(firstKey);
     }
-    gitShowCache.set(hash, diffstat);
-    return json({ diffstat });
+    gitShowCache.set(hash, { diffstat, message });
+    return json({ diffstat, message });
+  }
+
+  // GET /dashboard/git-hosts/:repo — list known hosts + workspace paths for a repo
+  if (pathname.match(/^\/dashboard\/git-hosts\//) && method === 'GET') {
+    const repo = decodeURIComponent(pathname.slice('/dashboard/git-hosts/'.length));
+    const repoContainers = getAllContainers().filter(c => c.source_repo === repo);
+    const hostMap = new Map<string, { hostname: string; workspacePath: string | null; lastSeen: number }>();
+    for (const c of repoContainers) {
+      const existing = hostMap.get(c.machine_hostname);
+      if (!existing || c.last_seen > existing.lastSeen) {
+        hostMap.set(c.machine_hostname, {
+          hostname: c.machine_hostname,
+          workspacePath: c.workspace_host_path ?? null,
+          lastSeen: c.last_seen,
+        });
+      }
+    }
+    return json([...hostMap.values()]);
+  }
+
+  // GET /dashboard/git-updates/:repo — timestamps of last new-commit event per host
+  if (pathname.match(/^\/dashboard\/git-updates\//) && method === 'GET') {
+    const repo = decodeURIComponent(pathname.slice('/dashboard/git-updates/'.length));
+    const hostMap = branchLastCommit.get(repo) ?? new Map<string, number>();
+    const updates = [...hostMap.entries()].map(([host, lastCommitAt]) => ({ host, lastCommitAt }));
+    return json(updates);
+  }
+
+  // GET /dashboard/github-prs/:owner/:repo — fetch open PRs from GitHub API
+  if (pathname.match(/^\/dashboard\/github-prs\/[^/]+\/[^/]+$/) && method === 'GET') {
+    const parts = pathname.split('/');
+    const owner = decodeURIComponent(parts[3]!);
+    const repo = decodeURIComponent(parts[4]!);
+    if (!/^[a-zA-Z0-9._-]+$/.test(owner) || !/^[a-zA-Z0-9._-]+$/.test(repo)) return err('Invalid owner/repo', 400);
+    try {
+      const cacheKey = `${owner}/${repo}`;
+      const cached = githubPrCache.get(cacheKey);
+      if (cached && Date.now() - cached.fetchedAt < 300_000) {
+        return json(cached.data);
+      }
+      const token = process.env.GITHUB_TOKEN;
+      const headers: Record<string, string> = { 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      // Fetch open PRs (up to 100)
+      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=100`, { headers });
+      if (!res.ok) return json({ prs: [], error: `GitHub API ${res.status}` });
+      const rawPrs = await res.json() as any[];
+      const prs = rawPrs.map((pr: any) => ({
+        branch: pr.head?.ref as string,
+        number: pr.number as number,
+        url: pr.html_url as string,
+        state: pr.state as string,
+        draft: Boolean(pr.draft),
+      }));
+      const data = { prs };
+      githubPrCache.set(cacheKey, { fetchedAt: Date.now(), data });
+      return json(data);
+    } catch (e: any) {
+      return json({ prs: [], error: e?.message ?? 'fetch failed' });
+    }
+  }
+
+  // GET /dashboard/session-log/:containerId/:sessionId
+  if (pathname.match(/^\/dashboard\/session-log\/[^/]+\/[^/]+$/) && method === 'GET') {
+    const parts = pathname.split('/');
+    const containerId = decodeURIComponent(parts[3]!);
+    const sessionId = decodeURIComponent(parts[4]!);
+    if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return err('Invalid session ID', 400);
+    if (!getContainer(containerId)) return err('Container not found', 404);
+    try {
+      const content = await relaySessionLogRead(containerId, sessionId);
+      return json({ content });
+    } catch (e: any) {
+      return err(e.message || 'Session log not found', 503);
+    }
+  }
+
+  // GET /dashboard/hostname-aliases
+  if (pathname === '/dashboard/hostname-aliases' && method === 'GET') {
+    try {
+      const home = process.env.HOME || process.env.USERPROFILE || '/root';
+      const aliasPath = `${home}/.local/devcontainer-sandbox/hostname-aliases.json`;
+      const content = await Bun.file(aliasPath).text();
+      return json(JSON.parse(content));
+    } catch {
+      return json({});
+    }
   }
 
   // GET /planq/:id
   if (pathname.match(/^\/planq\/[^/]+$/) && method === 'GET') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     const tasks = getPlanqTasks(containerId);
     return json(tasks);
   }
 
   // GET /planq/:id/archive
   if (pathname.match(/^\/planq\/[^/]+\/archive$/) && method === 'GET') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     const tasks = getArchiveTasks(containerId);
     return json(tasks);
   }
 
   // POST /planq/:id/tasks
   if (pathname.match(/^\/planq\/[^/]+\/tasks$/) && method === 'POST') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const { task_type, description, create_file, auto_commit } = body;
+    const { task_type, description, create_file, auto_commit, commit_mode, plan_disposition, auto_queue_plan } = body;
     let { filename } = body;
     if (!task_type) return err('task_type required');
 
@@ -931,7 +1381,9 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       if (actualFn) filename = actualFn;
     }
 
-    const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null, Boolean(auto_commit));
+    const effectiveMode = (['auto', 'stage', 'manual'].includes(commit_mode) ? commit_mode : (auto_commit ? 'auto' : 'none')) as 'none' | 'auto' | 'stage' | 'manual';
+    const effectiveDisposition = (['add-after', 'add-end'].includes(plan_disposition) ? plan_disposition : 'manual') as 'manual' | 'add-after' | 'add-end';
+    const task = addPlanqTask(containerId, task_type, filename ?? null, description ?? null, effectiveMode === 'auto', effectiveMode, effectiveDisposition, Boolean(auto_queue_plan));
     touchPlanqServerModified(containerId);
     // For make-plan, write the prompt to the filename directly (filename IS make-plan-*.md)
     if (task_type === 'make-plan' && filename && description) {
@@ -948,16 +1400,20 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // PUT /planq/:id/tasks/:taskId
   if (pathname.match(/^\/planq\/[^/]+\/tasks\/\d+$/) && method === 'PUT') {
     const parts = pathname.split('/');
-    const containerId = decodeURIComponent(parts[2]);
-    const taskId = parseInt(parts[4]);
+    const containerId = decodeURIComponent(parts[2]!);
+    const taskId = parseInt(parts[4]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const updates: { description?: string; status?: string; auto_commit?: boolean } = {};
+    const updates: { description?: string; status?: string; auto_commit?: boolean; commit_mode?: 'none' | 'auto' | 'stage' | 'manual' } = {};
     if (body.description !== undefined) updates.description = body.description;
     if (body.status !== undefined) updates.status = body.status;
-    if (body.auto_commit !== undefined) updates.auto_commit = Boolean(body.auto_commit);
+    if (body.commit_mode !== undefined && ['none', 'auto', 'stage', 'manual'].includes(body.commit_mode)) {
+      updates.commit_mode = body.commit_mode;
+    } else if (body.auto_commit !== undefined) {
+      updates.auto_commit = Boolean(body.auto_commit);
+    }
     const task = updatePlanqTask(taskId, updates);
     if (!task) return err('Task not found', 404);
     touchPlanqServerModified(containerId);
@@ -970,8 +1426,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // POST /planq/:id/tasks/:taskId/archive
   if (pathname.match(/^\/planq\/[^/]+\/tasks\/\d+\/archive$/) && method === 'POST') {
     const parts = pathname.split('/');
-    const containerId = decodeURIComponent(parts[2]);
-    const taskId = parseInt(parts[4]);
+    const containerId = decodeURIComponent(parts[2]!);
+    const taskId = parseInt(parts[4]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
@@ -990,8 +1446,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // DELETE /planq/:id/tasks/:taskId
   if (pathname.match(/^\/planq\/[^/]+\/tasks\/\d+$/) && method === 'DELETE') {
     const parts = pathname.split('/');
-    const containerId = decodeURIComponent(parts[2]);
-    const taskId = parseInt(parts[4]);
+    const containerId = decodeURIComponent(parts[2]!);
+    const taskId = parseInt(parts[4]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
@@ -1006,7 +1462,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
   // POST /planq/:id/tasks/reorder
   if (pathname.match(/^\/planq\/[^/]+\/tasks\/reorder$/) && method === 'POST') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
@@ -1022,7 +1478,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
   // POST /planq/:id/tasks/archive-done
   if (pathname.match(/^\/planq\/[^/]+\/tasks\/archive-done$/) && method === 'POST') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
@@ -1039,7 +1495,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
   // POST /planq/:id/auto-test/respond
   if (pathname.match(/^\/planq\/[^/]+\/auto-test\/respond$/) && method === 'POST') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);
     const body = await req.json() as any;
     const response: string = body.response === 'abort' ? 'abort' : 'continue';
@@ -1053,7 +1509,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
   // GET /planq/:id/plans-files
   if (pathname.match(/^\/planq\/[^/]+\/plans-files$/) && method === 'GET') {
-    const containerId = decodeURIComponent(pathname.split('/')[2]);
+    const containerId = decodeURIComponent(pathname.split('/')[2]!);
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);
     try {
       const files = await relayFileList(containerId);
@@ -1066,7 +1522,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // GET /planq/:id/file/:filename
   if (pathname.match(/^\/planq\/[^/]+\/file\/.+$/) && method === 'GET') {
     const parts = pathname.split('/');
-    const containerId = decodeURIComponent(parts[2]);
+    const containerId = decodeURIComponent(parts[2]!);
     const filename = parts.slice(4).join('/'); // everything after /file/
 
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);
@@ -1082,7 +1538,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // PUT /planq/:id/file/:filename
   if (pathname.match(/^\/planq\/[^/]+\/file\/.+$/) && method === 'PUT') {
     const parts = pathname.split('/');
-    const containerId = decodeURIComponent(parts[2]);
+    const containerId = decodeURIComponent(parts[2]!);
     const filename = parts.slice(4).join('/');
 
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);
@@ -1097,7 +1553,216 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     }
   }
 
+  // GET /dashboard/system-versions
+  if (pathname === '/dashboard/system-versions' && method === 'GET') {
+    const containers = getAllContainers().map(c => ({
+      id: c.id,
+      machine_hostname: c.machine_hostname,
+      workspace_host_path: c.workspace_host_path,
+      connected: c.connected,
+      versions: c.versions,
+    }));
+    const host_source_reports = getAllHostSourceReports();
+    return json({ containers, host_source_reports });
+  }
+
+  // POST /dashboard/restart-planq/:containerId
+  if (pathname.match(/^\/dashboard\/restart-planq\/[^/]+$/) && method === 'POST') {
+    const containerId = decodeURIComponent(pathname.slice('/dashboard/restart-planq/'.length));
+    const ws = containerWsMap.get(containerId);
+    if (!ws) return err('Container offline or not found', 404);
+    try {
+      ws.send(JSON.stringify({ type: 'restart' }));
+      return json({ ok: true });
+    } catch (e: any) {
+      return err(e.message || 'Send failed', 503);
+    }
+  }
+
   return null; // not handled
+}
+
+// ── Planq three-way merge ─────────────────────────────────────────────────────
+
+// Status ordering: higher = more advanced/done
+const STATUS_ORDER: Record<string, number> = {
+  'pending': 0,
+  'auto-queue': 1,
+  'underway': 2,
+  'awaiting-commit': 3,
+  'awaiting-plan': 3,
+  'done': 4,
+};
+
+function taskKey(item: PlanqItem): string {
+  return item.filename ?? item.description ?? '';
+}
+
+function statusLevel(status: string): number {
+  return STATUS_ORDER[status] ?? 0;
+}
+
+interface MergeConflict {
+  key: string;
+  type: 'text-changed' | 'status-conflict' | 'new-in-both';
+  base?: PlanqItem;
+  server: PlanqItem;
+  container: PlanqItem;
+}
+
+/**
+ * Three-way merge of planq task lists.
+ * base: last state that was successfully synced to both sides
+ * server: current server DB state
+ * container: current container state (from daemon heartbeat)
+ * Returns: { merged: PlanqItem[], conflicts: MergeConflict[], hasChanges: boolean }
+ * hasChanges is true if the merged result differs from the container state (need to push to container)
+ */
+function mergePlanqLists(
+  base: PlanqItem[],
+  server: PlanqItem[],
+  container: PlanqItem[]
+): { merged: PlanqItem[]; conflicts: MergeConflict[]; hasChanges: boolean } {
+  const baseMap = new Map<string, PlanqItem>();
+  const serverMap = new Map<string, PlanqItem>();
+  const containerMap = new Map<string, PlanqItem>();
+
+  for (const t of base) { const k = taskKey(t); if (k) baseMap.set(k, t); }
+  for (const t of server) { const k = taskKey(t); if (k) serverMap.set(k, t); }
+  for (const t of container) { const k = taskKey(t); if (k) containerMap.set(k, t); }
+
+  const allKeys = new Set([...baseMap.keys(), ...serverMap.keys(), ...containerMap.keys()]);
+  const result: PlanqItem[] = [];
+  const conflicts: MergeConflict[] = [];
+
+  // Preserve container ordering: process container tasks first, then append server-only tasks
+  const containerKeysInOrder = container.map(taskKey).filter(k => k);
+  const processedKeys = new Set<string>();
+
+  function mergeOne(key: string): PlanqItem | null {
+    const baseTask = baseMap.get(key);
+    const serverTask = serverMap.get(key);
+    const containerTask = containerMap.get(key);
+
+    // Not in server at all: keep container's version (container added it, or server removed it — keep container's)
+    if (!serverTask) {
+      return containerTask ?? null;
+    }
+
+    // In server but not in container
+    if (!containerTask) {
+      if (!baseTask) {
+        // New in server, not in container → add to container
+        return serverTask;
+      }
+      // Was in base, container removed it → respect container removal
+      return null;
+    }
+
+    // In both server and container
+    if (!baseTask) {
+      // New in both — conflict, keep container's version
+      conflicts.push({ key, type: 'new-in-both', server: serverTask, container: containerTask });
+      return containerTask;
+    }
+
+    // Three-way merge
+    const serverStatusChanged = serverTask.status !== baseTask.status;
+    const containerStatusChanged = containerTask.status !== baseTask.status;
+    const serverTextChanged = serverTask.description !== baseTask.description;
+    const containerTextChanged = containerTask.description !== baseTask.description;
+    const serverCommitModeChanged = serverTask.commit_mode !== baseTask.commit_mode;
+    const containerCommitModeChanged = containerTask.commit_mode !== baseTask.commit_mode;
+
+    let mergedStatus = containerTask.status;
+    let mergedDescription = containerTask.description;
+    let mergedCommitMode = containerTask.commit_mode;
+
+    // Status merge
+    if (serverStatusChanged && containerStatusChanged && serverTask.status !== containerTask.status) {
+      // Both changed status to different values
+      const containerLevel = statusLevel(containerTask.status);
+      const serverLevel = statusLevel(serverTask.status);
+      if (containerLevel >= statusLevel('done') && serverLevel < statusLevel('done')) {
+        // Container is done, server tries to re-activate → container wins (no re-activation)
+        mergedStatus = containerTask.status;
+      } else if (serverLevel > containerLevel) {
+        // Server is more advanced → server wins
+        mergedStatus = serverTask.status;
+      } else if (containerLevel > serverLevel) {
+        // Container is more advanced → container wins
+        mergedStatus = containerTask.status;
+      } else {
+        // Same level, different statuses → conflict, container wins
+        conflicts.push({ key, type: 'status-conflict', base: baseTask, server: serverTask, container: containerTask });
+        mergedStatus = containerTask.status;
+      }
+    } else if (serverStatusChanged && !containerStatusChanged) {
+      // Only server changed status, but check: if container is done, don't downgrade
+      if (statusLevel(containerTask.status) >= statusLevel('done') && statusLevel(serverTask.status) < statusLevel('done')) {
+        mergedStatus = containerTask.status; // Keep container done
+      } else {
+        mergedStatus = serverTask.status; // Apply server change
+      }
+    } else if (containerStatusChanged) {
+      mergedStatus = containerTask.status; // Keep container change
+    }
+
+    // Text merge
+    if (serverTextChanged && containerTextChanged && serverTask.description !== containerTask.description) {
+      // Both changed text differently — conflict: add duplicate with conflict suffix
+      conflicts.push({ key, type: 'text-changed', base: baseTask, server: serverTask, container: containerTask });
+      mergedDescription = containerTask.description; // Keep container's text
+    } else if (serverTextChanged && !containerTextChanged) {
+      mergedDescription = serverTask.description; // Apply server text change
+    }
+
+    // Commit mode merge (server wins if container unchanged)
+    if (serverCommitModeChanged && !containerCommitModeChanged) {
+      mergedCommitMode = serverTask.commit_mode;
+    }
+
+    return {
+      ...containerTask,
+      status: mergedStatus,
+      description: mergedDescription,
+      commit_mode: mergedCommitMode,
+    };
+  }
+
+  // Process in container order first
+  for (const key of containerKeysInOrder) {
+    if (processedKeys.has(key)) continue;
+    processedKeys.add(key);
+    const merged = mergeOne(key);
+    if (merged) result.push(merged);
+  }
+
+  // Append server-only new tasks (not in container at all)
+  for (const key of allKeys) {
+    if (processedKeys.has(key)) continue;
+    processedKeys.add(key);
+    const merged = mergeOne(key);
+    if (merged) result.push(merged);
+  }
+
+  // Add conflict tasks (text conflicts: append duplicate with conflict marker)
+  for (const conflict of conflicts) {
+    if (conflict.type === 'text-changed' && conflict.server) {
+      result.push({
+        ...conflict.server,
+        description: `[CONFLICT: text changed] ${conflict.server.description ?? ''}`.trim(),
+        status: 'pending',
+      });
+    }
+  }
+
+  // Check if merged differs from container
+  const containerSerialized = container.map(t => `${taskKey(t)}|${t.status}|${t.description ?? ''}`).join('\n');
+  const mergedSerialized = result.map(t => `${taskKey(t)}|${t.status}|${t.description ?? ''}`).join('\n');
+  const hasChanges = mergedSerialized !== containerSerialized;
+
+  return { merged: result, conflicts, hasChanges };
 }
 
 // Write the planq-order.txt through the daemon for a given container
@@ -1105,4 +1770,7 @@ async function writePlanqFile(containerId: string, _container: ContainerRow): Pr
   const tasks = getPlanqTasks(containerId);
   const content = serializePlanqOrder(tasks);
   await relayFileWrite(containerId, 'planq-order.txt', content);
+  planqSyncedAt.set(containerId, Date.now());
+  const currentSerialized = serializePlanqOrder(getPlanqTasks(containerId));
+  setPlanqLastSynced(containerId, currentSerialized);
 }

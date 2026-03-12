@@ -42,6 +42,13 @@
             <span :class="connected ? 'text-green-400' : 'text-red-400'">{{ connected ? 'Live' : 'Disconnected' }}</span>
           </div>
 
+          <!-- Review Board toggle -->
+          <button
+            class="text-xs border rounded px-2 py-1 transition-colors"
+            :class="showReviewBoard ? 'text-blue-300 border-blue-500 bg-blue-900/30' : 'text-slate-400 hover:text-slate-200 border-slate-600 hover:border-slate-400'"
+            @click="showReviewBoard = !showReviewBoard"
+          >Review Board</button>
+
           <!-- Link to event stream client -->
           <a
             :href="clientUrl"
@@ -51,18 +58,41 @@
       </div>
     </header>
 
+    <!-- Prompt History Dialog -->
+    <PromptHistoryDialog
+      v-if="historyContainerId && historySessionId"
+      :containers="[...containers.values()]"
+      :initial-container-id="historyContainerId"
+      :initial-session-id="historySessionId"
+      @close="historyContainerId = null; historySessionId = null"
+    />
+
     <!-- Git View Dialog -->
     <GitViewDialog
       v-if="gitRepo"
       :source-repo="gitRepo"
-      :all-repos="allRepos"
+      :all-repos="allGitViewRepos"
       :initial-hash="gitFocusHash"
+      :send-ws="sendWs"
+      :git-refresh-signal="gitRefreshSignal"
       @close="gitRepo = null; gitFocusHash = null"
-      @switch-repo="gitRepo = $event; gitFocusHash = null"
+      @switch-repo="(repo, hash) => { gitRepo = repo; gitFocusHash = hash ?? null }"
+    />
+
+    <!-- Review Board (replaces body when active) -->
+    <ReviewBoard
+      v-if="showReviewBoard"
+      :repo-filter="repoFilter"
+      :host-filter="hostFilter"
+      :conn-filter="connectionFilter"
+      @open-git-view="openGitView"
+      @open-history="openHistory"
     />
 
     <!-- Body -->
-    <main class="px-4 py-4 max-w-7xl mx-auto">
+    <main v-if="!showReviewBoard" class="px-4 py-4 max-w-7xl mx-auto">
+      <SystemVersionPanel />
+
       <div v-if="filteredHosts.size === 0" class="text-slate-500 text-sm italic mt-8 text-center">
         No containers connected yet. Start a devcontainer with planq-daemon.py configured.
       </div>
@@ -74,25 +104,47 @@
         :containers="containers"
         @tasks-changed="handleTasksChanged"
         @open-git-view="openGitView"
+        @open-history="openHistory"
       />
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { useDashboardWs } from './composables/useDashboardWs'
 import { useContainers } from './composables/useContainers'
+import { useHostnameAliases } from './composables/useHostnameAliases'
 import { CLIENT_BASE } from './config'
 import FilterBar from './components/FilterBar.vue'
 import HostGroup from './components/HostGroup.vue'
 import GitViewDialog from './components/GitViewDialog.vue'
+import PromptHistoryDialog from './components/PromptHistoryDialog.vue'
+import SystemVersionPanel from './components/SystemVersionPanel.vue'
+import ReviewBoard from './components/ReviewBoard.vue'
 
 const { byHost, summary, handleMessage, containers } = useContainers()
+const { load: loadAliases } = useHostnameAliases()
+const showReviewBoard = ref(getParam('review') === '1')
 const gitRepo = ref<string | null>(null)
 const gitFocusHash = ref<string | null>(null)
+const historyContainerId = ref<string | null>(null)
+const historySessionId = ref<string | null>(null)
 
-const { connected } = useDashboardWs(handleMessage)
+// git_refresh_ready signal: incremented each time the server says refresh is ready for the current repo
+const gitRefreshSignal = ref(0)
+
+function handleMessageWithGitRefresh(msg: any) {
+  if (msg.type === 'git_refresh_ready') {
+    gitRefreshSignal.value++
+    return
+  }
+  handleMessage(msg)
+}
+
+const { connected, send: sendWs } = useDashboardWs(handleMessageWithGitRefresh)
+
+onMounted(loadAliases)
 
 function getParam(key: string) { return new URLSearchParams(location.search).get(key) ?? '' }
 function setParam(key: string, value: string) {
@@ -108,10 +160,24 @@ const connectionFilter = ref(getParam('conn'))
 watch(repoFilter, v => setParam('repo', v))
 watch(hostFilter, v => setParam('host', v))
 watch(connectionFilter, v => setParam('conn', v))
+watch(showReviewBoard, v => setParam('review', v ? '1' : ''))
 
+// Top-level repos only (no submodule paths) — used for the main FilterBar
 const allRepos = computed(() => {
   const repos = new Set<string>()
   for (const c of containers.value.values()) repos.add(c.source_repo)
+  return [...repos].sort()
+})
+
+// All repos including submodule paths — used for the Git View dropdown
+const allGitViewRepos = computed(() => {
+  const repos = new Set<string>()
+  for (const c of containers.value.values()) {
+    repos.add(c.source_repo)
+    for (const sub of c.git_submodules ?? []) {
+      repos.add(`${c.source_repo}/${sub.path}`)
+    }
+  }
   return [...repos].sort()
 })
 
@@ -143,5 +209,10 @@ function handleTasksChanged() {
 function openGitView(repo: string, hash?: string | null) {
   gitRepo.value = repo
   gitFocusHash.value = hash ?? null
+}
+
+function openHistory(containerId: string, sessionId: string) {
+  historyContainerId.value = containerId
+  historySessionId.value = sessionId
 }
 </script>

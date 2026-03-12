@@ -8,6 +8,7 @@ import {
   handleContainerClose,
   handleDashboardOpen,
   handleDashboardClose,
+  handleDashboardMessage,
   broadcastAgentUpdate,
 } from './container-routes';
 import { 
@@ -472,6 +473,8 @@ const server = Bun.serve({
       const type = (ws.data as any)?.type ?? 'stream';
       if (type === 'container') {
         handleContainerMessage(ws, message as string);
+      } else if (type === 'dashboard') {
+        handleDashboardMessage(ws, message as string);
       }
     },
 

@@ -29,10 +29,13 @@ def _setup_logging(log_file: Path) -> logging.Logger:
     fh = logging.FileHandler(log_file)
     fh.setFormatter(fmt)
     logger.addHandler(fh)
-    # Stderr handler
-    sh = logging.StreamHandler(sys.stderr)
-    sh.setFormatter(fmt)
-    logger.addHandler(sh)
+    # Stderr handler — only when stderr is a terminal; when launched by
+    # planq-daemon.sh stderr is redirected to the same log file, so adding
+    # this handler would write every line twice.
+    if sys.stderr.isatty():
+        sh = logging.StreamHandler(sys.stderr)
+        sh.setFormatter(fmt)
+        logger.addHandler(sh)
     return logger
 
 # ── Helpers needed before config ──────────────────────────────────────────────
@@ -51,19 +54,32 @@ def _run(cmd, cwd=None):
         log.debug('_run %s (cwd=%s) error: %s', cmd[0], cwd, e)
         return ''
 
+def _looks_like_container_id(name: str) -> bool:
+    """Return True if name looks like a Docker container ID (short hex hash).
+    Container IDs are typically 12 lowercase hex characters and should never
+    be used as the machine hostname."""
+    import re
+    return bool(re.fullmatch(r'[0-9a-f]{12}', name))
+
 def _get_machine_hostname():
     # Prefer the file written by setup_git_worktree_on_host.py, which records
     # the actual host machine name regardless of what localEnv:HOSTNAME resolves to
     # (localEnv:HOSTNAME is often empty on macOS or Linux hosts).
     try:
-        host_file = Path(os.environ.get('WORKSPACE_PATH', str(Path.cwd()))) / '.devcontainer' / '.sandbox-host-machine'
+        host_file = Path(os.environ.get('WORKSPACE_PATH', '/workspace')) / '.devcontainer' / '.sandbox-host-machine'
         if host_file.exists():
             name = host_file.read_text().strip()
             if name:
                 return name
     except Exception:
         pass
-    return _run(['hostname']) or 'unknown'
+    name = _run(['hostname']) or ''
+    # Reject container IDs — if hostname returned a Docker container ID, it is
+    # the container name, not the machine name.  Fall back to 'unknown' so the
+    # server does not group this container under a meaningless hex ID.
+    if name and not _looks_like_container_id(name):
+        return name
+    return 'unknown'
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -76,12 +92,37 @@ WORKSPACE_HOST_PATH = os.environ.get('WORKSPACE_HOST_PATH', str(WORKSPACE_ROOT))
 MACHINE_HOSTNAME = _get_machine_hostname()
 CONTAINER_HOSTNAME = os.environ.get('HOSTNAME', '')
 HEARTBEAT_INTERVAL = int(os.environ.get('OBSERVABILITY_HEARTBEAT_INTERVAL', '15'))
+AUTO_FETCH_ENABLED = os.environ.get('AUTO_FETCH_ENABLED', 'false').lower() == 'true'
+AUTO_FETCH_INTERVAL = int(os.environ.get('AUTO_FETCH_INTERVAL', '60'))
+AUTO_FETCH_MODE = os.environ.get('AUTO_FETCH_MODE', 'ssh')
+
+def _read_version_stamp(category: str) -> str | None:
+    """Read a version stamp from .devcontainer/versions/<category>."""
+    if not WORKSPACE_ROOT:
+        return None
+    stamp_file = os.path.join(WORKSPACE_ROOT, '.devcontainer', 'versions', category)
+    try:
+        with open(stamp_file) as f:
+            return f.read().strip()
+    except OSError:
+        return None
 
 _SANDBOX_DIR = Path.home() / '.local' / 'devcontainer-sandbox'
 _LOG_FILE = _SANDBOX_DIR / 'logs' / 'planq-daemon.log'
 _STATUS_FILE = _SANDBOX_DIR / 'planq' / 'planq-daemon.status'
 
 log = _setup_logging(_LOG_FILE)
+
+# Capture the planq-daemon stamp hash at startup — this identifies the version this
+# running process was loaded from.  After apply-daemon copies a new file, the stamp
+# on disk will differ from this value, signalling that a restart is needed.
+def _startup_daemon_stamp() -> str | None:
+    stamp = _read_version_stamp('planq-daemon')
+    if not stamp:
+        return None
+    return stamp.split()[0]  # extract hash from "<hash> <ts> planq-daemon"
+
+DAEMON_RUNNING_STAMP: str | None = _startup_daemon_stamp()
 
 # Set by SIGUSR1 to trigger an immediate heartbeat
 _immediate_heartbeat = threading.Event()
@@ -90,6 +131,10 @@ _immediate_heartbeat = threading.Event()
 # Protected by _git_known_hashes_lock.
 _git_known_hashes: list = []
 _git_known_hashes_lock = threading.Lock()
+
+# Per-submodule known hashes: { source_repo -> list[hash] }
+_submodule_known_hashes: dict = {}
+_submodule_known_hashes_lock = threading.Lock()
 
 def _handle_sigusr1(signum, frame):
     log.debug('Received SIGUSR1 — scheduling immediate heartbeat')
@@ -185,6 +230,8 @@ def _git_info():
 
     submodules = _git_submodule_info(ws)
 
+    remote_url = _run(['git', 'remote', 'get-url', 'origin'], cwd=ws)
+
     return {
         'git_branch': branch,
         'git_worktree': worktree,
@@ -195,6 +242,7 @@ def _git_info():
         'git_unstaged_count': unstaged_count,
         'git_unstaged_diffstat': unstaged_diffstat,
         'git_submodules': submodules,
+        'git_remote_url': remote_url,
     }
 
 
@@ -237,36 +285,275 @@ def _git_submodule_info(ws):
         })
     return submodules
 
+def _filter_valid_hashes(hashes, cwd):
+    """Return only hashes that actually exist in the git repo at cwd."""
+    if not hashes:
+        return []
+    try:
+        r = subprocess.run(
+            ['git', 'cat-file', '--batch-check'],
+            input='\n'.join(hashes), capture_output=True, text=True, timeout=5, cwd=cwd,
+        )
+        if r.returncode != 0:
+            return []
+        valid = []
+        for line in r.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] != 'missing':
+                valid.append(parts[0])
+        return valid
+    except Exception:
+        return []
+
+
+def _parse_git_log_line(line: str) -> dict | None:
+    """Parse a single line from --pretty=format:%H|%P|%D|%s|%an|%at."""
+    if not line.strip():
+        return None
+    parts = line.split('|')
+    if len(parts) < 4:
+        return None
+    hash_ = parts[0].strip()
+    if not hash_:
+        return None
+    parents_str = parts[1]
+    refs_str = parts[2]
+    # Author name is second-to-last, author timestamp is last
+    # Subject is everything between refs and author name (may contain '|')
+    author_ts_str = parts[-1].strip()
+    author_name = parts[-2].strip() if len(parts) >= 6 else ''
+    subject_parts = parts[3:len(parts) - 2] if len(parts) >= 6 else parts[3:]
+    subject = '|'.join(subject_parts)
+    parents = [p for p in parents_str.split() if p]
+    refs = [r.strip() for r in refs_str.split(',') if r.strip()]
+    author_date = int(author_ts_str) if author_ts_str.isdigit() else None
+    commit: dict = {'hash': hash_, 'parents': parents, 'refs': refs, 'subject': subject}
+    if author_name:
+        commit['author'] = author_name
+    if author_date:
+        commit['author_date'] = author_date
+    return commit
+
+
+def _git_diffstats(cwd: str, not_args: list) -> dict:
+    """Return {hash: diffstat_string} for new commits.
+
+    Runs git log --stat once with a COMMIT_SEP=%H sentinel so each commit's
+    file-change summary can be extracted without per-commit subprocesses.
+    """
+    raw = _run(
+        ['git', 'log', '--all', '--pretty=tformat:COMMIT_SEP=%H', '--stat',
+         '--date-order', '-n', '200'] + not_args,
+        cwd=cwd,
+    )
+    result: dict = {}
+    current_hash: str | None = None
+    stat_lines: list = []
+    for line in raw.splitlines():
+        if line.startswith('COMMIT_SEP='):
+            if current_hash is not None:
+                stat = '\n'.join(stat_lines).strip()
+                if stat:
+                    result[current_hash] = stat
+            current_hash = line[len('COMMIT_SEP='):].strip()
+            stat_lines = []
+        elif current_hash is not None and line.strip():
+            stat_lines.append(line)
+    if current_hash is not None:
+        stat = '\n'.join(stat_lines).strip()
+        if stat:
+            result[current_hash] = stat
+    return result
+
+
+def _git_log_bodies(cwd: str, not_args: list) -> dict:
+    """Return {hash: body} for commits not covered by not_args.
+
+    Uses git log -z with --format=%H%n%B so each NUL-terminated record is
+    'hash\\nbody'.  The body is the full commit message (subject + blank +
+    body paragraphs) as returned by %B.
+    """
+    raw = _run(
+        ['git', 'log', '--all', '-z', '--format=%H%n%B', '--date-order', '-n', '200'] + not_args,
+        cwd=cwd,
+    )
+    bodies: dict = {}
+    for record in raw.split('\0'):
+        record = record.strip('\n')
+        if not record.strip():
+            continue
+        nl = record.find('\n')
+        if nl < 0:
+            bodies[record.strip()] = ''
+        else:
+            hash_ = record[:nl].strip()
+            body = record[nl + 1:]
+            if hash_:
+                bodies[hash_] = body
+    return bodies
+
+
+def _git_log_for_path(cwd, known=None) -> list:
+    """Return commits for a git repo path, excluding already-known hashes."""
+    not_args = []
+    for h in _filter_valid_hashes(known or [], cwd):
+        not_args.extend(['--not', h])
+    raw = _run(
+        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s|%an|%at', '--date-order', '-n', '200'] + not_args,
+        cwd=cwd,
+    )
+    commits = []
+    for line in raw.splitlines():
+        commit = _parse_git_log_line(line)
+        if commit:
+            commits.append(commit)
+    bodies = _git_log_bodies(cwd, not_args)
+    diffstats = _git_diffstats(cwd, not_args)
+    for c in commits:
+        body = bodies.get(c['hash'], '')
+        if body.strip():
+            c['body'] = body
+        diffstat = diffstats.get(c['hash'], '')
+        if diffstat:
+            c['diffstat'] = diffstat
+    return commits
+
+
+def _git_log_for_submodules() -> dict:
+    """Return incremental git commits for each submodule, keyed by submodule source_repo."""
+    result = {}
+    ws = str(WORKSPACE_ROOT)
+    submodules = _git_submodule_info(ws)
+    with _submodule_known_hashes_lock:
+        known_snapshot = dict(_submodule_known_hashes)
+    for sub in submodules:
+        sub_path = sub.get('path', '')
+        if not sub_path:
+            continue
+        sub_abs = str(WORKSPACE_ROOT / sub_path)
+        sub_source_repo = f"{SOURCE_REPO}/{sub_path}"
+        known = known_snapshot.get(sub_source_repo, [])
+        commits = _git_log_for_path(sub_abs, known)
+        if commits:
+            result[sub_source_repo] = commits
+    return result
+
+
 def _git_log_incremental() -> list:
     """Return commits reachable from any ref that the server has not yet seen.
 
     Uses the server-acknowledged frontier hashes (_git_known_hashes) as --not
     arguments so git only walks the new portion of the DAG.
+
+    Additionally, always re-fetches the known tip commits with --no-walk so
+    that ref decorations (e.g. origin/branch after a push) stay current even
+    when no new commits exist.  The server upserts with refs = excluded.refs,
+    so stale remote-tracking refs get updated without affecting body/diffstat.
     """
     with _git_known_hashes_lock:
         known = list(_git_known_hashes)
     not_args = []
-    for h in known:
+    valid_known = _filter_valid_hashes(known, WORKSPACE_ROOT)
+    for h in valid_known:
         not_args.extend(['--not', h])
     raw = _run(
-        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'] + not_args,
+        ['git', 'log', '--all', '--pretty=format:%H|%P|%D|%s|%an|%at', '--date-order', '-n', '200'] + not_args,
         cwd=WORKSPACE_ROOT,
     )
     commits = []
     for line in raw.splitlines():
-        if not line.strip():
-            continue
-        parts = line.split('|', 3)
-        if len(parts) < 4:
-            continue
-        hash_, parents_str, refs_str, subject = parts
-        hash_ = hash_.strip()
-        if not hash_:
-            continue
-        parents = [p for p in parents_str.split() if p]
-        refs = [r.strip() for r in refs_str.split(',') if r.strip()]
-        commits.append({'hash': hash_, 'parents': parents, 'refs': refs, 'subject': subject})
+        commit = _parse_git_log_line(line)
+        if commit:
+            commits.append(commit)
+    bodies = _git_log_bodies(str(WORKSPACE_ROOT), not_args)
+    diffstats = _git_diffstats(str(WORKSPACE_ROOT), not_args)
+    for c in commits:
+        body = bodies.get(c['hash'], '')
+        if body.strip():
+            c['body'] = body
+        diffstat = diffstats.get(c['hash'], '')
+        if diffstat:
+            c['diffstat'] = diffstat
+
+    # Re-fetch known tip commits with current decorators to keep remote-tracking
+    # refs fresh after push/fetch (no body/diffstat needed — server preserves existing).
+    if valid_known:
+        seen = {c['hash'] for c in commits}
+        tip_raw = _run(
+            ['git', 'log', '--no-walk'] + valid_known +
+            ['--pretty=format:%H|%P|%D|%s|%an|%at'],
+            cwd=WORKSPACE_ROOT,
+        )
+        for line in tip_raw.splitlines():
+            tip = _parse_git_log_line(line)
+            if tip and tip['hash'] not in seen:
+                commits.append(tip)
+                seen.add(tip['hash'])
+
     return commits
+
+
+def _interhost_remote_mode() -> str | None:
+    """Return mode from .devcontainer/git-interhost-remotes-mode if present, else None."""
+    mode_file = WORKSPACE_ROOT / '.devcontainer' / 'git-interhost-remotes-mode'
+    try:
+        if mode_file.exists():
+            return mode_file.read_text().strip() or None
+    except OSError:
+        pass
+    return None
+
+
+def _http_base_url() -> str:
+    """Derive the HTTP base URL from the WebSocket SERVER_URL."""
+    from urllib.parse import urlparse
+    url = SERVER_URL.replace('wss://', 'https://').replace('ws://', 'http://')
+    parsed = urlparse(url)
+    return f'{parsed.scheme}://{parsed.netloc}'
+
+
+# Timestamp of last auto-fetch (epoch seconds); protected by lock
+_last_auto_fetch_time = 0.0
+_last_auto_fetch_lock = threading.Lock()
+
+
+def _do_auto_fetch():
+    """Poll the server for branch updates and fetch from any host with new commits."""
+    global _last_auto_fetch_time
+    mode = _interhost_remote_mode() or AUTO_FETCH_MODE
+    with _last_auto_fetch_lock:
+        since_ts = _last_auto_fetch_time
+        _last_auto_fetch_time = time.time()
+
+    try:
+        import urllib.request
+        url = f'{_http_base_url()}/dashboard/git-updates/{SOURCE_REPO}'
+        req = urllib.request.urlopen(url, timeout=5)
+        updates = json.loads(req.read().decode())
+    except Exception as e:
+        log.debug('Auto-fetch poll failed: %s', e)
+        return
+
+    did_fetch = False
+    fetched_origin = False
+    for item in updates:
+        host = item.get('host', '')
+        last_commit_at = item.get('lastCommitAt', 0) / 1000.0
+        if host == MACHINE_HOSTNAME:
+            continue
+        if last_commit_at > since_ts:
+            log.info('Auto-fetch: new commits from %s (mode=%s)', host, mode)
+            if mode == 'github':
+                if not fetched_origin:
+                    _run(['git', 'fetch', '--no-auto-gc', 'origin'], cwd=str(WORKSPACE_ROOT))
+                    fetched_origin = True
+                    did_fetch = True
+            else:
+                _run(['git', 'fetch', '--no-auto-gc', host], cwd=str(WORKSPACE_ROOT))
+                did_fetch = True
+
+    if did_fetch:
+        _immediate_heartbeat.set()
 
 
 def _compute_container_id(source_repo: str, git_worktree: str) -> str:
@@ -359,6 +646,40 @@ def _auto_test_pending() -> dict | None:
             pass
     return None
 
+def _review_state() -> dict | None:
+    """Read .claude/review-state for this worktree."""
+    ws = str(WORKSPACE_ROOT)
+    if not ws:
+        return None
+    state_file = os.path.join(ws, '.claude', 'review-state')
+    try:
+        with open(state_file) as f:
+            content = f.read()
+        data = {}
+        for line in content.splitlines():
+            if ':' in line:
+                k, _, v = line.partition(':')
+                data[k.strip()] = v.strip()
+        return data if data else None
+    except OSError:
+        return None
+
+def _test_results() -> list:
+    """Read test results from .claude/test-results/."""
+    results_dir = os.path.join(str(WORKSPACE_ROOT), '.claude', 'test-results')
+    results = []
+    if not os.path.isdir(results_dir):
+        return results
+    for fname in sorted(os.listdir(results_dir)):
+        if not fname.endswith('.json'):
+            continue
+        try:
+            with open(os.path.join(results_dir, fname)) as f:
+                results.append(json.load(f))
+        except Exception:
+            pass
+    return results
+
 # ── File relay handlers ───────────────────────────────────────────────────────
 
 def _handle_file_read(ws, msg: dict):
@@ -372,6 +693,32 @@ def _handle_file_read(ws, msg: dict):
     try:
         content = target.read_text() if target.exists() else ''
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': True, 'filename': filename, 'content': content})
+    except OSError as e:
+        _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': str(e), 'content': ''})
+
+def _handle_session_log_read(ws, msg: dict):
+    """Read a Claude session JSONL from $CLAUDE_CONFIG_DIR/projects/."""
+    session_id = msg.get('session_id', '')
+    request_id = msg.get('request_id', '')
+    if not session_id or not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
+        _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': 'invalid session_id', 'content': ''})
+        return
+    claude_config_dir = Path(os.environ.get('CLAUDE_CONFIG_DIR', '/home/node/.claude'))
+    projects_dir = claude_config_dir / 'projects'
+    try:
+        found = None
+        if projects_dir.is_dir():
+            for proj_dir in projects_dir.iterdir():
+                if proj_dir.is_dir():
+                    candidate = proj_dir / f'{session_id}.jsonl'
+                    if candidate.exists():
+                        found = candidate
+                        break
+        if found:
+            content = found.read_text()
+            _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': True, 'content': content})
+        else:
+            _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': 'session log not found', 'content': ''})
     except OSError as e:
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': str(e), 'content': ''})
 
@@ -476,6 +823,8 @@ def _run_connection():
         mtype = msg.get('type', '')
         if mtype == 'file_read':
             threading.Thread(target=_handle_file_read, args=(ws, msg), daemon=True).start()
+        elif mtype == 'session_log_read':
+            threading.Thread(target=_handle_session_log_read, args=(ws, msg), daemon=True).start()
         elif mtype == 'file_write':
             threading.Thread(target=_handle_file_write, args=(ws, msg), daemon=True).start()
         elif mtype == 'file_list':
@@ -486,6 +835,13 @@ def _run_connection():
             with _git_known_hashes_lock:
                 global _git_known_hashes
                 _git_known_hashes = msg.get('hashes', [])
+        elif mtype == 'submodule_git_known_hashes':
+            with _submodule_known_hashes_lock:
+                global _submodule_known_hashes
+                for repo, hashes in msg.get('tips', {}).items():
+                    _submodule_known_hashes[repo] = hashes
+        elif mtype == 'request_heartbeat':
+            threading.Thread(target=_send_heartbeat, args=(ws,), daemon=True).start()
 
     def on_error(ws, error):
         log.error('WebSocket error: %s', error)
@@ -518,9 +874,14 @@ def _run_connection():
 
     # Heartbeat loop
     last_beat = time.time()
+    last_auto_fetch = 0.0
     while not stop_event.is_set():
         time.sleep(1)
-        if _immediate_heartbeat.is_set() or time.time() - last_beat >= HEARTBEAT_INTERVAL:
+        now = time.time()
+        if AUTO_FETCH_ENABLED and now - last_auto_fetch >= AUTO_FETCH_INTERVAL:
+            last_auto_fetch = now
+            threading.Thread(target=_do_auto_fetch, daemon=True).start()
+        if _immediate_heartbeat.is_set() or now - last_beat >= HEARTBEAT_INTERVAL:
             _immediate_heartbeat.clear()
             _send_heartbeat(ws_app)
             last_beat = time.time()
@@ -542,6 +903,15 @@ def _send_heartbeat(ws_app):
 
     auto_test = _auto_test_pending()
     git_commits = _git_log_incremental()
+    submodule_commits = _git_log_for_submodules()
+    review = _review_state()
+
+    versions = {
+        'planq_daemon': _read_version_stamp('planq-daemon'),
+        'planq_daemon_running': DAEMON_RUNNING_STAMP,
+        'planq_shell': _read_version_stamp('planq-shell'),
+        'devcontainer': _read_version_stamp('devcontainer'),
+    }
 
     heartbeat = {
         'type': 'heartbeat',
@@ -556,6 +926,10 @@ def _send_heartbeat(ws_app):
         'active_session_ids': active_ids,
         'running_session_ids': running_ids,
         'git_commits': git_commits,
+        'submodule_commits': submodule_commits,
+        'versions': versions,
+        'review_state': review,
+        'test_results': _test_results(),
         **git,
     }
 
@@ -570,7 +944,7 @@ def _send_heartbeat(ws_app):
 
 
 def main():
-    log.info('Starting — server=%s, repo=%s', SERVER_URL, SOURCE_REPO)
+    log.info('Starting — server=%s, repo=%s, stamp=%s', SERVER_URL, SOURCE_REPO, DAEMON_RUNNING_STAMP or 'none')
     _write_status('starting')
     backoff = 5
     try:

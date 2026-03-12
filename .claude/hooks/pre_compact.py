@@ -19,11 +19,13 @@ try:
 except ImportError:
     pass  # dotenv is optional
 
+from utils.constants import LOG_BASE_DIR
+
 
 def log_pre_compact(input_data, custom_instructions):
     """Log pre-compact event to logs directory."""
     # Ensure logs directory exists
-    log_dir = Path("logs")
+    log_dir = Path(LOG_BASE_DIR)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / 'pre_compact.json'
 
@@ -58,7 +60,7 @@ def backup_transcript(transcript_path, trigger, custom_instructions=""):
             return
 
         # Create backup directory
-        backup_dir = Path("logs") / "transcript_backups"
+        backup_dir = Path(LOG_BASE_DIR) / "transcript_backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate backup filename with timestamp, trigger type, and custom_instructions

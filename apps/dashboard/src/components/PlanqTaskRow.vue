@@ -2,7 +2,7 @@
   <div class="flex flex-col">
   <div
     class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-700/50 group"
-    :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue' }"
+    :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue', 'bg-purple-900/20': task.status === 'awaiting-commit', 'bg-teal-900/20': task.status === 'awaiting-plan' }"
     draggable="true"
     @dragstart="emit('dragstart', task.id)"
     @dragenter.prevent
@@ -19,6 +19,8 @@
     <span v-if="task.status === 'done'" class="text-green-500 text-xs">✅</span>
     <span v-else-if="task.status === 'underway'" class="text-yellow-400 text-xs">⏳</span>
     <span v-else-if="task.status === 'auto-queue'" class="text-cyan-400 text-xs">⏱</span>
+    <span v-else-if="task.status === 'awaiting-commit'" class="text-purple-400 text-xs">💾</span>
+    <span v-else-if="task.status === 'awaiting-plan'" class="text-teal-400 text-xs">📋</span>
     <span v-else class="text-slate-600 text-xs">▶</span>
 
     <!-- Type badge -->
@@ -30,10 +32,16 @@
         v-if="task.filename"
         @click.stop="toggleDescPopup"
         class="hover:text-slate-100 hover:underline cursor-pointer"
-        :title="descPopupOpen ? 'Hide description' : 'Show description'"
+        :title="isOpen(task.id) ? 'Hide description' : 'Show description'"
       >{{ task.filename }}</button>
       <span v-else>{{ task.description }}</span>
-      <span v-if="task.auto_commit" class="ml-1 text-green-500 text-xs" title="Auto-commit after">⇒</span>
+      <span v-if="task.commit_mode === 'auto' || task.auto_commit" class="ml-1 text-green-500 text-xs" title="Auto-commit after">⇒</span>
+      <span v-else-if="task.commit_mode === 'stage'" class="ml-1 text-blue-400 text-xs" title="Stage-commit after (Claude stages, you commit)">⇒</span>
+      <span v-else-if="task.commit_mode === 'manual'" class="ml-1 text-orange-400 text-xs" title="Manual-commit after (you stage and commit)">⇒</span>
+      <template v-if="task.task_type === 'make-plan'">
+        <span v-if="task.plan_disposition === 'add-after'" class="ml-1 text-teal-400 text-xs" :title="task.auto_queue_plan ? 'Plan will be added after this task (auto-queued)' : 'Plan will be added after this task'">📋⇒{{ task.auto_queue_plan ? '⏱' : '' }}</span>
+        <span v-else-if="task.plan_disposition === 'add-end'" class="ml-1 text-cyan-400 text-xs" :title="task.auto_queue_plan ? 'Plan will be added to end of queue (auto-queued)' : 'Plan will be added to end of queue'">📋↓{{ task.auto_queue_plan ? '⏱' : '' }}</span>
+      </template>
     </span>
     <input
       v-else
@@ -70,31 +78,31 @@
         title="Edit description"
       >Edit</button>
 
-      <!-- Toggle auto-commit -->
+      <!-- Cycle commit mode (none → auto → stage → manual → none) -->
       <button
-        v-if="task.task_type !== 'auto-commit' && task.task_type !== 'manual-commit' && task.task_type !== 'manual-test' && task.task_type !== 'manual-task'"
-        @click="emit('toggle-auto-commit', task)"
+        v-if="task.task_type !== 'auto-commit' && task.task_type !== 'manual-commit' && task.task_type !== 'manual-test' && task.task_type !== 'manual-task' && task.status !== 'awaiting-commit'"
+        @click="emit('set-commit-mode', task, nextCommitMode(task.commit_mode))"
         class="text-xs px-1 font-mono"
-        :class="task.auto_commit ? 'text-green-400' : 'text-slate-500'"
-        :title="task.auto_commit ? 'Remove auto-commit' : 'Auto-commit after this task'"
+        :class="commitModeButtonClass"
+        :title="commitModeButtonTitle"
       >⇒</button>
 
       <!-- Toggle auto-queue -->
       <button
-        v-if="task.status === 'pending' || task.status === 'auto-queue'"
+        v-if="task.status === 'pending' || task.status === 'auto-queue' || task.status === 'awaiting-commit'"
         @click="emit('set-status', task, task.status === 'auto-queue' ? 'pending' : 'auto-queue')"
         class="text-xs px-1"
         :class="task.status === 'auto-queue' ? 'grayscale opacity-50' : ''"
         :title="task.status === 'auto-queue' ? 'Remove from auto-queue' : 'Add to auto-queue'"
       >⏱</button>
 
-      <!-- Mark underway / un-underway -->
+      <!-- Mark underway / un-underway (also from awaiting-commit/awaiting-plan to abort the wait) -->
       <button
-        v-if="task.status === 'pending' || task.status === 'underway'"
+        v-if="task.status === 'pending' || task.status === 'underway' || task.status === 'awaiting-commit' || task.status === 'awaiting-plan'"
         @click="emit('set-status', task, task.status === 'underway' ? 'pending' : 'underway')"
         class="text-xs px-1"
         :class="task.status === 'underway' ? 'text-slate-500 hover:text-slate-300' : 'text-yellow-500 hover:text-yellow-300'"
-        :title="task.status === 'underway' ? 'Mark inactive' : 'Mark underway'"
+        :title="task.status === 'awaiting-commit' ? 'Abort commit wait (mark underway)' : task.status === 'awaiting-plan' ? 'Abort plan wait (mark underway)' : task.status === 'underway' ? 'Mark inactive' : 'Mark underway'"
       >⏳</button>
 
       <!-- Mark done / pending -->
@@ -132,14 +140,14 @@
 
   <!-- Description popup (shown when filename is clicked) -->
   <div
-    v-if="descPopupOpen"
+    v-if="isOpen(task.id)"
     class="mx-2 mb-1 rounded border border-slate-700 bg-slate-900 p-2"
   >
     <div v-if="loadingDesc" class="text-xs text-slate-500">Loading…</div>
     <pre
-      v-else-if="descContent"
+      v-else-if="getCached(task.id)"
       class="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words overflow-y-auto max-h-48"
-    >{{ descContent }}</pre>
+    >{{ getCached(task.id) }}</pre>
     <div v-else class="text-xs text-slate-500 italic">No description available.</div>
   </div>
   </div>
@@ -148,6 +156,7 @@
 <script setup lang="ts">
 import { ref, nextTick, computed } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
+import { useExpandedTasks } from '../composables/useExpandedTasks'
 import type { PlanqTask } from '../types'
 
 const props = defineProps<{
@@ -159,10 +168,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'edit-file': [task: PlanqTask]
-  'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue']
+  'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan']
   'delete': [id: number]
   'update-desc': [id: number, desc: string]
-  'toggle-auto-commit': [task: PlanqTask]
+  'set-commit-mode': [task: PlanqTask, mode: 'none' | 'auto' | 'stage' | 'manual']
   'dragstart': [id: number]
   'drop': [id: number]
   'add-plan': [planFilename: string]
@@ -170,6 +179,7 @@ const emit = defineEmits<{
 }>()
 
 const { readFile } = usePlanq()
+const { isOpen, toggle, getCached, setCached } = useExpandedTasks()
 
 const editingDesc = ref(false)
 const editDesc = ref('')
@@ -187,6 +197,27 @@ const showAddPlan = computed(() =>
   && !!derivedPlanFilename.value
   && !(props.allTasks ?? []).some(t => t.task_type === 'plan' && t.filename === derivedPlanFilename.value)
 )
+
+function nextCommitMode(current: PlanqTask['commit_mode']): PlanqTask['commit_mode'] {
+  const cycle: PlanqTask['commit_mode'][] = ['none', 'auto', 'stage', 'manual']
+  return cycle[(cycle.indexOf(current) + 1) % cycle.length]
+}
+
+const commitModeButtonClass = computed(() => {
+  const mode = props.task.commit_mode ?? (props.task.auto_commit ? 'auto' : 'none')
+  if (mode === 'auto') return 'text-green-400'
+  if (mode === 'stage') return 'text-blue-400'
+  if (mode === 'manual') return 'text-orange-400'
+  return 'text-slate-500'
+})
+
+const commitModeButtonTitle = computed(() => {
+  const mode = props.task.commit_mode ?? (props.task.auto_commit ? 'auto' : 'none')
+  if (mode === 'auto') return 'Auto-commit after (click: → stage-commit)'
+  if (mode === 'stage') return 'Stage-commit after (Claude stages, you commit) (click: → manual-commit)'
+  if (mode === 'manual') return 'Manual-commit after (you stage and commit) (click: → none)'
+  return 'No commit after (click: → auto-commit)'
+})
 
 const typeBadgeClass = computed(() => ({
   'task': 'bg-blue-900/60 text-blue-300',
@@ -216,21 +247,19 @@ function saveDesc() {
 
 // ── Description popup ─────────────────────────────────────────────────────────
 
-const descPopupOpen = ref(false)
-const descContent = ref<string | null>(null)
 const loadingDesc = ref(false)
 
 async function toggleDescPopup() {
-  descPopupOpen.value = !descPopupOpen.value
-  if (!descPopupOpen.value || descContent.value !== null) return
+  toggle(props.task.id)
+  if (!isOpen(props.task.id) || getCached(props.task.id) !== undefined) return
 
   if (props.task.description) {
-    descContent.value = props.task.description
+    setCached(props.task.id, props.task.description)
     return
   }
   if (props.task.filename) {
     loadingDesc.value = true
-    descContent.value = await readFile(props.containerId, props.task.filename)
+    setCached(props.task.id, await readFile(props.containerId, props.task.filename))
     loadingDesc.value = false
   }
 }

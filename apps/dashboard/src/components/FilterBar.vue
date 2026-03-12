@@ -15,7 +15,7 @@
       @change="emit('update:hostFilter', hostFilter)"
     >
       <option value="">All hosts</option>
-      <option v-for="h in hosts" :key="h" :value="h">{{ h }}</option>
+      <option v-for="h in hosts" :key="h" :value="h">{{ alias(h) }}</option>
     </select>
 
     <select
@@ -32,6 +32,9 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useHostnameAliases } from '../composables/useHostnameAliases'
+
+const { alias } = useHostnameAliases()
 
 const props = defineProps<{
   repos: string[]

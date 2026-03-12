@@ -26,16 +26,20 @@ export interface PlanqTask {
   filename: string | null
   description: string | null
   position: number
-  status: 'pending' | 'done' | 'underway' | 'auto-queue'
+  status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan'
   auto_commit: boolean
+  commit_mode: 'none' | 'auto' | 'stage' | 'manual'
+  plan_disposition: 'manual' | 'add-after' | 'add-end'
+  auto_queue_plan: boolean
 }
 
 export interface PlanqItem {
   task_type: string
   filename: string | null
   description: string | null
-  status: 'pending' | 'done' | 'underway' | 'auto-queue'
+  status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan'
   auto_commit: boolean
+  commit_mode: 'none' | 'auto' | 'stage' | 'manual'
 }
 
 export interface AutoTestPending {
@@ -68,6 +72,8 @@ export interface ContainerWithState {
   status: 'busy' | 'idle' | 'awaiting_input' | 'offline'
   planq_tasks: PlanqTask[]
   auto_test_pending: AutoTestPending | null
+  review_state?: string | null
+  test_results?: string | null
 }
 
 export interface GitCommit {
@@ -75,6 +81,8 @@ export interface GitCommit {
   parents: string[]
   refs: string[]
   subject: string
+  author?: string
+  author_date?: number
 }
 
 export interface GitContainer {
@@ -84,18 +92,22 @@ export interface GitContainer {
   git_branch: string | null
   git_worktree: string | null
   git_commit_hash: string | null
+  parent_commit_hash?: string | null
   git_staged_count: number
   git_unstaged_count: number
   git_unstaged_diffstat: string | null
   git_staged_diffstat: string | null
   workspace_host_path: string | null
   connected: boolean
+  git_submodules?: Array<{ path: string; branch: string | null; commit_hash: string | null; commit_message?: string; staged_count: number; staged_diffstat?: string | null; unstaged_count: number; unstaged_diffstat?: string | null }>
 }
 
 export interface GitViewData {
   containers: GitContainer[]
   commits: GitCommit[]
   refsPerHost: Array<{ hash: string; host: string; localBranches: string[] }>
+  remote_url?: string | null
+  submodules?: Array<{ path: string; source_repo: string }>
 }
 
 export type DashboardMessage =
@@ -104,3 +116,4 @@ export type DashboardMessage =
   | { type: 'container_removed'; data: { id: string } }
   | { type: 'planq_update'; data: { container_id: string; tasks: PlanqTask[] } }
   | { type: 'agent_update'; data: { source_repo: string; session_id: string; status: string; last_prompt: string | null; last_response_summary: string | null } }
+  | { type: 'git_refresh_ready'; source_repo: string }

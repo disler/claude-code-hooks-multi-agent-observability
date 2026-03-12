@@ -1,6 +1,6 @@
 <template>
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="emit('close')" @keydown="onConfirmKey($event, submit)">
-    <div class="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-5 w-[32rem] flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+    <div class="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-5 min-w-[32rem] flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-semibold text-slate-200">Add Task</h3>
         <button @click="emit('close')" class="text-slate-500 hover:text-slate-300 text-sm">✕</button>
@@ -56,7 +56,7 @@
           <textarea
             v-model="description"
             rows="6"
-            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize-y min-h-24 max-h-80"
+            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize min-h-24 max-h-80"
             placeholder="Describe what Claude should do…"
           />
           <p v-if="isUnnamedMultiLine" class="text-xs text-amber-400">Multiple lines will be joined with ". " for unnamed tasks — add a filename to use a multi-line task file instead.</p>
@@ -116,7 +116,7 @@
           <textarea
             v-model="description"
             rows="4"
-            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize-y"
+            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize"
             placeholder="Design a caching layer for the API…"
           />
         </div>
@@ -159,14 +159,52 @@
         />
       </div>
 
-      <!-- Auto-commit after checkbox (for non-auto-commit and non-manual task types) -->
-      <label
-        v-if="taskType !== 'auto-commit' && taskType !== 'manual-commit' && taskType !== 'manual-test' && taskType !== 'manual-task'"
-        class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none"
+      <!-- Plan disposition selector (for make-plan type only) -->
+      <div v-if="taskType === 'make-plan'" class="flex flex-col gap-1">
+        <label class="text-xs text-slate-400">After plan is created</label>
+        <div class="flex gap-1">
+          <button
+            v-for="opt in planDispositionOptions"
+            :key="opt.value"
+            type="button"
+            @click="planDisposition = opt.value"
+            class="text-xs px-2 py-1 rounded border transition-colors"
+            :class="planDisposition === opt.value
+              ? opt.activeClass
+              : 'border-slate-600 bg-slate-700 text-slate-400 hover:bg-slate-600'"
+          >{{ opt.label }}</button>
+        </div>
+        <div v-if="planDisposition !== 'manual'" class="flex items-center gap-2 mt-1">
+          <input
+            id="auto-queue-plan"
+            v-model="autoQueuePlan"
+            type="checkbox"
+            class="rounded"
+          />
+          <label for="auto-queue-plan" class="text-xs text-slate-400">Auto-queue the added plan <span class="text-slate-500">(⏱ mark it for auto-run)</span></label>
+        </div>
+        <p v-if="planDisposition === 'manual'" class="text-xs text-slate-500">Auto-queue will pause until you add the plan to the queue manually.</p>
+      </div>
+
+      <!-- Commit mode selector (for non-auto-commit, non-manual, non-make-plan task types) -->
+      <div
+        v-if="taskType !== 'auto-commit' && taskType !== 'manual-commit' && taskType !== 'manual-test' && taskType !== 'manual-task' && taskType !== 'make-plan'"
+        class="flex flex-col gap-1"
       >
-        <input type="checkbox" v-model="autoCommitAfter" class="rounded" />
-        <span>Auto-commit after this task</span>
-      </label>
+        <label class="text-xs text-slate-400">After this task</label>
+        <div class="flex gap-1">
+          <button
+            v-for="opt in commitModeOptions"
+            :key="opt.value"
+            type="button"
+            @click="commitMode = opt.value"
+            class="text-xs px-2 py-1 rounded border transition-colors"
+            :class="commitMode === opt.value
+              ? opt.activeClass
+              : 'border-slate-600 bg-slate-700 text-slate-400 hover:bg-slate-600'"
+          >{{ opt.label }}</button>
+        </div>
+      </div>
 
       <div class="flex justify-end gap-2">
         <button
@@ -192,7 +230,7 @@ const props = defineProps<{ containerId: string }>()
 
 const emit = defineEmits<{
   close: []
-  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, autoCommitAfter?: boolean]
+  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, commitMode: 'none' | 'auto' | 'stage' | 'manual' | undefined, planDisposition?: 'manual' | 'add-after' | 'add-end', autoQueuePlan?: boolean]
 }>()
 
 const { readFile, listPlansFiles } = usePlanq()
@@ -203,7 +241,22 @@ const taskSlug = ref('')
 const planSlug = ref('')
 const makePlanSlug = ref('')
 const description = ref('')
-const autoCommitAfter = ref(false)
+const commitMode = ref<'none' | 'auto' | 'stage' | 'manual'>('none')
+const planDisposition = ref<'manual' | 'add-after' | 'add-end'>('manual')
+const autoQueuePlan = ref(false)
+
+const commitModeOptions = [
+  { value: 'none' as const, label: 'Nothing', activeClass: 'border-slate-500 bg-slate-600 text-slate-200' },
+  { value: 'auto' as const, label: '⇒ Auto-commit', activeClass: 'border-green-600 bg-green-900/50 text-green-300' },
+  { value: 'stage' as const, label: '⇒ Stage-commit', activeClass: 'border-blue-600 bg-blue-900/50 text-blue-300' },
+  { value: 'manual' as const, label: '⇒ Manual-commit', activeClass: 'border-orange-600 bg-orange-900/50 text-orange-300' },
+]
+
+const planDispositionOptions = [
+  { value: 'manual' as const, label: 'Manual review', activeClass: 'border-slate-500 bg-slate-600 text-slate-200' },
+  { value: 'add-after' as const, label: '⇒ Add after current', activeClass: 'border-teal-600 bg-teal-900/50 text-teal-300' },
+  { value: 'add-end' as const, label: '⇒ Add to end', activeClass: 'border-cyan-600 bg-cyan-900/50 text-cyan-300' },
+]
 
 const plansFiles = ref<string[]>([])
 const filePreview = ref<string | null>(null)
@@ -232,12 +285,24 @@ onMounted(async () => {
   plansFiles.value = await listPlansFiles(props.containerId)
 })
 
-// Reset slug/preview when task type changes, but preserve description
-watch(taskType, () => {
+// Reset slug/preview when task type changes; preserve description and carry slug across file-based types.
+watch(taskType, (newType, oldType) => {
+  const slugTypes = ['task', 'plan', 'make-plan']
+  let preserved = ''
+  if (slugTypes.includes(oldType)) {
+    preserved = oldType === 'task' ? taskSlug.value
+              : oldType === 'plan' ? planSlug.value
+              : makePlanSlug.value
+  }
   taskSlug.value = ''
   planSlug.value = ''
   makePlanSlug.value = ''
   filePreview.value = null
+  if (preserved && slugTypes.includes(newType)) {
+    if (newType === 'task') taskSlug.value = preserved
+    else if (newType === 'plan') planSlug.value = preserved
+    else makePlanSlug.value = preserved
+  }
 })
 
 const SLUG_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
@@ -279,27 +344,27 @@ const isValid = computed(() => {
 function submit() {
   if (!isValid.value) return
 
-  const ac = autoCommitAfter.value
+  const cm = commitMode.value
 
   if (taskType.value === 'task') {
     if (taskFilename.value) {
       const createFile = !isExistingTaskFile.value
-      emit('add', 'task', taskFilename.value, description.value.trim(), createFile, ac)
+      emit('add', 'task', taskFilename.value, description.value.trim(), createFile, cm)
     } else {
       const unnamedDesc = description.value.trim().split('\n').map(l => l.trim()).filter(Boolean).join('. ')
-      emit('add', 'unnamed-task', null, unnamedDesc, false, ac)
+      emit('add', 'unnamed-task', null, unnamedDesc, false, cm)
     }
   } else if (taskType.value === 'plan') {
-    emit('add', 'plan', planFilename.value, null, false, ac)
+    emit('add', 'plan', planFilename.value, null, false, cm)
   } else if (taskType.value === 'make-plan') {
-    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, ac)
+    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, undefined, planDisposition.value, planDisposition.value !== 'manual' ? autoQueuePlan.value : undefined)
   } else if (taskType.value === 'auto-commit') {
     const opts = description.value.trim() || null
-    emit('add', 'auto-commit', null, opts, false, false)
+    emit('add', 'auto-commit', null, opts, false, 'none')
   } else if (taskType.value === 'auto-test') {
-    emit('add', 'auto-test', null, description.value.trim(), false, ac)
+    emit('add', 'auto-test', null, description.value.trim(), false, cm)
   } else {
-    emit('add', taskType.value, null, description.value.trim(), false, ac)
+    emit('add', taskType.value, null, description.value.trim(), false, cm)
   }
   emit('close')
 }

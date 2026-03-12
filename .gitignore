@@ -264,8 +264,10 @@ ai_docs/haiku45/*
 !ai_docs/sonnet45/answers.md
 !ai_docs/haiku45/answers.md
 
-# Claude Code session data
+# Claude Code session/log data (never commit these runtime files)
 .claude/data/
+**/.claude/data/
+**/.claude/logs/
 
 
 trees/

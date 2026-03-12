@@ -65,5 +65,11 @@ export function useDashboardWs(onMessage: (msg: DashboardMessage) => void) {
     ws?.close()
   })
 
-  return { connected }
+  function send(msg: object): void {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg))
+    }
+  }
+
+  return { connected, send }
 }

@@ -57,9 +57,11 @@
           <div class="w-px bg-slate-700 self-stretch shrink-0" />
           <span class="text-xs text-slate-500">submodule</span>
           <span class="text-xs font-mono text-slate-100">{{ firstSub.path }}</span>
-          <span v-if="firstSub.branch" class="text-xs text-slate-400">
-            branch: <span class="font-mono text-cyan-400">{{ firstSub.branch }}</span>
-          </span>
+          <button
+            v-if="firstSub.branch"
+            class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+            @click="emit('open-git-view', `${container.source_repo}/${firstSub.path}`, firstSub.commit_hash)"
+          >branch: <span class="font-mono text-cyan-400">{{ firstSub.branch }}</span></button>
         </div>
 
         <!-- Row 3, Col 1: main repo commit -->
@@ -81,7 +83,10 @@
           class="flex items-center gap-2 flex-wrap"
           style="grid-row: 3; grid-column: 2"
         >
-          <span class="text-xs font-mono text-slate-400">{{ firstSub.commit_hash }}</span>
+          <button
+            class="text-xs font-mono text-slate-400 hover:text-slate-200 cursor-pointer"
+            @click="emit('open-git-view', `${container.source_repo}/${firstSub.path}`, firstSub.commit_hash)"
+          >{{ firstSub.commit_hash }}</button>
           <span class="text-xs text-slate-400 truncate max-w-xs">{{ firstSub.commit_message }}</span>
         </div>
 
@@ -140,12 +145,17 @@
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-xs text-slate-500">submodule</span>
                   <span class="text-xs font-mono text-slate-100">{{ sub.path }}</span>
-                  <span v-if="sub.branch" class="text-xs text-slate-400">
-                    branch: <span class="font-mono text-cyan-400">{{ sub.branch }}</span>
-                  </span>
+                  <button
+                    v-if="sub.branch"
+                    class="text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+                    @click="emit('open-git-view', `${container.source_repo}/${sub.path}`, sub.commit_hash)"
+                  >branch: <span class="font-mono text-cyan-400">{{ sub.branch }}</span></button>
                 </div>
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-xs font-mono text-slate-400">{{ sub.commit_hash }}</span>
+                  <button
+                    class="text-xs font-mono text-slate-400 hover:text-slate-200 cursor-pointer"
+                    @click="emit('open-git-view', `${container.source_repo}/${sub.path}`, sub.commit_hash)"
+                  >{{ sub.commit_hash }}</button>
                   <span class="text-xs text-slate-400 truncate max-w-xs">{{ sub.commit_message }}</span>
                 </div>
                 <div v-if="container.connected" class="flex items-center gap-3">
@@ -216,6 +226,7 @@
         :explicitly-hidden="isExplicitlyHidden(session.session_id)"
         @hide="hideSession(session.session_id)"
         @unhide="unhideSession(session.session_id)"
+        @open-history="emit('open-history', container.id, session.session_id)"
       />
       <!-- show/hide hidden sessions toggle -->
       <div v-if="hiddenSessionCount > 0" class="mt-0.5 pl-3">
@@ -226,6 +237,14 @@
       </div>
     </div>
     <div v-else-if="container.connected" class="mt-2 text-xs text-slate-600 italic">No active sessions</div>
+
+    <!-- Prompt History link -->
+    <div v-if="container.sessions.length > 0" class="mt-1">
+      <button
+        class="text-xs text-slate-600 hover:text-slate-400 transition-colors"
+        @click="emit('open-history', container.id, container.sessions[0].session_id)"
+      >Prompt History</button>
+    </div>
 
     <!-- Planq panel -->
     <PlanqPanel
@@ -255,6 +274,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'tasks-changed': []
   'open-git-view': [repo: string, hash?: string | null]
+  'open-history': [containerId: string, sessionId: string]
 }>()
 
 // ── Session hiding ────────────────────────────────────────────────────────────
