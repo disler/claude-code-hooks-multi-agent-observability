@@ -18,7 +18,7 @@
             v-model="selectedHost"
             class="text-xs text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 cursor-pointer"
           >
-            <option v-for="h in allHosts" :key="h" :value="h">{{ h }}</option>
+            <option v-for="h in allHosts" :key="h" :value="h">{{ alias(h) }}</option>
           </select>
 
           <!-- Repo filter -->
@@ -161,6 +161,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { API_BASE } from "../config";
+import { useHostnameAliases } from "../composables/useHostnameAliases";
 import type { ContainerWithState } from "../types";
 
 const props = defineProps<{
@@ -170,6 +171,8 @@ const props = defineProps<{
 }>();
 
 defineEmits<{ close: [] }>();
+
+const { alias } = useHostnameAliases();
 
 const loading = ref(false);
 const error = ref("");
