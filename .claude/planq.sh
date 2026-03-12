@@ -1619,6 +1619,33 @@ cmd_daemon() {
     "$daemon_sh" "${1:-status}" "${@:2}"
 }
 
+cmd_logs() {
+    _has_help_flag "$@" && { usage_logs; return 0; }
+    local log_file="$HOME/.local/devcontainer-sandbox/logs/planq-daemon.log"
+    local do_cat=0 do_follow=0 lines=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -c)       do_cat=1; shift ;;
+            -f)       do_follow=1; shift ;;
+            -n)       lines="${2:?'-n requires a number'}"; shift 2 ;;
+            -n*)      lines="${1#-n}"; shift ;;
+            --help|-h) usage_logs; return 0 ;;
+            *) echo "Unknown option: $1" >&2; usage_logs >&2; exit 1 ;;
+        esac
+    done
+    if [ ! -f "$log_file" ]; then
+        echo "Log file not found: $log_file" >&2
+        exit 1
+    fi
+    if [ "$do_cat" -eq 1 ]; then
+        cat "$log_file"
+    elif [ "$do_follow" -eq 1 ]; then
+        tail -f ${lines:+-n "$lines"} "$log_file"
+    else
+        tail ${lines:+-n "$lines"} "$log_file"
+    fi
+}
+
 usage_list()   { echo "Usage: planq list [-a|--archive]"; echo "  List all tasks with status, or list the archive with -a."; }
 usage_show()   { echo "Usage: planq show [-a|--archive] [N]"; echo "  Show the next pending task, or task #N if given. Use -a for archive entries."; }
 usage_archive() {
@@ -1662,6 +1689,14 @@ usage_auto()   {
 }
 usage_delete() { echo "Usage: planq delete <N>"; echo "  Delete task #N from the planq file."; }
 usage_daemon() { echo "Usage: planq daemon [start|stop|restart|status]"; echo "  Manage the planq WebSocket daemon (default: status)."; }
+usage_logs()   {
+    echo "Usage: planq logs [-c] [-f] [-n <N>]"
+    echo "  Show the planq daemon log file."
+    echo "  -c        Cat the whole log file."
+    echo "  -f        Follow the log (tail -f)."
+    echo "  -n <N>    Show last N lines (default: tail default)."
+    echo "  With no options: tail the last 10 lines."
+}
 
 usage() {
     echo "Usage: planq.sh <subcommand> [options]"
@@ -1676,6 +1711,7 @@ usage() {
     echo "  delete  / x <N>                                Delete task #N"
     echo "  archive / a [N|…] [--unarchive|-U <N|…>]      Archive done tasks; -a flag on list/show for archive"
     echo "  daemon  / d [start|stop|restart|status]        Manage the planq WebSocket daemon"
+  echo "  logs    / L [-c] [-f] [-n <N>]                Show daemon log (default: tail)"
     echo "  shell   / sh                                   Interactive planq REPL"
     echo ""
     echo "Task types:"
@@ -1734,6 +1770,7 @@ case "$SUBCMD" in
     delete|x)            cmd_delete "$@" ;;
     archive|a)           cmd_archive "$@" ;;
     daemon|d)            cmd_daemon "$@" ;;
+    logs|L)              cmd_logs "$@" ;;
     review)              shift; cmd_review "$@" ;;
     shell|sh)            exec bash "$SCRIPT_DIR/planq-shell.sh" "$@" ;;
     --help|-h|help|"")   usage ;;
