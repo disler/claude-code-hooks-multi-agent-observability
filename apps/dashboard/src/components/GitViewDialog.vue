@@ -104,8 +104,9 @@
 
       <!-- Body -->
       <div class="flex-1 overflow-auto p-4">
-        <div v-if="loading" class="text-xs text-slate-500 italic">Loading…</div>
-        <div v-else-if="error" class="text-xs text-red-400">{{ error }}</div>
+        <!-- Show loading/error only on initial load (no data yet); during refreshes keep graph mounted -->
+        <div v-if="loading && !gitData" class="text-xs text-slate-500 italic">Loading…</div>
+        <div v-else-if="error && !gitData" class="text-xs text-red-400">{{ error }}</div>
         <template v-else-if="gitData">
           <GitGraphView
             v-if="mode === 'graph'"
@@ -340,6 +341,13 @@ async function selectHash(hash: string) {
 }
 
 async function handleSwitchToGraph(hash: string) {
+  if (isSubmoduleInListMode.value) {
+    // Commits in the list are from the parent repo (fetchRepo = parentRepo in submodule list mode).
+    // Switch back to the parent graph view so the hash can actually be found.
+    mode.value = 'graph'
+    emit('switch-repo', parentRepo.value, hash)
+    return
+  }
   mode.value = 'graph'
   await nextTick()
   const fullHash = gitData.value?.commits.find((cm: any) => cm.hash.startsWith(hash) || hash.startsWith(cm.hash))?.hash ?? hash
@@ -356,9 +364,21 @@ async function handleSwitchToGraphSub(subPath: string, _hash: string) {
   }
 }
 
-function jumpToSubmodule(subPath: string, _commitHash: string | null) {
+async function jumpToSubmodule(subPath: string, _commitHash: string | null) {
   const subRepo = _resolveSubmoduleRepo(subPath)
-  if (subRepo) emit('switch-repo', subRepo, _commitHash)
+  if (!subRepo) return
+  if (subRepo === props.sourceRepo) {
+    // Already in this submodule — scroll directly without a repo switch (which would be a no-op
+    // on props.sourceRepo, so the watcher wouldn't fire and load() wouldn't run).
+    if (_commitHash) {
+      const fullHash = gitData.value?.commits.find(cm => cm.hash.startsWith(_commitHash) || _commitHash.startsWith(cm.hash))?.hash ?? _commitHash
+      if (selectedHash.value !== fullHash) await selectHash(fullHash)
+      await nextTick()
+      if (mode.value === 'graph') graphRef.value?.scrollToHash(fullHash)
+    }
+    return
+  }
+  emit('switch-repo', subRepo, _commitHash)
 }
 
 // Resolve a submodule path to its source_repo.
