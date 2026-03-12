@@ -601,6 +601,21 @@ export function handleDashboardClose(ws: any): void {
 
 // ── File relay helpers ────────────────────────────────────────────────────────
 
+async function relaySessionLogRead(containerId: string, sessionId: string): Promise<string> {
+  const ws = containerWsMap.get(containerId);
+  if (!ws) throw new Error('Container offline');
+
+  const requestId = crypto.randomUUID();
+  return new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingFileRequests.delete(requestId);
+      reject(new Error('Session log read timeout'));
+    }, 15_000);
+    pendingFileRequests.set(requestId, { resolve, reject, timer });
+    ws.send(JSON.stringify({ type: 'session_log_read', request_id: requestId, session_id: sessionId }));
+  });
+}
+
 async function relayFileRead(containerId: string, filename: string): Promise<string> {
   const ws = containerWsMap.get(containerId);
   if (!ws) throw new Error('Container offline');
@@ -1051,14 +1066,12 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const containerId = decodeURIComponent(parts[3]);
     const sessionId = decodeURIComponent(parts[4]);
     if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return err('Invalid session ID', 400);
-    const container = getContainer(containerId);
-    if (!container?.workspace_host_path) return err('Container not found', 404);
-    const logPath = `${container.workspace_host_path}/.claude/logs/${sessionId}.jsonl`;
+    if (!getContainer(containerId)) return err('Container not found', 404);
     try {
-      const content = await Bun.file(logPath).text();
+      const content = await relaySessionLogRead(containerId, sessionId);
       return json({ content });
-    } catch {
-      return err('Log file not found', 404);
+    } catch (e: any) {
+      return err(e.message || 'Session log not found', 503);
     }
   }
 

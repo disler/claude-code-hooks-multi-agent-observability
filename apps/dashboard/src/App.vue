@@ -54,8 +54,9 @@
     <!-- Prompt History Dialog -->
     <PromptHistoryDialog
       v-if="historyContainerId && historySessionId"
-      :container-id="historyContainerId"
-      :session-id="historySessionId"
+      :containers="[...containers.values()]"
+      :initial-container-id="historyContainerId"
+      :initial-session-id="historySessionId"
       @close="historyContainerId = null; historySessionId = null"
     />
 

@@ -515,6 +515,32 @@ def _handle_file_read(ws, msg: dict):
     except OSError as e:
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': str(e), 'content': ''})
 
+def _handle_session_log_read(ws, msg: dict):
+    """Read a Claude session JSONL from $CLAUDE_CONFIG_DIR/projects/."""
+    session_id = msg.get('session_id', '')
+    request_id = msg.get('request_id', '')
+    if not session_id or not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
+        _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': 'invalid session_id', 'content': ''})
+        return
+    claude_config_dir = Path(os.environ.get('CLAUDE_CONFIG_DIR', '/home/node/.claude'))
+    projects_dir = claude_config_dir / 'projects'
+    try:
+        found = None
+        if projects_dir.is_dir():
+            for proj_dir in projects_dir.iterdir():
+                if proj_dir.is_dir():
+                    candidate = proj_dir / f'{session_id}.jsonl'
+                    if candidate.exists():
+                        found = candidate
+                        break
+        if found:
+            content = found.read_text()
+            _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': True, 'content': content})
+        else:
+            _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': 'session log not found', 'content': ''})
+    except OSError as e:
+        _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': str(e), 'content': ''})
+
 def _handle_file_write(ws, msg: dict):
     filename = msg.get('filename', '')
     request_id = msg.get('request_id', '')
@@ -616,6 +642,8 @@ def _run_connection():
         mtype = msg.get('type', '')
         if mtype == 'file_read':
             threading.Thread(target=_handle_file_read, args=(ws, msg), daemon=True).start()
+        elif mtype == 'session_log_read':
+            threading.Thread(target=_handle_session_log_read, args=(ws, msg), daemon=True).start()
         elif mtype == 'file_write':
             threading.Thread(target=_handle_file_write, args=(ws, msg), daemon=True).start()
         elif mtype == 'file_list':

@@ -10,21 +10,39 @@
       <div
         class="flex items-center justify-between px-4 pt-3 pb-2 border-b border-slate-700 shrink-0"
       >
-        <div class="flex items-center gap-3">
-          <span class="text-sm font-semibold text-slate-400"
-            >Session History</span
+        <div class="flex items-center gap-3 flex-wrap">
+          <span class="text-sm font-semibold text-slate-400">Prompt History</span>
+
+          <!-- Host filter -->
+          <select
+            v-model="selectedHost"
+            class="text-xs text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 cursor-pointer"
           >
-          <span class="text-sm font-mono text-slate-200">{{
-            sessionId.slice(0, 8)
-          }}</span>
-          <span v-if="loading" class="text-xs text-slate-500 italic"
-            >Loading…</span
+            <option v-for="h in allHosts" :key="h" :value="h">{{ h }}</option>
+          </select>
+
+          <!-- Repo filter -->
+          <select
+            v-model="selectedRepo"
+            class="text-xs text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 cursor-pointer"
           >
-          <span v-else class="text-xs text-slate-500"
-            >{{ promptBlocks.length }} prompt{{
-              promptBlocks.length !== 1 ? "s" : ""
-            }}</span
+            <option v-for="r in availableRepos" :key="r" :value="r">{{ r.split('/').pop() }}</option>
+          </select>
+
+          <!-- Session filter -->
+          <select
+            v-model="selectedSessionId"
+            class="text-xs text-slate-200 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 cursor-pointer font-mono"
           >
+            <option v-for="s in availableSessions" :key="s.session_id" :value="s.session_id">
+              {{ s.session_id.slice(0, 8) }}{{ s.status ? ' · ' + s.status : '' }}
+            </option>
+          </select>
+
+          <span v-if="loading" class="text-xs text-slate-500 italic">Loading…</span>
+          <span v-else-if="selectedSessionId" class="text-xs text-slate-500">
+            {{ promptBlocks.length }} prompt{{ promptBlocks.length !== 1 ? "s" : "" }}
+          </span>
         </div>
         <div class="flex items-center gap-3">
           <!-- Prompt navigation -->
@@ -40,9 +58,7 @@
             >
               ↑
             </button>
-            <span
-              >{{ currentPromptIndex + 1 }} / {{ promptBlocks.length }}</span
-            >
+            <span>{{ currentPromptIndex + 1 }} / {{ promptBlocks.length }}</span>
             <button
               @click="nextPrompt"
               :disabled="currentPromptIndex >= promptBlocks.length - 1"
@@ -79,10 +95,7 @@
             class="rounded-lg bg-slate-800/80 border border-slate-600 px-4 py-3"
           >
             <div class="flex items-center justify-between mb-2">
-              <span
-                class="text-xs font-semibold text-slate-400 uppercase tracking-wide"
-                >User</span
-              >
+              <span class="text-xs font-semibold text-slate-400 uppercase tracking-wide">User</span>
               <button
                 @click="copyText(block.text)"
                 class="text-xs text-slate-600 hover:text-slate-300 transition-colors"
@@ -91,18 +104,13 @@
                 copy
               </button>
             </div>
-            <pre
-              class="text-sm text-slate-100 whitespace-pre-wrap font-sans leading-relaxed"
-              >{{ block.text }}</pre
-            >
+            <pre class="text-sm text-slate-100 whitespace-pre-wrap font-sans leading-relaxed">{{ block.text }}</pre>
           </div>
 
           <!-- Assistant response block -->
           <div v-else-if="block.role === 'assistant'" class="px-4 py-2">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-xs text-slate-500 uppercase tracking-wide"
-                >Assistant</span
-              >
+              <span class="text-xs text-slate-500 uppercase tracking-wide">Assistant</span>
               <button
                 @click="copyText(block.text)"
                 class="text-xs text-slate-600 hover:text-slate-300 transition-colors"
@@ -111,10 +119,7 @@
                 copy
               </button>
             </div>
-            <pre
-              class="text-sm text-slate-300 whitespace-pre-wrap font-sans leading-relaxed"
-              >{{ block.text }}</pre
-            >
+            <pre class="text-sm text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">{{ block.text }}</pre>
           </div>
 
           <!-- Tool use block -->
@@ -123,9 +128,7 @@
             class="pl-4 border-l-2 border-slate-700 py-1"
           >
             <div class="flex items-center gap-2 mb-1">
-              <span class="text-xs text-slate-600 font-mono">{{
-                block.toolName
-              }}</span>
+              <span class="text-xs text-slate-600 font-mono">{{ block.toolName }}</span>
               <button
                 v-if="block.text"
                 @click="copyText(block.text)"
@@ -138,15 +141,17 @@
             <pre
               v-if="block.text"
               class="text-xs text-slate-500 whitespace-pre-wrap font-mono max-h-40 overflow-y-auto"
-              >{{ block.text }}</pre
-            >
+            >{{ block.text }}</pre>
           </div>
         </template>
         <div
-          v-if="!loading && renderBlocks.length === 0 && !error"
+          v-if="!loading && renderBlocks.length === 0 && !error && selectedSessionId"
           class="text-xs text-slate-500 italic"
         >
           No messages found.
+        </div>
+        <div v-if="!selectedSessionId" class="text-xs text-slate-500 italic">
+          No sessions available.
         </div>
       </div>
     </div>
@@ -154,21 +159,95 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { API_BASE } from "../config";
+import type { ContainerWithState } from "../types";
 
 const props = defineProps<{
-  containerId: string;
-  sessionId: string;
+  containers: ContainerWithState[];
+  initialContainerId: string;
+  initialSessionId: string;
 }>();
 
 defineEmits<{ close: [] }>();
 
-const loading = ref(true);
+const loading = ref(false);
 const error = ref("");
 const rawLines = ref<any[]>([]);
 const scrollContainer = ref<HTMLElement | null>(null);
 const currentPromptIndex = ref(0);
+
+// ── Filter state ──────────────────────────────────────────────────────────────
+
+// Find the initial container to seed defaults
+const initialContainer = computed(() =>
+  props.containers.find(c => c.id === props.initialContainerId)
+);
+
+const selectedHost = ref(initialContainer.value?.machine_hostname ?? '');
+const selectedRepo = ref(initialContainer.value?.source_repo ?? '');
+const selectedSessionId = ref(props.initialSessionId);
+
+// ── Dropdown options ──────────────────────────────────────────────────────────
+
+const allHosts = computed(() => {
+  const hosts = new Set<string>();
+  for (const c of props.containers) hosts.add(c.machine_hostname);
+  return [...hosts].sort();
+});
+
+const availableRepos = computed(() => {
+  const repos = new Set<string>();
+  for (const c of props.containers) {
+    if (!selectedHost.value || c.machine_hostname === selectedHost.value) {
+      repos.add(c.source_repo);
+    }
+  }
+  return [...repos].sort();
+});
+
+interface SessionOption {
+  session_id: string;
+  container_id: string;
+  status: string;
+}
+
+const availableSessions = computed((): SessionOption[] => {
+  const sessions: SessionOption[] = [];
+  for (const c of props.containers) {
+    if (selectedHost.value && c.machine_hostname !== selectedHost.value) continue;
+    if (selectedRepo.value && c.source_repo !== selectedRepo.value) continue;
+    for (const s of c.sessions) {
+      sessions.push({ session_id: s.session_id, container_id: c.id, status: s.status });
+    }
+  }
+  // Sort: most recently active first (by position in sessions array which is already sorted)
+  return sessions;
+});
+
+// Container that owns the currently selected session
+const activeContainerId = computed(() => {
+  return availableSessions.value.find(s => s.session_id === selectedSessionId.value)?.container_id
+    ?? props.initialContainerId;
+});
+
+// ── Cascade resets when filters change ───────────────────────────────────────
+
+watch(selectedHost, () => {
+  // Reset repo if it's not in the new host's repos
+  if (!availableRepos.value.includes(selectedRepo.value)) {
+    selectedRepo.value = availableRepos.value[0] ?? '';
+  }
+});
+
+watch(availableSessions, (sessions) => {
+  // Reset session if it's not in the new session list
+  if (!sessions.find(s => s.session_id === selectedSessionId.value)) {
+    selectedSessionId.value = sessions[0]?.session_id ?? '';
+  }
+});
+
+// ── Data loading ──────────────────────────────────────────────────────────────
 
 interface RenderBlock {
   role: "user" | "assistant" | "tool";
@@ -177,7 +256,6 @@ interface RenderBlock {
   promptIndex?: number;
 }
 
-// Parse JSONL into render blocks
 const renderBlocks = computed((): RenderBlock[] => {
   const blocks: RenderBlock[] = [];
   let promptCount = 0;
@@ -192,16 +270,12 @@ const renderBlocks = computed((): RenderBlock[] => {
         blocks.push({ role: "user", text, promptIndex: promptCount++ });
       }
     } else if (type === "assistant" && msg?.role === "assistant") {
-      // Collect text parts and tool_use parts
       const content = Array.isArray(msg.content) ? msg.content : [];
       for (const part of content) {
         if (part.type === "text" && part.text?.trim()) {
           blocks.push({ role: "assistant", text: part.text });
         } else if (part.type === "tool_use") {
-          // Format tool input as compact JSON
-          const inputText = part.input
-            ? formatToolInput(part.name, part.input)
-            : "";
+          const inputText = part.input ? formatToolInput(part.name, part.input) : "";
           blocks.push({ role: "tool", text: inputText, toolName: part.name });
         }
       }
@@ -211,7 +285,6 @@ const renderBlocks = computed((): RenderBlock[] => {
   return blocks;
 });
 
-// Prompt blocks only (for navigation)
 const promptBlocks = computed(() =>
   renderBlocks.value.filter((b) => b.role === "user"),
 );
@@ -228,7 +301,6 @@ function extractText(content: any): string {
 }
 
 function formatToolInput(name: string, input: any): string {
-  // For bash/write/edit tools show key fields concisely
   if (name === "Bash" && input.command) return input.command;
   if (name === "Write" && input.file_path)
     return `${input.file_path}\n${(input.content ?? "").slice(0, 200)}${(input.content ?? "").length > 200 ? "…" : ""}`;
@@ -246,12 +318,13 @@ function formatToolInput(name: string, input: any): string {
 }
 
 async function load() {
+  if (!selectedSessionId.value || !activeContainerId.value) return;
   loading.value = true;
   error.value = "";
   rawLines.value = [];
   try {
     const res = await fetch(
-      `${API_BASE}/dashboard/session-log/${encodeURIComponent(props.containerId)}/${encodeURIComponent(props.sessionId)}`,
+      `${API_BASE}/dashboard/session-log/${encodeURIComponent(activeContainerId.value)}/${encodeURIComponent(selectedSessionId.value)}`,
     );
     if (!res.ok) {
       error.value = `Failed to load log (${res.status})`;
@@ -269,7 +342,6 @@ async function load() {
         }
       })
       .filter(Boolean);
-    // Jump to last prompt after load
     await nextTick();
     if (promptBlocks.value.length > 0) {
       currentPromptIndex.value = promptBlocks.value.length - 1;
@@ -281,6 +353,11 @@ async function load() {
     loading.value = false;
   }
 }
+
+watch(selectedSessionId, () => {
+  currentPromptIndex.value = 0;
+  load();
+});
 
 function scrollToPrompt(idx: number) {
   const el = scrollContainer.value?.querySelector(`#prompt-${idx}`);
@@ -320,7 +397,6 @@ async function copyText(text: string) {
   }
 }
 
-// Global keyboard handler for Escape
 function onGlobalKey(e: KeyboardEvent) {
   if (e.key === "ArrowUp") prevPrompt();
   if (e.key === "ArrowDown") nextPrompt();

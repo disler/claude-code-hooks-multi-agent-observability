@@ -238,6 +238,14 @@
     </div>
     <div v-else-if="container.connected" class="mt-2 text-xs text-slate-600 italic">No active sessions</div>
 
+    <!-- Prompt History link -->
+    <div v-if="container.sessions.length > 0" class="mt-1">
+      <button
+        class="text-xs text-slate-600 hover:text-slate-400 transition-colors"
+        @click="emit('open-history', container.id, container.sessions[0].session_id)"
+      >Prompt History</button>
+    </div>
+
     <!-- Planq panel -->
     <PlanqPanel
       :container-id="container.id"
