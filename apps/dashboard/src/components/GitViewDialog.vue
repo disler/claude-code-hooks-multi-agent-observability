@@ -377,12 +377,8 @@ function _resolveSubmoduleRepo(subPath: string): string | null {
 
 async function jumpToContainer(c: GitContainer) {
   if (!c.git_commit_hash) return
-  // If we're in submodule view, container chips belong to the parent repo — switch back.
-  if (isSubmoduleRepo(props.sourceRepo) && c.parent_commit_hash) {
-    emit('switch-repo', parentRepo.value, c.parent_commit_hash)
-    return
-  }
-  // Resolve short hash (from daemon %h) to full hash used in the commit graph
+  // Resolve short hash (from daemon %h) to full hash used in the commit graph.
+  // In submodule view, git_commit_hash has already been remapped to the submodule's hash by the server.
   const fullHash = gitData.value?.commits.find(cm => cm.hash.startsWith(c.git_commit_hash!))?.hash ?? c.git_commit_hash
   await selectHash(fullHash)
   await nextTick()
@@ -393,8 +389,9 @@ async function jumpToContainer(c: GitContainer) {
   }
 }
 
-watch(() => props.sourceRepo, load, { immediate: true })
-watch(fetchRepo, (newRepo, oldRepo) => { if (newRepo !== oldRepo) load() })
+// Single watcher on fetchRepo covers both sourceRepo changes and isSubmoduleInListMode
+// toggling (list↔graph on a submodule), avoiding double-load when both change at once.
+watch(fetchRepo, load, { immediate: true })
 
 // When the server signals that containers have sent fresh heartbeats, re-fetch HTTP data
 watch(() => props.gitRefreshSignal, (newVal, oldVal) => {
