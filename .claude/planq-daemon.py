@@ -98,9 +98,9 @@ AUTO_FETCH_MODE = os.environ.get('AUTO_FETCH_MODE', 'ssh')
 
 def _read_version_stamp(category: str) -> str | None:
     """Read a version stamp from .devcontainer/versions/<category>."""
-    if not WORKSPACE_HOST_PATH:
+    if not WORKSPACE_ROOT:
         return None
-    stamp_file = os.path.join(WORKSPACE_HOST_PATH, '.devcontainer', 'versions', category)
+    stamp_file = os.path.join(WORKSPACE_ROOT, '.devcontainer', 'versions', category)
     try:
         with open(stamp_file) as f:
             return f.read().strip()
