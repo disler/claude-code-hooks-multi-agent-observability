@@ -1138,8 +1138,25 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     // Per-host local branch data (from DB for primary path, from fallback for direct git log)
     const dbRefs = getGitCommitRefs(repo);
+
+    // Only show branch@host badges for commits where a container currently exists on that host.
+    // This prevents stale badges from appearing at old commit positions after container rebuilds.
+    const currentPositions = new Map<string, Set<string>>(); // host → Set of short commit hashes
+    for (const c of allContainers) {
+      if (!c.git_commit_hash) continue;
+      if (!currentPositions.has(c.machine_hostname)) currentPositions.set(c.machine_hostname, new Set());
+      currentPositions.get(c.machine_hostname)!.add(c.git_commit_hash);
+    }
+
     const refsPerHost = dbRefs.length > 0
-      ? dbRefs.map(r => ({ hash: r.hash, host: r.machine_hostname, localBranches: extractLocalBranches(r.refs) }))
+      ? dbRefs
+          .filter(r => {
+            const hashes = currentPositions.get(r.machine_hostname);
+            if (!hashes) return false;
+            // Support short hashes from containers (7-8 chars) vs full hashes in DB
+            return [...hashes].some(h => r.hash.startsWith(h) || h.startsWith(r.hash));
+          })
+          .map(r => ({ hash: r.hash, host: r.machine_hostname, localBranches: extractLocalBranches(r.refs) }))
           .filter(r => r.localBranches.length > 0)
       : fallbackRefsPerHost;
 
