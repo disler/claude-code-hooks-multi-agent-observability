@@ -922,12 +922,25 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
           const p = submodulePath ? `${c.workspace_host_path}/${submodulePath}` : c.workspace_host_path;
           return p === wpath;
         })?.machine_hostname ?? 'unknown';
-        const proc = Bun.spawn(
-          ['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s|%an|%at', '--date-order', '-n', '200'],
-          { stdout: 'pipe', stderr: 'ignore' }
-        );
-        const text = await new Response(proc.stdout).text().catch(() => '');
-        await proc.exited;
+        const [procMeta, procBody] = [
+          Bun.spawn(['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s|%an|%at', '--date-order', '-n', '200'], { stdout: 'pipe', stderr: 'ignore' }),
+          Bun.spawn(['git', '-C', wpath, 'log', '--all', '-z', '--format=%H%n%B', '--date-order', '-n', '200'], { stdout: 'pipe', stderr: 'ignore' }),
+        ];
+        const [text, bodyText] = await Promise.all([
+          new Response(procMeta.stdout).text().catch(() => ''),
+          new Response(procBody.stdout).text().catch(() => ''),
+        ]);
+        await Promise.all([procMeta.exited, procBody.exited]);
+        const bodyMap = new Map<string, string>();
+        for (const record of bodyText.split('\0')) {
+          const stripped = record.replace(/^\n+/, '');
+          if (!stripped.trim()) continue;
+          const nl = stripped.indexOf('\n');
+          if (nl < 0) continue;
+          const bHash = stripped.slice(0, nl).trim();
+          const body = stripped.slice(nl + 1);
+          if (bHash && body.trim()) bodyMap.set(bHash, body);
+        }
         const hostRefMap = new Map<string, string[]>();
         for (const line of text.split('\n')) {
           if (!line.trim()) continue;
@@ -946,7 +959,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
             const ex = commitMap.get(h)!;
             commitMap.set(h, { ...ex, refs: [...new Set([...ex.refs, ...refs])] });
           } else {
-            commitMap.set(h, { hash: h, parents, refs, subject, author: authorName || undefined, author_date: authorTs });
+            const body = bodyMap.get(h);
+            commitMap.set(h, { hash: h, parents, refs, subject, author: authorName || undefined, author_date: authorTs, body: body?.trim() || undefined });
           }
           hostRefMap.set(h, [...(hostRefMap.get(h) ?? []), ...refs]);
         }
@@ -1013,19 +1027,34 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const cached = gitShowCache.get(hash);
     if (cached !== undefined) return json(cached);
 
+    // Body: prefer what the daemon stored in the DB (works even when server has no filesystem access)
+    const storedCommits = getGitCommits(repo);
+    const storedCommit = storedCommits.find(c => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash));
+    const storedMessage = storedCommit?.body?.trim() ?? null;
+
     const allContainers = getAllContainers().filter(c => c.source_repo === repo && c.workspace_host_path);
     const wpath = allContainers[0]?.workspace_host_path;
+    if (!wpath && storedMessage !== null) {
+      // No local git access but we have the stored message; can't get diffstat
+      const result = { diffstat: '', message: storedMessage };
+      gitShowCache.set(hash, result);
+      return json(result);
+    }
     if (!wpath) return json({ diffstat: '', message: '' });
 
-    const [procDiff, procMsg] = [
-      Bun.spawn(['git', '-C', wpath!, 'diff-tree', '--no-commit-id', '-r', '--stat', hash], { stdout: 'pipe', stderr: 'ignore' }),
-      Bun.spawn(['git', '-C', wpath!, 'log', '-1', '--format=%B', hash], { stdout: 'pipe', stderr: 'ignore' }),
-    ];
-    const [diffstat, message] = await Promise.all([
-      new Response(procDiff.stdout).text().catch(() => ''),
-      new Response(procMsg.stdout).text().catch(() => ''),
-    ]);
-    await Promise.all([procDiff.exited, procMsg.exited]);
+    // Always run diffstat fresh (can't be pre-stored); message: use stored if available, else git fallback
+    const procDiff = Bun.spawn(['git', '-C', wpath!, 'diff-tree', '--no-commit-id', '-r', '--stat', hash], { stdout: 'pipe', stderr: 'ignore' });
+    const diffstatPromise = new Response(procDiff.stdout).text().catch(() => '');
+    const messagePromise = storedMessage !== null
+      ? Promise.resolve(storedMessage)
+      : (async () => {
+          const p = Bun.spawn(['git', '-C', wpath!, 'log', '-1', '--format=%B', hash], { stdout: 'pipe', stderr: 'ignore' });
+          const msg = await new Response(p.stdout).text().catch(() => '');
+          await p.exited;
+          return msg;
+        })();
+    const [diffstat, message] = await Promise.all([diffstatPromise, messagePromise]);
+    await procDiff.exited;
     if (gitShowCache.size >= 200) {
       const firstKey = gitShowCache.keys().next().value;
       if (firstKey !== undefined) gitShowCache.delete(firstKey);

@@ -11,3 +11,14 @@ Do NOT stage or commit any files under `.claude/` directories (data, logs, sessi
 
 Every hook event will include a source_app and session_id. Use these to uniquely identify an agent.
 For display purposes, we want to show the agent ID as "source_app:session_id" with session_id truncated to the first 8 characters.
+
+## Git Data Pipeline
+
+Whenever new git fields are needed (e.g. adding author, date, commit body):
+
+1. **Daemon first** (`observability/.claude/planq-daemon.py`): update the git log fetch and parsing so the daemon sends the new field to the server. The daemon is the authoritative source — it runs inside the devcontainer where the repo is always accessible.
+2. **DB** (`container-db.ts`): add the column to the `git_commits` table, add a migration, and update `upsertGitCommits` and `getGitCommits`.
+3. **Server fallback** (`container-routes.ts`): update the fallback git log query (used when the DB is empty) to also fetch and store the new field.
+4. **Serving** (`container-routes.ts`): in any endpoint that returns commit details, prefer the DB-stored value; use a fresh git run only as a fallback for old commits not yet in the DB or when the stored value is absent.
+
+**Never update only the server side.** A server-only change means the field is only available when the server happens to have direct filesystem access to the repo, which is not guaranteed.

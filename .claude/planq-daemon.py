@@ -308,6 +308,33 @@ def _parse_git_log_line(line: str) -> dict | None:
     return commit
 
 
+def _git_log_bodies(cwd: str, not_args: list) -> dict:
+    """Return {hash: body} for commits not covered by not_args.
+
+    Uses git log -z with --format=%H%n%B so each NUL-terminated record is
+    'hash\\nbody'.  The body is the full commit message (subject + blank +
+    body paragraphs) as returned by %B.
+    """
+    raw = _run(
+        ['git', 'log', '--all', '-z', '--format=%H%n%B', '--date-order', '-n', '200'] + not_args,
+        cwd=cwd,
+    )
+    bodies: dict = {}
+    for record in raw.split('\0'):
+        record = record.strip('\n')
+        if not record.strip():
+            continue
+        nl = record.find('\n')
+        if nl < 0:
+            bodies[record.strip()] = ''
+        else:
+            hash_ = record[:nl].strip()
+            body = record[nl + 1:]
+            if hash_:
+                bodies[hash_] = body
+    return bodies
+
+
 def _git_log_for_path(cwd, known=None) -> list:
     """Return commits for a git repo path, excluding already-known hashes."""
     not_args = []
@@ -322,6 +349,11 @@ def _git_log_for_path(cwd, known=None) -> list:
         commit = _parse_git_log_line(line)
         if commit:
             commits.append(commit)
+    bodies = _git_log_bodies(cwd, not_args)
+    for c in commits:
+        body = bodies.get(c['hash'], '')
+        if body.strip():
+            c['body'] = body
     return commits
 
 
@@ -365,6 +397,11 @@ def _git_log_incremental() -> list:
         commit = _parse_git_log_line(line)
         if commit:
             commits.append(commit)
+    bodies = _git_log_bodies(str(WORKSPACE_ROOT), not_args)
+    for c in commits:
+        body = bodies.get(c['hash'], '')
+        if body.strip():
+            c['body'] = body
     return commits
 
 
