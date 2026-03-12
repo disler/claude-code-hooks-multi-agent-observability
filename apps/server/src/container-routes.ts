@@ -904,7 +904,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
           return p === wpath;
         })?.machine_hostname ?? 'unknown';
         const proc = Bun.spawn(
-          ['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s', '--date-order', '-n', '200'],
+          ['git', '-C', wpath, 'log', '--all', '--pretty=format:%H|%P|%D|%s|%an|%at', '--date-order', '-n', '200'],
           { stdout: 'pipe', stderr: 'ignore' }
         );
         const text = await new Response(proc.stdout).text().catch(() => '');
@@ -912,17 +912,22 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
         const hostRefMap = new Map<string, string[]>();
         for (const line of text.split('\n')) {
           if (!line.trim()) continue;
-          const [hash, parentsStr, refsStr, ...subjectParts] = line.split('|');
+          const parts = line.split('|');
+          const hash = parts[0];
+          const parentsStr = parts[1] ?? '';
+          const refsStr = parts[2] ?? '';
+          const authorTs = parseInt(parts[parts.length - 1] ?? '0', 10) || undefined;
+          const authorName = parts[parts.length - 2] ?? '';
+          const subject = parts.slice(3, parts.length - 2).join('|');
           if (!hash?.trim() || hash.trim().length < 7) continue;
           const parents = parentsStr?.trim() ? parentsStr.trim().split(' ').filter(Boolean) : [];
           const refs = refsStr?.trim() ? refsStr.trim().split(',').map(r => r.trim()).filter(Boolean) : [];
-          const subject = subjectParts.join('|');
           const h = hash.trim();
           if (commitMap.has(h)) {
             const ex = commitMap.get(h)!;
             commitMap.set(h, { ...ex, refs: [...new Set([...ex.refs, ...refs])] });
           } else {
-            commitMap.set(h, { hash: h, parents, refs, subject });
+            commitMap.set(h, { hash: h, parents, refs, subject, author: authorName || undefined, author_date: authorTs });
           }
           hostRefMap.set(h, [...(hostRefMap.get(h) ?? []), ...refs]);
         }

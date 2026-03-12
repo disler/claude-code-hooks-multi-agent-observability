@@ -79,6 +79,8 @@ export interface GitCommit {
   parents: string[]
   refs: string[]
   subject: string
+  author?: string
+  author_date?: number
 }
 
 export interface GitContainer {

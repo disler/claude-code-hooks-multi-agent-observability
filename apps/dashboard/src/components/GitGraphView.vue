@@ -224,7 +224,27 @@
             font-size="10"
             font-family="sans-serif"
             fill="#cbd5e1"
-          >{{ row.commit.subject.slice(0, 80) }}</text>
+          >{{ row.commit.subject.slice(0, 100) }}</text>
+
+          <!-- Author column -->
+          <text
+            v-if="row.commit.author"
+            :x="svgWidth - AUTHOR_W - DATE_W"
+            y="4"
+            font-size="9"
+            font-family="sans-serif"
+            fill="#64748b"
+          >{{ row.commit.author.slice(0, 14) }}</text>
+
+          <!-- Date column -->
+          <text
+            v-if="row.commit.author_date"
+            :x="svgWidth - DATE_W + 4"
+            y="4"
+            font-size="9"
+            font-family="monospace"
+            fill="#64748b"
+          >{{ relativeDate(row.commit.author_date) }}</text>
         </g>
 
         <!-- Selected / flash highlight -->
@@ -239,6 +259,18 @@
           rx="3"
         />
       </g>
+
+      <!-- Column separator lines (author | date) -->
+      <line v-if="layout.length > 0 && layout.some(r => r.commit.author)"
+        :x1="svgWidth - AUTHOR_W - DATE_W - 4" y1="0"
+        :x2="svgWidth - AUTHOR_W - DATE_W - 4" :y2="svgHeight"
+        stroke="#1e293b" stroke-width="1"
+      />
+      <line v-if="layout.length > 0 && layout.some(r => r.commit.author_date)"
+        :x1="svgWidth - DATE_W - 2" y1="0"
+        :x2="svgWidth - DATE_W - 2" :y2="svgHeight"
+        stroke="#1e293b" stroke-width="1"
+      />
     </svg>
 
     <!-- Dirty diffstat popover (teleported to body to avoid SVG/overflow clipping) -->
@@ -292,6 +324,8 @@ const LANE_W = 18
 const ROW_H = 24
 const CIRCLE_R = 5
 const LABEL_PAD = 12
+const AUTHOR_W = 115
+const DATE_W = 72
 
 const props = defineProps<{
   commits: GitCommit[]
@@ -319,7 +353,7 @@ const maxLanes = computed(() => {
 })
 
 const labelX = computed(() => maxLanes.value * LANE_W + LABEL_PAD)
-const svgWidth = computed(() => labelX.value + 640)
+const svgWidth = computed(() => Math.max(1100, labelX.value + 800) + AUTHOR_W + DATE_W)
 const svgHeight = computed(() => Math.max(layout.value.length * ROW_H + 8, 40))
 
 function laneX(lane: number) { return lane * LANE_W + LANE_W / 2 }
@@ -585,6 +619,16 @@ const badgeOffsets = computed(() => {
   }
   return result
 })
+
+function relativeDate(unixTs: number): string {
+  const diff = Math.floor(Date.now() / 1000) - unixTs
+  if (diff < 60) return `${diff}s ago`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  if (diff < 86400 * 30) return `${Math.floor(diff / 86400)}d ago`
+  if (diff < 86400 * 365) return `${Math.floor(diff / (86400 * 30))}mo ago`
+  return `${Math.floor(diff / (86400 * 365))}y ago`
+}
 
 function openPrUrl(url: string) {
   window.open(url, '_blank')
