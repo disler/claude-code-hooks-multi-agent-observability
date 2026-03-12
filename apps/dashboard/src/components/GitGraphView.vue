@@ -166,12 +166,11 @@
             v-for="(badge, bi) in allBadgesForCommit(row.commit)"
             :key="'pr-' + bi"
             v-show="badge.prUrl && (badgeOffsets[i]?.[bi]?.prW ?? 0) > 0"
-            :href="badge.prDirty ? undefined : badge.prUrl"
+            :href="badge.prUrl"
             target="_blank"
-            @click.stop="badge.prDirty ? undefined : undefined"
-            @dblclick.stop="badge.prDirty && badge.prUrl ? openPrUrl(badge.prUrl) : undefined"
+            @click.stop="badge.prUrl && openPrUrl(badge.prUrl)"
             class="cursor-pointer"
-            :title="badge.prDirty ? 'Has unstaged changes — double-click to open PR anyway' : (badge.prExists ? (badge.prDraft ? 'View draft PR on GitHub' : 'View PR on GitHub') : 'Create pull request on GitHub')"
+            :title="badge.prDirty ? 'Has unstaged changes — open PR anyway?' : (badge.prExists ? (badge.prDraft ? 'View draft PR on GitHub' : 'View PR on GitHub') : 'Create pull request on GitHub')"
           >
             <g :transform="`translate(${badgeOffsets[i]?.[bi]?.prX ?? 0}, -6) scale(0.875)`">
               <rect width="16" height="13" :fill="badge.prDirty ? '#1a1a1a' : (badge.prExists ? (badge.prDraft ? '#1e1e3f' : '#0c1a2e') : '#052e16')" rx="2" opacity="0.85" />
