@@ -377,10 +377,26 @@ function _resolveSubmoduleRepo(subPath: string): string | null {
 
 async function jumpToContainer(c: GitContainer) {
   if (!c.git_commit_hash) return
-  // Resolve short hash (from daemon %h) to full hash used in the commit graph.
-  // In submodule view, git_commit_hash has already been remapped to the submodule's hash by the server.
-  const fullHash = gitData.value?.commits.find(cm => cm.hash.startsWith(c.git_commit_hash!))?.hash ?? c.git_commit_hash
-  await selectHash(fullHash)
+  // Resolve the hash to its full form. Use bidirectional startsWith to handle
+  // both short hashes (daemon %h) and full hashes (submodule status output).
+  const found = gitData.value?.commits.find(cm =>
+    cm.hash === c.git_commit_hash! ||
+    cm.hash.startsWith(c.git_commit_hash!) ||
+    c.git_commit_hash!.startsWith(cm.hash)
+  )
+  if (!found) {
+    // Hash not in this repo's graph (e.g. detached-HEAD container without the submodule).
+    // Navigate to the parent repo instead if we have a parent position.
+    if (isSubmoduleRepo(props.sourceRepo) && c.parent_commit_hash) {
+      emit('switch-repo', parentRepo.value, c.parent_commit_hash)
+    }
+    return
+  }
+  const fullHash = found.hash
+  // Don't toggle off if already selected — chip clicks should always navigate, not deselect.
+  if (selectedHash.value !== fullHash) {
+    await selectHash(fullHash)
+  }
   await nextTick()
   if (mode.value === 'graph') {
     graphRef.value?.scrollToHash(fullHash)

@@ -1153,8 +1153,10 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
         git_branch: c.git_branch,
         git_worktree: c.git_worktree,
         // Preserve the parent's original commit hash so clicking a container chip in submodule view
-        // can navigate back to the parent repo at the correct position.
-        parent_commit_hash: subData ? c.git_commit_hash : null,
+        // can navigate back to the parent repo when the submodule commit isn't in the current graph.
+        // Always set (not just when subData exists) so detached-HEAD containers without the submodule
+        // can still navigate back to the parent.
+        parent_commit_hash: submodulePath ? c.git_commit_hash : null,
         git_commit_hash: subData ? (subData as any).commit_hash ?? null : c.git_commit_hash,
         git_staged_count: subData ? (subData as any).staged_count ?? 0 : c.git_staged_count,
         git_unstaged_count: subData ? (subData as any).unstaged_count ?? 0 : c.git_unstaged_count,
