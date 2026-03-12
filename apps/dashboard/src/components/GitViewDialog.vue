@@ -15,11 +15,19 @@
             <option v-for="r in visibleRepoItems" :key="r.value" :value="r.value">{{ r.label }}</option>
           </select>
           <span v-else class="text-sm font-semibold text-slate-200">{{ repoDisplayName(isSubmoduleInListMode ? parentRepo : sourceRepo) }}</span>
-          <!-- Submodule quick links (graph mode only) -->
-          <template v-if="mode === 'graph' && gitData?.submodules?.length">
+          <!-- Submodule quick links (graph mode only): show submodules from parent,
+               or show parent + siblings when currently viewing a submodule. -->
+          <template v-if="mode === 'graph' && repoQuickLinks.length > 0">
             <span class="text-slate-600 text-xs">·</span>
+            <!-- Parent link when viewing a submodule -->
             <button
-              v-for="sub in gitData.submodules"
+              v-if="isSubmoduleRepo(sourceRepo)"
+              class="text-xs text-slate-400 hover:text-blue-300 cursor-pointer"
+              @click="$emit('switch-repo', parentRepo)"
+            >{{ repoDisplayName(parentRepo) }}</button>
+            <!-- Submodule links -->
+            <button
+              v-for="sub in repoQuickLinks"
               :key="sub.source_repo"
               class="text-xs text-slate-400 hover:text-blue-300 cursor-pointer"
               :class="sourceRepo === sub.source_repo ? 'text-blue-400 font-semibold' : ''"
@@ -210,6 +218,19 @@ const sortedRepoItems = computed(() => {
   return effectiveAllRepos.value.map(r => ({ value: r, label: repoDisplayName(r) }))
 })
 
+// Quick links for graph mode: submodules of current repo, or siblings when viewing a submodule.
+// Derived from effectiveAllRepos (passed from parent) so they work even when gitData.submodules is empty.
+const repoQuickLinks = computed((): Array<{ path: string; source_repo: string }> => {
+  if (isSubmoduleRepo(props.sourceRepo)) {
+    // Viewing a submodule: show all sibling submodules (other children of the same parent)
+    return effectiveAllRepos.value
+      .filter(r => r !== props.sourceRepo && r !== parentRepo.value && r.startsWith(parentRepo.value + '/'))
+      .map(r => ({ source_repo: r, path: r.slice(parentRepo.value.length + 1) }))
+  }
+  // Viewing a parent repo: show its submodules from gitData
+  return (gitData.value?.submodules ?? [])
+})
+
 // In list mode, hide submodule repos from the dropdown
 const visibleRepoItems = computed(() => {
   if (mode.value === 'list') return sortedRepoItems.value.filter(r => !isSubmoduleRepo(r.value))
@@ -307,15 +328,24 @@ async function handleSwitchToGraph(hash: string) {
 }
 
 async function handleSwitchToGraphSub(subPath: string, _hash: string) {
-  const sub = gitData.value?.submodules?.find((s: any) => s.path === subPath)
-  if (!sub) return
-  emit('switch-repo', (sub as any).source_repo)
+  const subRepo = _resolveSubmoduleRepo(subPath)
+  if (subRepo) emit('switch-repo', subRepo)
 }
 
 function jumpToSubmodule(subPath: string, _commitHash: string | null) {
+  const subRepo = _resolveSubmoduleRepo(subPath)
+  if (subRepo) emit('switch-repo', subRepo)
+}
+
+// Resolve a submodule path to its source_repo.
+// Looks in effectiveAllRepos first (reliable even when gitData.submodules is empty),
+// then falls back to gitData.submodules.
+function _resolveSubmoduleRepo(subPath: string): string | null {
+  const base = isSubmoduleRepo(props.sourceRepo) ? parentRepo.value : props.sourceRepo
+  const candidate = base + '/' + subPath
+  if (effectiveAllRepos.value.includes(candidate)) return candidate
   const sub = gitData.value?.submodules?.find((s: any) => s.path === subPath)
-  if (!sub) return
-  emit('switch-repo', (sub as any).source_repo)
+  return sub ? (sub as any).source_repo : null
 }
 
 async function jumpToContainer(c: GitContainer) {

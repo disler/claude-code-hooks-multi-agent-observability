@@ -27,10 +27,18 @@
       </div>
 
       <div class="flex gap-3 mt-1 text-xs">
-        <span v-if="c.git_staged_count > 0" class="text-yellow-400">Staged: {{ c.git_staged_count }}</span>
-        <span v-if="c.git_unstaged_count > 0" class="text-orange-400">Unstaged: {{ c.git_unstaged_count }}</span>
+        <button v-if="c.git_staged_count > 0 && c.git_staged_diffstat" class="text-yellow-400 hover:text-yellow-200 cursor-pointer" @click="toggleInlineDiffstat(c.id, 'staged', c.git_staged_diffstat!)">Staged: {{ c.git_staged_count }}</button>
+        <span v-else-if="c.git_staged_count > 0" class="text-yellow-400">Staged: {{ c.git_staged_count }}</span>
+        <button v-if="c.git_unstaged_count > 0 && c.git_unstaged_diffstat" class="text-orange-400 hover:text-orange-200 cursor-pointer" @click="toggleInlineDiffstat(c.id, 'unstaged', c.git_unstaged_diffstat!)">Unstaged: {{ c.git_unstaged_count }}</button>
+        <span v-else-if="c.git_unstaged_count > 0" class="text-orange-400">Unstaged: {{ c.git_unstaged_count }}</span>
         <span v-if="c.git_staged_count === 0 && c.git_unstaged_count === 0" class="text-slate-500">Clean</span>
       </div>
+
+      <!-- Inline diffstat (staged/unstaged) -->
+      <pre
+        v-if="inlineDiffstat?.containerId === c.id"
+        class="mt-2 text-xs text-slate-300 font-mono whitespace-pre-wrap bg-black/30 rounded p-2 max-h-40 overflow-y-auto"
+      >{{ inlineDiffstat.diffstat }}</pre>
 
       <!-- Submodule info -->
       <div
@@ -40,13 +48,18 @@
       >
         <span class="text-slate-500">submodule</span>
         <span class="font-mono text-slate-300">{{ sub.path }}</span>
-        <button v-if="sub.branch && sub.commit_hash" class="font-mono text-cyan-400 hover:text-cyan-300 cursor-pointer" @click="$emit('switch-to-graph-sub', sub.path, sub.commit_hash)">{{ sub.branch }}</button>
-        <button v-if="sub.commit_hash" class="font-mono text-yellow-400 hover:text-yellow-300 cursor-pointer" @click="$emit('switch-to-graph-sub', sub.path, sub.commit_hash)">{{ sub.commit_hash.slice(0, 8) }}</button>
-        <span v-if="sub.staged_count > 0" class="text-yellow-400">+{{ sub.staged_count }}</span>
-        <span v-if="sub.unstaged_count > 0" class="text-orange-400">~{{ sub.unstaged_count }}</span>
+        <button v-if="sub.branch && sub.commit_hash" class="font-mono text-cyan-400 hover:text-cyan-300 cursor-pointer" @click="$emit('switch-to-graph-sub', sub.path, sub.commit_hash!)">{{ sub.branch }}</button>
+        <button v-if="sub.commit_hash" class="font-mono text-yellow-400 hover:text-yellow-300 cursor-pointer" @click="$emit('switch-to-graph-sub', sub.path, sub.commit_hash!)">{{ sub.commit_hash.slice(0, 8) }}</button>
+        <span v-if="sub.commit_message" class="text-slate-400 truncate max-w-xs">{{ sub.commit_message }}</span>
+        <button v-if="sub.staged_count > 0 && sub.staged_diffstat" class="text-yellow-400 hover:text-yellow-200 cursor-pointer" @click="toggleInlineDiffstat(`${c.id}-sub-${sub.path}`, 'staged', sub.staged_diffstat!)">Staged: {{ sub.staged_count }}</button>
+        <span v-else-if="sub.staged_count > 0" class="text-yellow-400">Staged: {{ sub.staged_count }}</span>
+        <button v-if="sub.unstaged_count > 0 && sub.unstaged_diffstat" class="text-orange-400 hover:text-orange-200 cursor-pointer" @click="toggleInlineDiffstat(`${c.id}-sub-${sub.path}`, 'unstaged', sub.unstaged_diffstat!)">Unstaged: {{ sub.unstaged_count }}</button>
+        <span v-else-if="sub.unstaged_count > 0" class="text-orange-400">Unstaged: {{ sub.unstaged_count }}</span>
+        <span v-if="sub.staged_count === 0 && sub.unstaged_count === 0" class="text-slate-500">Clean</span>
+        <pre v-if="inlineDiffstat?.containerId === `${c.id}-sub-${sub.path}`" class="w-full mt-1 text-xs text-slate-300 font-mono whitespace-pre-wrap bg-black/30 rounded p-2 max-h-40 overflow-y-auto">{{ inlineDiffstat.diffstat }}</pre>
       </div>
 
-      <!-- Diffstat popover -->
+      <!-- Diffstat popover (commit hash) -->
       <pre
         v-if="selectedHash === c.git_commit_hash && diffstat"
         class="mt-2 text-xs text-slate-300 font-mono whitespace-pre-wrap bg-black/30 rounded p-2 max-h-40 overflow-y-auto"
@@ -79,6 +92,15 @@ defineEmits<{
 }>()
 
 const flashId = ref<string | null>(null)
+const inlineDiffstat = ref<{ containerId: string; type: 'staged' | 'unstaged'; diffstat: string } | null>(null)
+
+function toggleInlineDiffstat(containerId: string, type: 'staged' | 'unstaged', diffstat: string) {
+  if (inlineDiffstat.value?.containerId === containerId && inlineDiffstat.value?.type === type) {
+    inlineDiffstat.value = null
+  } else {
+    inlineDiffstat.value = { containerId, type, diffstat }
+  }
+}
 
 const sortedContainers = computed(() => {
   return [...props.containers].sort((a, b) => {

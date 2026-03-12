@@ -964,15 +964,18 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
         : null;
       return {
         id: c.id, machine_hostname: c.machine_hostname, container_hostname: c.container_hostname,
-        git_branch: subData ? (subData as any).branch ?? null : c.git_branch,
-        git_worktree: subData ? null : c.git_worktree,
+        // When viewing a submodule: keep parent's git_branch so the header shows parent branch context.
+        // Use the submodule's commit_hash so container chips navigate correctly within the submodule graph.
+        git_branch: c.git_branch,
+        git_worktree: c.git_worktree,
         git_commit_hash: subData ? (subData as any).commit_hash ?? null : c.git_commit_hash,
         git_staged_count: subData ? (subData as any).staged_count ?? 0 : c.git_staged_count,
         git_unstaged_count: subData ? (subData as any).unstaged_count ?? 0 : c.git_unstaged_count,
         git_unstaged_diffstat: subData ? (subData as any).unstaged_diffstat ?? null : c.git_unstaged_diffstat,
         git_staged_diffstat: subData ? (subData as any).staged_diffstat ?? null : c.git_staged_diffstat,
         workspace_host_path: c.workspace_host_path, connected: c.connected,
-        git_submodules: subData ? [] : (c.git_submodules ?? []),
+        // Keep full submodule list so the submodule chips remain visible in the header.
+        git_submodules: c.git_submodules ?? [],
       };
     });
 
@@ -985,12 +988,16 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
 
     const remoteUrl = allContainers.find(c => c.git_remote_url)?.git_remote_url ?? null;
 
-    // Collect unique submodules across all containers for this repo
+    // Collect unique submodules across all containers for this repo.
+    // Only collect when viewing the primary repo — skip when viewing a submodule to avoid
+    // producing spurious entries like $project/$submodule/$submodule.
     const submoduleMap = new Map<string, string>()  // path → source_repo
-    for (const c of allContainers) {
-      for (const sub of (c.git_submodules ?? [])) {
-        const subPath = (sub as any).path as string
-        if (subPath) submoduleMap.set(subPath, `${repo}/${subPath}`)
+    if (!submodulePath) {
+      for (const c of allContainers) {
+        for (const sub of (c.git_submodules ?? [])) {
+          const subPath = (sub as any).path as string
+          if (subPath) submoduleMap.set(subPath, `${repo}/${subPath}`)
+        }
       }
     }
     const submodules = [...submoduleMap.entries()].map(([path, source_repo]) => ({ path, source_repo }))
