@@ -597,6 +597,40 @@ def _auto_test_pending() -> dict | None:
             pass
     return None
 
+def _review_state() -> dict | None:
+    """Read .claude/review-state for this worktree."""
+    ws = str(WORKSPACE_ROOT)
+    if not ws:
+        return None
+    state_file = os.path.join(ws, '.claude', 'review-state')
+    try:
+        with open(state_file) as f:
+            content = f.read()
+        data = {}
+        for line in content.splitlines():
+            if ':' in line:
+                k, _, v = line.partition(':')
+                data[k.strip()] = v.strip()
+        return data if data else None
+    except OSError:
+        return None
+
+def _test_results() -> list:
+    """Read test results from .claude/test-results/."""
+    results_dir = os.path.join(str(WORKSPACE_ROOT), '.claude', 'test-results')
+    results = []
+    if not os.path.isdir(results_dir):
+        return results
+    for fname in sorted(os.listdir(results_dir)):
+        if not fname.endswith('.json'):
+            continue
+        try:
+            with open(os.path.join(results_dir, fname)) as f:
+                results.append(json.load(f))
+        except Exception:
+            pass
+    return results
+
 # ── File relay handlers ───────────────────────────────────────────────────────
 
 def _handle_file_read(ws, msg: dict):
@@ -819,6 +853,7 @@ def _send_heartbeat(ws_app):
     auto_test = _auto_test_pending()
     git_commits = _git_log_incremental()
     submodule_commits = _git_log_for_submodules()
+    review = _review_state()
 
     versions = {
         'planq_daemon': _read_version_stamp('planq-daemon'),
@@ -841,6 +876,8 @@ def _send_heartbeat(ws_app):
         'git_commits': git_commits,
         'submodule_commits': submodule_commits,
         'versions': versions,
+        'review_state': review,
+        'test_results': _test_results(),
         **git,
     }
 

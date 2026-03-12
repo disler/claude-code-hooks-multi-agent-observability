@@ -42,6 +42,13 @@
             <span :class="connected ? 'text-green-400' : 'text-red-400'">{{ connected ? 'Live' : 'Disconnected' }}</span>
           </div>
 
+          <!-- Review Board toggle -->
+          <button
+            class="text-xs border rounded px-2 py-1 transition-colors"
+            :class="showReviewBoard ? 'text-blue-300 border-blue-500 bg-blue-900/30' : 'text-slate-400 hover:text-slate-200 border-slate-600 hover:border-slate-400'"
+            @click="showReviewBoard = !showReviewBoard"
+          >Review Board</button>
+
           <!-- Link to event stream client -->
           <a
             :href="clientUrl"
@@ -69,6 +76,9 @@
       @close="gitRepo = null; gitFocusHash = null"
       @switch-repo="gitRepo = $event; gitFocusHash = null"
     />
+
+    <!-- Review Board -->
+    <ReviewBoard v-if="showReviewBoard" @open-git-view="openGitView" />
 
     <!-- Body -->
     <main class="px-4 py-4 max-w-7xl mx-auto">
@@ -102,9 +112,11 @@ import HostGroup from './components/HostGroup.vue'
 import GitViewDialog from './components/GitViewDialog.vue'
 import PromptHistoryDialog from './components/PromptHistoryDialog.vue'
 import SystemVersionPanel from './components/SystemVersionPanel.vue'
+import ReviewBoard from './components/ReviewBoard.vue'
 
 const { byHost, summary, handleMessage, containers } = useContainers()
 const { load: loadAliases } = useHostnameAliases()
+const showReviewBoard = ref(false)
 const gitRepo = ref<string | null>(null)
 const gitFocusHash = ref<string | null>(null)
 const historyContainerId = ref<string | null>(null)

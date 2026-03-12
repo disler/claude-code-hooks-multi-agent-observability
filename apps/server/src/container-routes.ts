@@ -419,6 +419,8 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       auto_test_pending: msg.auto_test_pending ?? null,
       active_session_ids: mergedSessionIds,
       running_session_ids: Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [],
+      review_state: msg.review_state != null ? JSON.stringify(msg.review_state) : null,
+      test_results: Array.isArray(msg.test_results) ? JSON.stringify(msg.test_results) : null,
       last_seen: Date.now(),
     });
 
@@ -900,6 +902,19 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const updatedTarget = getContainer(targetId);
     if (updatedTarget) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(updatedTarget) });
 
+    return json({ ok: true });
+  }
+
+  // POST /dashboard/review-state
+  if (pathname === '/dashboard/review-state' && method === 'POST') {
+    const body = await req.json().catch(() => null);
+    if (!body?.containerId || !body?.state) return new Response('Bad request', { status: 400 });
+    const validStates = ['developing', 'ready-for-review', 'in-review', 'approved', 'merged'];
+    if (!validStates.includes(body.state)) return new Response('Invalid state', { status: 400 });
+    const stateObj = { state: body.state, notes: body.notes ?? undefined, updated: new Date().toISOString() };
+    db.prepare('UPDATE containers SET review_state = ? WHERE id = ?').run(JSON.stringify(stateObj), body.containerId);
+    const updated = getContainer(body.containerId);
+    if (updated) broadcastDashboard({ type: 'container_update', data: buildContainerWithState(updated) });
     return json({ ok: true });
   }
 

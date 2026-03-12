@@ -72,6 +72,8 @@ export interface ContainerWithState {
   status: 'busy' | 'idle' | 'awaiting_input' | 'offline'
   planq_tasks: PlanqTask[]
   auto_test_pending: AutoTestPending | null
+  review_state?: string | null
+  test_results?: string | null
 }
 
 export interface GitCommit {

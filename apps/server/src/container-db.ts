@@ -34,6 +34,8 @@ export interface ContainerRow {
   auto_test_pending: { command: string; output: string; exit_code: number } | null;
   active_session_ids: string[]; // parsed from JSON
   running_session_ids: string[]; // parsed from JSON — sessions with live claude processes
+  review_state: string | null;
+  test_results: string | null;
   last_seen: number;
   connected: boolean;
 }
@@ -162,6 +164,12 @@ export function initContainerDatabase(): void {
   if (!columns.includes('planq_last_synced')) {
     db.exec('ALTER TABLE containers ADD COLUMN planq_last_synced TEXT');
   }
+  if (!columns.includes('review_state')) {
+    db.exec('ALTER TABLE containers ADD COLUMN review_state TEXT');
+  }
+  if (!columns.includes('test_results')) {
+    db.exec('ALTER TABLE containers ADD COLUMN test_results TEXT');
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS host_source_reports (
@@ -232,8 +240,8 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       (id, source_repo, machine_hostname, container_hostname, workspace_host_path,
        git_branch, git_worktree, git_commit_hash, git_commit_message,
        git_staged_count, git_staged_diffstat, git_unstaged_count, git_unstaged_diffstat,
-       git_remote_url, git_submodules, versions, planq_order, planq_history, planq_last_synced, auto_test_pending, active_session_ids, running_session_ids, last_seen, connected)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+       git_remote_url, git_submodules, versions, planq_order, planq_history, planq_last_synced, auto_test_pending, active_session_ids, running_session_ids, review_state, test_results, last_seen, connected)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
     ON CONFLICT(id) DO UPDATE SET
       source_repo=excluded.source_repo,
       machine_hostname=excluded.machine_hostname,
@@ -256,6 +264,8 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
       auto_test_pending=excluded.auto_test_pending,
       active_session_ids=excluded.active_session_ids,
       running_session_ids=excluded.running_session_ids,
+      review_state=COALESCE(excluded.review_state, review_state),
+      test_results=excluded.test_results,
       last_seen=excluded.last_seen,
       connected=1
   `);
@@ -283,6 +293,8 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
     data.auto_test_pending ? JSON.stringify(data.auto_test_pending) : null,
     JSON.stringify(data.active_session_ids),
     JSON.stringify(data.running_session_ids ?? []),
+    data.review_state ?? null,
+    data.test_results ?? null,
     data.last_seen
   );
 
@@ -346,6 +358,8 @@ function rowToContainer(row: any): ContainerRow {
     auto_test_pending: row.auto_test_pending ? JSON.parse(row.auto_test_pending) : null,
     active_session_ids: JSON.parse(row.active_session_ids || '[]'),
     running_session_ids: JSON.parse(row.running_session_ids || '[]'),
+    review_state: row.review_state ?? null,
+    test_results: row.test_results ?? null,
     last_seen: row.last_seen,
     connected: Boolean(row.connected),
   };

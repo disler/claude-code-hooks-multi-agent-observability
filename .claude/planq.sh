@@ -1116,6 +1116,54 @@ _notify_daemon() {
     fi
 }
 
+# Auto-set review state to 'developing' when work starts (if not already set or not in developing)
+_auto_set_review_developing() {
+    local state_file="$WORKSPACE_ROOT/.claude/review-state"
+    local current_state=""
+    if [ -f "$state_file" ]; then
+        current_state="$(grep "^state:" "$state_file" | head -1 | sed 's/^state:[[:space:]]*//')"
+    fi
+    if [ -z "$current_state" ] || [ "$current_state" != "developing" ]; then
+        local timestamp
+        timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        mkdir -p "$(dirname "$state_file")"
+        {
+            echo "state: developing"
+            echo "updated: $timestamp"
+        } > "$state_file"
+    fi
+}
+
+# Auto-set review state to 'ready-for-review' when all tasks are done
+_auto_set_review_ready() {
+    [ ! -f "$PLANQ_FILE" ] && return
+    # Check if any pending or auto-queue tasks remain
+    local has_pending=0
+    while IFS= read -r line; do
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "#"* ]] && continue
+        has_pending=1
+        break
+    done < "$PLANQ_FILE"
+    if [ "$has_pending" -eq 0 ]; then
+        local state_file="$WORKSPACE_ROOT/.claude/review-state"
+        local timestamp
+        timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        local notes_line=""
+        if [ -f "$state_file" ]; then
+            notes_line="$(grep "^notes:" "$state_file" || true)"
+        fi
+        mkdir -p "$(dirname "$state_file")"
+        {
+            echo "state: ready-for-review"
+            echo "updated: $timestamp"
+            [ -n "$notes_line" ] && echo "$notes_line"
+        } > "$state_file"
+        echo "All tasks done — review state set to: ready-for-review"
+    fi
+}
+
 cmd_mark() {
     local state="${1:-}" ident="${2:-}"
     # Support "state:ident" as a single arg (e.g. m d:7)
@@ -1144,9 +1192,32 @@ cmd_mark() {
     line_num="$(printf '%s' "$next" | cut -f1)"
     task_line="$(printf '%s' "$next" | cut -f2-)"
     echo "Task: $task_line"
+    # Parse extra options for mark:done (--result and --notes)
+    local mark_result="" mark_notes=""
+    if [ "$state" = "done" ]; then
+        local remaining_args=()
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --result) mark_result="${2:-}"; shift 2 || shift ;;
+                --notes)  mark_notes="${2:-}";  shift 2 || shift ;;
+                *) remaining_args+=("$1"); shift ;;
+            esac
+        done
+    fi
     case "$state" in
-        done)             _mark_done            "$line_num" "$task_line"; echo "Marked as done." ;;
-        underway)         _mark_underway        "$line_num" "$task_line"; echo "Marked as underway." ;;
+        done)
+            _mark_done "$line_num" "$task_line"
+            echo "Marked as done."
+            if [ -n "$mark_result" ]; then
+                _write_test_result "$task_line" "$mark_result" "$mark_notes"
+            fi
+            _auto_set_review_ready
+            ;;
+        underway)
+            _mark_underway "$line_num" "$task_line"
+            echo "Marked as underway."
+            _auto_set_review_developing
+            ;;
         inactive)         _mark_inactive        "$line_num" "$task_line"; echo "Marked as inactive (pending)." ;;
         queue)            _mark_auto_queue      "$line_num" "$task_line"; echo "Marked as auto-queue." ;;
         awaiting-commit)  _mark_awaiting_commit "$line_num" "$task_line"; echo "Marked as awaiting-commit." ;;
@@ -1163,6 +1234,7 @@ _run_task_inline() {
     _parse_task "$task_line"
     echo "Auto-running: $task_line"
     _mark_underway "$line_num" "$task_line"
+    _auto_set_review_developing
     _notify_daemon
 
     case "$task_type" in
@@ -1272,6 +1344,7 @@ _run_task_inline() {
     fi
 
     _mark_done "$line_num" "$task_line"
+    _auto_set_review_ready
     _notify_daemon
 }
 
@@ -1467,6 +1540,76 @@ cmd_archive() {
     _notify_daemon
 }
 
+_write_test_result() {
+    local task_line="$1" result="$2" notes="${3:-}"
+    local results_dir="$WORKSPACE_ROOT/.claude/test-results"
+    mkdir -p "$results_dir"
+    # Derive slug from task description: first 40 chars, lowercase, spaces→hyphens, strip non-alphanumeric
+    local task_desc
+    task_desc="$(echo "$task_line" | sed 's/^[^:]*: //' | cut -c1-40)"
+    local slug
+    slug="$(echo "$task_desc" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | sed 's/[^a-z0-9-]//g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
+    [ -z "$slug" ] && slug="task-$(date -u +%s)"
+    local timestamp
+    timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    local result_file="$results_dir/${slug}.json"
+    printf '{\n  "task": %s,\n  "result": %s,\n  "notes": %s,\n  "timestamp": %s\n}\n' \
+        "$(echo "$task_line" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')" \
+        "$(echo "$result"    | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')" \
+        "$(echo "$notes"     | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')" \
+        "$(echo "$timestamp" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')" \
+        > "$result_file"
+    echo "Test result recorded: $result ($result_file)"
+}
+
+cmd_review() {
+    local subcmd="${1:-status}"
+    shift || true
+    local state_file="$WORKSPACE_ROOT/.claude/review-state"
+    local timestamp
+    timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+    case "$subcmd" in
+        developing|ready-for-review|in-review|approved|merged)
+            mkdir -p "$(dirname "$state_file")"
+            {
+                echo "state: $subcmd"
+                echo "updated: $timestamp"
+            } > "$state_file"
+            echo "Review state set to: $subcmd"
+            _notify_daemon
+            ;;
+        notes)
+            local notes="${*:-}"
+            [ -z "$notes" ] && { echo "Usage: planq review notes <text>" >&2; return 1; }
+            if [ -f "$state_file" ]; then
+                local tmpf
+                tmpf="$(mktemp)"
+                grep -v "^notes:" "$state_file" > "$tmpf" || true
+                echo "notes: $notes" >> "$tmpf"
+                mv "$tmpf" "$state_file"
+            else
+                mkdir -p "$(dirname "$state_file")"
+                { echo "state: developing"; echo "updated: $timestamp"; echo "notes: $notes"; } > "$state_file"
+            fi
+            echo "Review notes updated"
+            _notify_daemon
+            ;;
+        status)
+            if [ -f "$state_file" ]; then
+                echo "Review state for $WORKSPACE_ROOT:"
+                cat "$state_file"
+            else
+                echo "No review state set for $WORKSPACE_ROOT (default: developing)"
+            fi
+            ;;
+        *)
+            echo "Usage: planq review <developing|ready-for-review|in-review|approved|merged|notes <text>|status>" >&2
+            return 1
+            ;;
+    esac
+}
+
 cmd_daemon() {
     local daemon_sh="$SCRIPT_DIR/planq-daemon.sh"
     if [ ! -x "$daemon_sh" ]; then
@@ -1591,6 +1734,7 @@ case "$SUBCMD" in
     delete|x)            cmd_delete "$@" ;;
     archive|a)           cmd_archive "$@" ;;
     daemon|d)            cmd_daemon "$@" ;;
+    review)              shift; cmd_review "$@" ;;
     shell|sh)            exec bash "$SCRIPT_DIR/planq-shell.sh" "$@" ;;
     --help|-h|help|"")   usage ;;
     *)
