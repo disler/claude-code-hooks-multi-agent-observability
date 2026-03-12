@@ -56,7 +56,7 @@
           <textarea
             v-model="description"
             rows="6"
-            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize-y min-h-24 max-h-80"
+            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize min-h-24 max-h-80"
             placeholder="Describe what Claude should do…"
           />
           <p v-if="isUnnamedMultiLine" class="text-xs text-amber-400">Multiple lines will be joined with ". " for unnamed tasks — add a filename to use a multi-line task file instead.</p>
@@ -116,7 +116,7 @@
           <textarea
             v-model="description"
             rows="4"
-            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize-y"
+            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize"
             placeholder="Design a caching layer for the API…"
           />
         </div>
@@ -250,12 +250,24 @@ onMounted(async () => {
   plansFiles.value = await listPlansFiles(props.containerId)
 })
 
-// Reset slug/preview when task type changes, but preserve description
-watch(taskType, () => {
+// Reset slug/preview when task type changes; preserve description and carry slug across file-based types.
+watch(taskType, (newType, oldType) => {
+  const slugTypes = ['task', 'plan', 'make-plan']
+  let preserved = ''
+  if (slugTypes.includes(oldType)) {
+    preserved = oldType === 'task' ? taskSlug.value
+              : oldType === 'plan' ? planSlug.value
+              : makePlanSlug.value
+  }
   taskSlug.value = ''
   planSlug.value = ''
   makePlanSlug.value = ''
   filePreview.value = null
+  if (preserved && slugTypes.includes(newType)) {
+    if (newType === 'task') taskSlug.value = preserved
+    else if (newType === 'plan') planSlug.value = preserved
+    else makePlanSlug.value = preserved
+  }
 })
 
 const SLUG_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
