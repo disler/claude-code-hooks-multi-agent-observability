@@ -71,7 +71,8 @@
     <!-- Right sidebar: container detail -->
     <div
       v-if="selectedContainer"
-      class="w-96 flex-none border-l border-slate-700 flex flex-col overflow-hidden"
+      class="flex-none border-l border-slate-700 flex flex-col overflow-hidden"
+      style="width: min(48rem, 50vw);"
     >
       <div class="flex items-center justify-between px-3 py-2 border-b border-slate-700 shrink-0">
         <span class="text-xs text-slate-400 font-semibold truncate">{{ selectedContainer.source_repo }}</span>
