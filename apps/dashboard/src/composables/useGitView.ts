@@ -2,11 +2,13 @@ import { ref } from 'vue'
 import { API_BASE } from '../config'
 import type { GitViewData } from '../types'
 
+export interface CommitDetail { message: string; diffstat: string }
+
 export function useGitView() {
   const data = ref<GitViewData | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const diffstatCache = new Map<string, string>()
+  const detailCache = new Map<string, CommitDetail>()
 
   async function fetchGitView(repo: string) {
     loading.value = true
@@ -22,19 +24,20 @@ export function useGitView() {
     }
   }
 
-  async function fetchDiffstat(repo: string, hash: string): Promise<string> {
-    if (diffstatCache.has(hash)) return diffstatCache.get(hash)!
+  async function fetchCommitDetail(repo: string, hash: string): Promise<CommitDetail> {
+    const cached = detailCache.get(hash)
+    if (cached) return cached
     try {
       const res = await fetch(`${API_BASE}/dashboard/git-show/${encodeURIComponent(repo)}/${hash}`)
-      if (!res.ok) return ''
+      if (!res.ok) return { message: '', diffstat: '' }
       const json = await res.json()
-      const diffstat: string = json.diffstat ?? ''
-      diffstatCache.set(hash, diffstat)
-      return diffstat
+      const detail: CommitDetail = { message: json.message ?? '', diffstat: json.diffstat ?? '' }
+      detailCache.set(hash, detail)
+      return detail
     } catch {
-      return ''
+      return { message: '', diffstat: '' }
     }
   }
 
-  return { data, loading, error, fetchGitView, fetchDiffstat }
+  return { data, loading, error, fetchGitView, fetchCommitDetail }
 }

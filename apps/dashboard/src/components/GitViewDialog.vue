@@ -102,52 +102,96 @@
         </div>
       </div>
 
-      <!-- Body -->
-      <div class="flex-1 overflow-auto p-4">
-        <!-- Show loading/error only on initial load (no data yet); during refreshes keep graph mounted -->
-        <div v-if="loading && !gitData" class="text-xs text-slate-500 italic">Loading…</div>
-        <div v-else-if="error && !gitData" class="text-xs text-red-400">{{ error }}</div>
-        <template v-else-if="gitData">
-          <GitGraphView
-            v-if="mode === 'graph'"
-            ref="graphRef"
-            :commits="gitData.commits"
-            :containers="filteredContainers"
-            :refs-per-host="filteredRefsPerHost"
-            :selected-hash="selectedHash"
-            :remote-url="gitData.remote_url ?? undefined"
-            :source-host="browserHost ?? undefined"
-            :source-repo="fetchRepo"
-            @select-hash="selectHash"
-          />
-          <GitListView
-            v-else
-            ref="listRef"
-            :containers="filteredContainers"
-            :commits="gitData.commits"
-            :selected-hash="selectedHash"
-            :diffstat="currentDiffstat"
-            @select-hash="selectHash"
-            @switch-to-graph="handleSwitchToGraph"
-            @switch-to-graph-sub="handleSwitchToGraphSub"
-          />
+      <!-- Body: main content + side panel -->
+      <div class="flex-1 flex overflow-hidden">
 
-          <!-- Diffstat popover (graph mode) -->
-          <div
-            v-if="mode === 'graph' && selectedHash && currentDiffstat"
-            class="mt-3 border border-slate-700 rounded bg-slate-800/80 p-3"
-          >
-            <div class="flex items-center justify-between mb-1">
-              <span class="text-xs font-mono text-yellow-400">{{ selectedHash.slice(0, 8) }}</span>
-              <button @click="selectedHash = null" class="text-slate-500 hover:text-slate-300 text-xs">×</button>
+        <!-- Main content (graph or list) -->
+        <div class="flex-1 overflow-auto p-4 min-w-0">
+          <!-- Show loading/error only on initial load (no data yet); during refreshes keep graph mounted -->
+          <div v-if="loading && !gitData" class="text-xs text-slate-500 italic">Loading…</div>
+          <div v-else-if="error && !gitData" class="text-xs text-red-400">{{ error }}</div>
+          <template v-else-if="gitData">
+            <GitGraphView
+              v-if="mode === 'graph'"
+              ref="graphRef"
+              :commits="gitData.commits"
+              :containers="filteredContainers"
+              :refs-per-host="filteredRefsPerHost"
+              :selected-hash="selectedHash"
+              :remote-url="gitData.remote_url ?? undefined"
+              :source-host="browserHost ?? undefined"
+              :source-repo="fetchRepo"
+              @select-hash="selectHash"
+            />
+            <GitListView
+              v-else
+              ref="listRef"
+              :containers="filteredContainers"
+              :commits="gitData.commits"
+              :selected-hash="selectedHash"
+              :diffstat="currentDiffstat"
+              @select-hash="selectHash"
+              @switch-to-graph="handleSwitchToGraph"
+              @switch-to-graph-sub="handleSwitchToGraphSub"
+            />
+          </template>
+          <div v-else class="text-xs text-slate-500 italic">No git data available.</div>
+        </div>
+
+        <!-- Commit detail side panel -->
+        <div
+          v-if="selectedHash"
+          class="w-80 shrink-0 border-l border-slate-700 flex flex-col overflow-hidden"
+        >
+          <!-- Panel header -->
+          <div class="flex items-center justify-between px-3 py-2 border-b border-slate-700 shrink-0">
+            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Commit</span>
+            <button
+              @click="selectedHash = null; currentDiffstat = ''; currentMessage = ''"
+              class="text-slate-400 hover:text-slate-200 text-lg leading-none px-1"
+              title="Close"
+            >×</button>
+          </div>
+
+          <!-- Panel body -->
+          <div class="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
+            <!-- Full hash -->
+            <div class="font-mono text-yellow-400 break-all leading-relaxed">{{ selectedHash }}</div>
+
+            <!-- Branch / ref badges -->
+            <div v-if="selectedCommitBadges.length" class="flex flex-wrap gap-1">
+              <span
+                v-for="b in selectedCommitBadges"
+                :key="b.text"
+                class="px-1.5 py-0.5 rounded font-mono"
+                :class="b.cls"
+              >{{ b.text }}</span>
             </div>
-            <pre class="text-xs text-slate-300 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">{{ currentDiffstat }}</pre>
+
+            <!-- Author + timestamp -->
+            <div v-if="selectedCommit?.author || selectedCommitDate" class="space-y-0.5">
+              <div v-if="selectedCommit?.author" class="text-slate-300">{{ selectedCommit.author }}</div>
+              <div v-if="selectedCommitDate" class="text-slate-500">{{ selectedCommitDate }}</div>
+            </div>
+
+            <!-- Subject (always available without API call) -->
+            <div v-if="selectedCommit?.subject" class="text-slate-200 font-semibold">{{ selectedCommit.subject }}</div>
+
+            <!-- Full message + diffstat (fetched) -->
+            <div v-if="loadingDetail" class="text-slate-500 italic">Loading…</div>
+            <template v-else>
+              <pre
+                v-if="currentMessage && currentMessage.trim() !== selectedCommit?.subject?.trim()"
+                class="text-slate-300 whitespace-pre-wrap font-sans leading-relaxed"
+              >{{ currentMessage.trim() }}</pre>
+              <pre
+                v-if="currentDiffstat"
+                class="text-slate-400 font-mono whitespace-pre overflow-x-auto border-t border-slate-700/60 pt-2"
+              >{{ currentDiffstat.trim() }}</pre>
+            </template>
           </div>
-          <div v-else-if="mode === 'graph' && selectedHash && loadingDiffstat" class="mt-3 text-xs text-slate-500 italic">
-            Loading diff…
-          </div>
-        </template>
-        <div v-else class="text-xs text-slate-500 italic">No git data available.</div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -156,7 +200,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { useGitView } from '../composables/useGitView'
-import { containerDirLabel } from '../composables/useGitGraph'
+import { containerDirLabel, formatRef } from '../composables/useGitGraph'
 import { useHostnameAliases } from '../composables/useHostnameAliases'
 import GitGraphView from './GitGraphView.vue'
 import GitListView from './GitListView.vue'
@@ -177,11 +221,12 @@ const emit = defineEmits<{
   'switch-repo': [repo: string, hash?: string | null]
 }>()
 
-const { data: gitData, loading, error, fetchGitView, fetchDiffstat } = useGitView()
+const { data: gitData, loading, error, fetchGitView, fetchCommitDetail } = useGitView()
 const mode = ref<'graph' | 'list'>('graph')
 const selectedHash = ref<string | null>(null)
 const currentDiffstat = ref('')
-const loadingDiffstat = ref(false)
+const currentMessage = ref('')
+const loadingDetail = ref(false)
 const selectedHost = ref<string | null>(null)
 const graphRef = ref<InstanceType<typeof GitGraphView> | null>(null)
 const listRef = ref<InstanceType<typeof GitListView> | null>(null)
@@ -304,6 +349,41 @@ const filteredRefsPerHost = computed(() => {
 // The repo to actually fetch: in list mode, use the parent repo for submodules
 const fetchRepo = computed(() => isSubmoduleInListMode.value ? parentRepo.value : props.sourceRepo)
 
+// --- Commit detail side panel ---
+
+const selectedCommit = computed(() =>
+  selectedHash.value ? (gitData.value?.commits.find(c => c.hash === selectedHash.value) ?? null) : null
+)
+
+const selectedCommitDate = computed(() => {
+  const ts = selectedCommit.value?.author_date
+  return ts ? new Date(ts * 1000).toLocaleString() : ''
+})
+
+interface RefBadge { text: string; cls: string }
+const selectedCommitBadges = computed((): RefBadge[] => {
+  const commit = selectedCommit.value
+  if (!commit) return []
+  const badges: RefBadge[] = []
+  // Per-host local branches
+  for (const { hash, host, localBranches } of filteredRefsPerHost.value) {
+    if (hash === commit.hash) {
+      for (const b of localBranches)
+        badges.push({ text: `${b}@${alias(host)}`, cls: 'bg-blue-900/60 text-blue-300' })
+    }
+  }
+  // HEAD / remote / tag refs from the commit object
+  for (const ref of commit.refs) {
+    const f = formatRef(ref)
+    const cls = f.type === 'head' ? 'bg-blue-700/60 text-blue-200'
+              : f.type === 'tag'  ? 'bg-amber-900/60 text-amber-300'
+              : f.type === 'local' ? 'bg-blue-900/60 text-blue-300'
+              : 'bg-slate-700/60 text-slate-300'
+    badges.push({ text: f.text, cls })
+  }
+  return badges
+})
+
 async function load() {
   const myGen = ++loadGen
   // Send request to server to fetch fresh data from connected containers
@@ -319,6 +399,7 @@ async function load() {
   if (myGen !== loadGen) return
   selectedHash.value = null
   currentDiffstat.value = ''
+  currentMessage.value = ''
   selectedHost.value = null
   // Apply navigation hash if provided (e.g. from switch-repo or openGitView).
   const hashToApply = props.initialHash
@@ -339,12 +420,17 @@ async function selectHash(hash: string) {
   if (selectedHash.value === hash) {
     selectedHash.value = null
     currentDiffstat.value = ''
+    currentMessage.value = ''
     return
   }
   selectedHash.value = hash
-  loadingDiffstat.value = true
-  currentDiffstat.value = await fetchDiffstat(fetchRepo.value, hash)
-  loadingDiffstat.value = false
+  loadingDetail.value = true
+  currentDiffstat.value = ''
+  currentMessage.value = ''
+  const detail = await fetchCommitDetail(fetchRepo.value, hash)
+  currentDiffstat.value = detail.diffstat
+  currentMessage.value = detail.message
+  loadingDetail.value = false
 }
 
 async function handleSwitchToGraph(hash: string) {
