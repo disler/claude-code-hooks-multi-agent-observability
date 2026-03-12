@@ -110,7 +110,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useContainers } from '../composables/useContainers'
-import { useHostnameAliases } from '../composables/useHostnameAliases'
 import type { ContainerWithState } from '../types'
 import { API_BASE } from '../config'
 import FilterBar from './FilterBar.vue'
@@ -122,7 +121,7 @@ const emit = defineEmits<{
 }>()
 
 const { containers } = useContainers()
-const { alias } = useHostnameAliases()
+
 
 const repoFilter = ref('')
 const hostFilter = ref('')
