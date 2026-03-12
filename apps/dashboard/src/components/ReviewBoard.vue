@@ -50,6 +50,7 @@
 <script setup lang="ts">
 import { useContainers } from '../composables/useContainers'
 import type { ContainerWithState } from '../types'
+import { API_BASE } from '../config'
 
 defineEmits<{ 'open-git-view': [repo: string] }>()
 
@@ -103,7 +104,7 @@ function failedTests(c: ContainerWithState): number {
 }
 
 async function setReviewState(containerId: string, state: string) {
-  await fetch('/dashboard/review-state', {
+  await fetch(`${API_BASE}/dashboard/review-state`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ containerId, state }),

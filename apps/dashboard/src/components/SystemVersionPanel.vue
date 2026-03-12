@@ -83,6 +83,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { API_BASE } from '../config';
 
 interface ContainerVersion {
   id: string;
@@ -115,7 +116,7 @@ async function refresh() {
   loading.value = true;
   error.value = '';
   try {
-    const res = await fetch('/dashboard/system-versions');
+    const res = await fetch(`${API_BASE}/dashboard/system-versions`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     containerVersions.value = data.containers ?? [];
