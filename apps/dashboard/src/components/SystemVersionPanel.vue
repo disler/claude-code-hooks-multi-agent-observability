@@ -61,15 +61,15 @@
                 <td>
                   <span
                     :class="stampClass(c.versions?.planq_shell, serverStamps.planq_shell)"
-                    :title="stampTooltip(c.versions?.planq_shell, serverStamps.planq_shell)"
-                    @click.stop="showTooltip($event, stampTooltip(c.versions?.planq_shell, serverStamps.planq_shell))"
+                    :title="stampTooltip(c.versions?.planq_shell, serverStamps.planq_shell, !serverStamps.devcontainer || isStale(c.versions?.devcontainer, serverStamps.devcontainer))"
+                    @click.stop="showTooltip($event, stampTooltip(c.versions?.planq_shell, serverStamps.planq_shell, !serverStamps.devcontainer || isStale(c.versions?.devcontainer, serverStamps.devcontainer)))"
                   >{{ stampSymbol(c.versions?.planq_shell) }}</span>
                 </td>
                 <td>
                   <span
                     :class="stampClass(c.versions?.devcontainer, serverStamps.devcontainer)"
-                    :title="stampTooltip(c.versions?.devcontainer, serverStamps.devcontainer)"
-                    @click.stop="showTooltip($event, stampTooltip(c.versions?.devcontainer, serverStamps.devcontainer))"
+                    :title="stampTooltip(c.versions?.devcontainer, serverStamps.devcontainer, true)"
+                    @click.stop="showTooltip($event, stampTooltip(c.versions?.devcontainer, serverStamps.devcontainer, true))"
                   >{{ stampSymbol(c.versions?.devcontainer) }}</span>
                 </td>
               </tr>
@@ -231,22 +231,26 @@ function stampClass(stamp: string | null | undefined, serverStamp?: string | nul
   return 'stamp stamp-ok';
 }
 
-function stampTooltip(stamp: string | null | undefined, serverStamp?: string | null): string {
+// devcStale: pass isStale(versions?.devcontainer, serverStamps.devcontainer) from the call site.
+// undefined means "unknown" — defaults to the safe rebuild advice.
+function stampTooltip(stamp: string | null | undefined, serverStamp?: string | null, devcStale?: boolean): string {
   if (!stamp || stamp === '(no stamp)') return 'Unknown status — no version stamp found';
   const [hash, ts, component] = stamp.split(' ');
   if (isStale(stamp, serverStamp)) {
     const serverHash = stampHash(serverStamp);
-    const lines = [
-      'Outdated — host devcontainer needs updating',
-      'Update the devcontainer on the host first, then rebuild the container.',
-    ];
-    if (component) lines.push(`component: ${component}`);
+    const needsRebuild = devcStale !== false; // undefined → assume yes (safe default)
+    const advice = needsRebuild
+      ? 'Update the devcontainer on the host first, then rebuild the container.'
+      : component === 'planq-shell'
+        ? 'Run: update-projects.sh apply-shell'
+        : 'Run: update-projects.sh apply-all';
+    const lines = [`Outdated — ${component ?? 'component'} needs updating`, advice];
     if (hash) lines.push(`installed: ${hash}`);
     if (serverHash) lines.push(`current:   ${serverHash}`);
     if (ts) lines.push(`stamped: ${ts}`);
     return lines.join('\n');
   }
-  const lines = ['This version is up to date'];
+  const lines = ['Up to date'];
   if (component) lines.push(`component: ${component}`);
   if (hash) lines.push(`hash: ${hash}`);
   if (ts) lines.push(`stamped: ${ts}`);
@@ -303,7 +307,9 @@ function daemonStampTooltip(versions: Record<string, string | null> | null | und
   }
   if (isStale(fileStamp, serverStamps.value.planq_daemon)) {
     const serverHash = stampHash(serverStamps.value.planq_daemon);
-    const devcStale = isStale(versions?.devcontainer, serverStamps.value.devcontainer);
+    // Treat devcontainer as stale when the server has no reference (null) — safe default.
+    const devcStale = !serverStamps.value.devcontainer
+      || isStale(versions?.devcontainer, serverStamps.value.devcontainer);
     const advice = devcStale
       ? 'Update the devcontainer on the host first, then rebuild the container.'
       : 'Run: update-projects.sh apply-daemon';
@@ -344,7 +350,18 @@ function showTooltip(event: MouseEvent, text: string) {
 }
 
 async function copyPopup() {
-  try { await navigator.clipboard.writeText(tooltip.value.text); } catch {}
+  const text = tooltip.value.text;
+  if (navigator.clipboard) {
+    try { await navigator.clipboard.writeText(text); return; } catch {}
+  }
+  // Fallback for non-HTTPS contexts where clipboard API is unavailable
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;opacity:0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch {}
+  document.body.removeChild(ta);
 }
 
 // Compute the longest common path prefix for worktrees on each host.
