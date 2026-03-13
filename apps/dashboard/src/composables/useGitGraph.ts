@@ -7,15 +7,10 @@ export interface LaidOutCommit {
   activeLanesBefore: (string | null)[]
   /** Lanes being closed at this row because their first parent is already tracked elsewhere. */
   closingLanes: Array<{ from: number; to: number }>
-  /** True if this commit has no refs, no descendants in the set, and is not currently checked out. */
-  isOrphan: boolean
 }
 
-/** Topologically sort commits (tips/newest first) using Kahn's algorithm.
- *  Orphan commits (no refs, no descendants, not checked out) are deferred
- *  to be inserted at the position matching their date, not at the very top.
- */
-function topoSort(commits: GitCommit[], orphanHashes: Set<string>): GitCommit[] {
+/** Topologically sort commits (tips/newest first) using Kahn's algorithm. */
+function topoSort(commits: GitCommit[]): GitCommit[] {
   const map = new Map<string, GitCommit>()
   for (const c of commits) map.set(c.hash, c)
 
@@ -27,13 +22,9 @@ function topoSort(commits: GitCommit[], orphanHashes: Set<string>): GitCommit[] 
     }
   }
 
-  // Tips first (no children within the set), excluding orphans from initial queue
-  const allTips = commits.filter(c => (childCount.get(c.hash) ?? 0) === 0)
-  const queue: GitCommit[] = allTips.filter(c => !orphanHashes.has(c.hash))
+  // Tips first (no children within the set)
+  const queue: GitCommit[] = commits.filter(c => (childCount.get(c.hash) ?? 0) === 0)
   const seen = new Set(queue.map(c => c.hash))
-  // Orphan tips are held separately and merged by date at the end
-  const orphanTips = allTips.filter(c => orphanHashes.has(c.hash))
-  for (const c of orphanTips) seen.add(c.hash)
   const result: GitCommit[] = []
 
   while (queue.length > 0) {
@@ -50,51 +41,20 @@ function topoSort(commits: GitCommit[], orphanHashes: Set<string>): GitCommit[] 
     }
   }
 
-  // Safety net for cycles or disconnected nodes (excluding orphan tips already handled)
+  // Safety net for cycles or disconnected nodes
   for (const c of commits) {
     if (!seen.has(c.hash)) result.push(c)
   }
 
-  if (orphanTips.length === 0) return result
-
-  // Insert each orphan tip just before its first parent in the result.
-  // Because a non-orphan child of that parent was already processed by
-  // Kahn's algorithm and placed the parent into activeLanes, the orphan will
-  // find its parent already tracked when the layout runs — producing a
-  // single-row closing line into the parent's lane rather than a long
-  // phantom lane stretching down to where the parent would eventually appear.
-  //
-  // Fallback: if the first parent is itself an orphan or is beyond the
-  // displayed window, insert by author_date so at least the commit appears
-  // at a chronologically sensible position rather than right at the top.
-  const merged = [...result]
-  // Sort newest-first so earlier inserts don't shift later indices unexpectedly.
-  const sorted = orphanTips.slice().sort((a, b) => (b.author_date ?? 0) - (a.author_date ?? 0))
-  for (const orphan of sorted) {
-    const parentHash = orphan.parents[0]
-    const parentIdx = parentHash ? merged.findIndex(c => c.hash === parentHash) : -1
-    if (parentIdx !== -1) {
-      // Insert just before the parent (parent's lane is already open at this point)
-      merged.splice(parentIdx, 0, orphan)
-    } else {
-      // Parent not in result — fall back to date-based position
-      const orphanDate = orphan.author_date ?? 0
-      const insertIdx = merged.findIndex(c => (c.author_date ?? 0) <= orphanDate)
-      if (insertIdx === -1) merged.push(orphan)
-      else merged.splice(insertIdx, 0, orphan)
-    }
-  }
-  return merged
+  return result
 }
 
 /**
  * Assign each commit to a lane using the standard git-graph algorithm.
  * Commits are topologically sorted internally (tips first).
- * Orphan commits (provided via orphanHashes) are placed by date rather than
- * at the top, and are marked with isOrphan: true in the output.
  */
-export function computeLayout(commits: GitCommit[], orphanHashes: Set<string> = new Set()): LaidOutCommit[] {
-  const sorted = topoSort(commits, orphanHashes)
+export function computeLayout(commits: GitCommit[]): LaidOutCommit[] {
+  const sorted = topoSort(commits)
   const result: LaidOutCommit[] = []
   const activeLanes: (string | null)[] = []
 
@@ -123,13 +83,13 @@ export function computeLayout(commits: GitCommit[], orphanHashes: Set<string> = 
         activeLanes[myLane] = null
       } else {
         activeLanes[myLane] = firstParent
-        for (let i = 1; i < commit.parents.length; i++) {
-          const p = commit.parents[i]
-          if (activeLanes.includes(p)) continue
-          const free = activeLanes.indexOf(null)
-          if (free !== -1) activeLanes[free] = p
-          else activeLanes.push(p)
-        }
+      }
+      for (let i = 1; i < commit.parents.length; i++) {
+        const p = commit.parents[i]
+        if (activeLanes.includes(p)) continue
+        const free = activeLanes.indexOf(null)
+        if (free !== -1) activeLanes[free] = p
+        else activeLanes.push(p)
       }
     }
 
@@ -137,7 +97,7 @@ export function computeLayout(commits: GitCommit[], orphanHashes: Set<string> = 
       activeLanes.pop()
     }
 
-    result.push({ commit, lane: myLane, activeLanesAfter: [...activeLanes], activeLanesBefore, closingLanes, isOrphan: orphanHashes.has(commit.hash) })
+    result.push({ commit, lane: myLane, activeLanesAfter: [...activeLanes], activeLanesBefore, closingLanes })
   }
 
   return result
