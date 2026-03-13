@@ -1701,6 +1701,51 @@ cmd_review() {
     esac
 }
 
+cmd_set_review() {
+    local ident="${1:-}"
+    local status="${2:-}"
+    if [ -z "$ident" ] || [ -z "$status" ]; then
+        echo "Usage: planq set-review <filename-or-N> <status>" >&2
+        echo "  status: none|ready|testing|passed|has-issues|fix-scheduled|follow-up|revert-scheduled|ready-for-merge|merged|cancelled|retry-later" >&2
+        return 1
+    fi
+    case "$status" in
+        none|ready|testing|passed|has-issues|fix-scheduled|follow-up|revert-scheduled|ready-for-merge|merged|cancelled|retry-later) ;;
+        *) echo "Invalid review status: $status" >&2; return 1 ;;
+    esac
+
+    local next
+    next="$(_find_task_by_identifier "$ident")"
+    if [ -z "$next" ]; then
+        echo "No matching task for '$ident' in $PLANQ_FILE" >&2; return 1
+    fi
+
+    local task_line task_type task_value task_auto_commit task_stage_commit task_manual_commit task_add_after task_add_end task_auto_queue_plan
+    task_line="$(printf '%s' "$next" | cut -f2-)"
+    _parse_task "$task_line"
+
+    if [ -z "$task_value" ] || [ "$task_type" = "unnamed-task" ]; then
+        echo "Task has no file; review status only applies to file-based tasks" >&2; return 1
+    fi
+
+    local task_file="$PLANS_DIR/$task_value"
+    if [ ! -f "$task_file" ]; then
+        echo "Task file not found: $task_file" >&2; return 1
+    fi
+
+    local tmpf
+    tmpf="$(mktemp)"
+    if grep -q "^review:" "$task_file"; then
+        sed "s/^review:.*$/review: $status/" "$task_file" > "$tmpf" || { rm -f "$tmpf"; echo "Failed to update file" >&2; return 1; }
+    else
+        cat "$task_file" > "$tmpf"
+        printf '\nreview: %s\n' "$status" >> "$tmpf"
+    fi
+    mv "$tmpf" "$task_file" || { echo "Failed to write file" >&2; return 1; }
+    echo "Review status set to '$status' for: $task_value"
+    _notify_daemon
+}
+
 cmd_daemon() {
     local daemon_sh="$SCRIPT_DIR/planq-daemon.sh"
     if [ ! -x "$daemon_sh" ]; then
@@ -1865,6 +1910,7 @@ case "$SUBCMD" in
     daemon|d)            cmd_daemon "$@" ;;
     logs|L)              cmd_logs "$@" ;;
     review)              shift; cmd_review "$@" ;;
+    set-review)          shift; cmd_set_review "$@" ;;
     shell|sh)            exec bash "$SCRIPT_DIR/planq-shell.sh" "$@" ;;
     --help|-h|help|"")   usage ;;
     *)

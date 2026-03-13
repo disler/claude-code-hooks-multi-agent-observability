@@ -1484,6 +1484,24 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!task) return err('Task not found', 404);
     touchPlanqServerModified(containerId);
 
+    // Write review status back to the task file
+    if (body.review_status !== undefined && task.filename && containerWsMap.has(containerId)) {
+      const cache = plansFilesCache.get(containerId);
+      const currentContent = cache?.get(task.filename) ?? '';
+      const reviewStatus = body.review_status as string;
+      let newContent: string;
+      if (!reviewStatus || reviewStatus === 'none') {
+        newContent = currentContent.replace(/^review:\s*\S+[^\n]*/m, '').replace(/^\n/, '');
+      } else if (/^review:\s*/m.test(currentContent)) {
+        newContent = currentContent.replace(/^review:\s*\S*/m, `review: ${reviewStatus}`);
+      } else {
+        const trimmed = currentContent.trimEnd();
+        newContent = trimmed + (trimmed ? '\n' : '') + `review: ${reviewStatus}\n`;
+      }
+      if (cache) cache.set(task.filename, newContent);
+      relayFileWrite(containerId, task.filename, newContent).catch(() => {});
+    }
+
     // Build ChangeRequests for fields that the container cares about
     const task_key = task.filename ?? task.description ?? '';
     const containerChanges: ChangeRequest[] = [];
