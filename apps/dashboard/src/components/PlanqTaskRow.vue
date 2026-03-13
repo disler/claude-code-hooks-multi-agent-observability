@@ -21,7 +21,7 @@
     <span v-else-if="task.status === 'auto-queue'" class="text-cyan-400 text-xs">⏱</span>
     <span v-else-if="task.status === 'awaiting-commit'" class="text-purple-400 text-xs">💾</span>
     <span v-else-if="task.status === 'awaiting-plan'" class="text-teal-400 text-xs">📋</span>
-    <span v-else-if="task.status === 'deferred'" class="text-slate-500 text-xs">⏸</span>
+    <span v-else-if="task.status === 'deferred'" class="text-slate-500 text-xs">💤</span>
     <span v-else class="text-slate-600 text-xs">▶</span>
 
     <!-- Type badge -->

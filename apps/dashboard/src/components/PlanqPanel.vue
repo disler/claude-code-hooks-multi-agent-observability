@@ -242,7 +242,7 @@ const STATUS_FILTER_DEFS = [
   { status: 'awaiting-commit', icon: '💾', label: 'Awaiting commit', activeClass: 'bg-purple-900/60 text-purple-300' },
   { status: 'awaiting-plan',   icon: '📋', label: 'Awaiting plan',   activeClass: 'bg-teal-900/60 text-teal-300' },
   { status: 'done',            icon: '✅', label: 'Done',            activeClass: 'bg-green-900/40 text-green-400' },
-  { status: 'deferred',        icon: '⏸',  label: 'Deferred',        activeClass: 'bg-slate-700 text-slate-400' },
+  { status: 'deferred',        icon: '💤', label: 'Deferred',        activeClass: 'bg-slate-700 text-slate-400' },
 ]
 
 const statusFilters = computed(() =>

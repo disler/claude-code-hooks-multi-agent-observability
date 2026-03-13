@@ -86,7 +86,7 @@ _list_tasks() {
         fi
         i=$((i + 1))
         deferred_count=$((deferred_count + 1))
-        printf "  \033[2m⏸  %-3d  %s\033[0m\n" "$i" "${trimmed#"# deferred: "}"
+        printf "  \033[2m💤 %-3d  %s\033[0m\n" "$i" "${trimmed#"# deferred: "}"
     done < "$PLANQ_FILE"
 }
 
