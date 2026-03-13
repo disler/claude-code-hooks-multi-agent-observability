@@ -1,58 +1,65 @@
 import { ref } from 'vue'
+import type { PlanqTask } from '../types'
 
 // Module-level state — persists across component mount/unmount (e.g. panel collapse/expand)
-const openTaskIds = ref(new Set<number>())
-const cachedContent = new Map<number, string | null>()
+// Keyed by stable task key (filename or description) rather than volatile DB ID.
+const openTaskKeys = ref(new Set<string>())
+const cachedContent = new Map<string, string | null>()
 
 // Feedback panel state (investigate tasks)
-const openFeedbackIds = ref(new Set<number>())
-const cachedFeedback = new Map<number, string | null>()
+const openFeedbackKeys = ref(new Set<string>())
+const cachedFeedback = new Map<string, string | null>()
+
+/** Stable key for a task that survives heartbeat DB sync cycles. */
+export function taskStableKey(task: Pick<PlanqTask, 'id' | 'filename' | 'description'>): string {
+  return task.filename ?? task.description ?? String(task.id)
+}
 
 export function useExpandedTasks() {
-  function isOpen(taskId: number): boolean {
-    return openTaskIds.value.has(taskId)
+  function isOpen(key: string): boolean {
+    return openTaskKeys.value.has(key)
   }
 
-  function toggle(taskId: number): void {
-    const s = new Set(openTaskIds.value)
-    if (s.has(taskId)) s.delete(taskId)
-    else s.add(taskId)
-    openTaskIds.value = s
+  function toggle(key: string): void {
+    const s = new Set(openTaskKeys.value)
+    if (s.has(key)) s.delete(key)
+    else s.add(key)
+    openTaskKeys.value = s
   }
 
-  function close(taskId: number): void {
-    if (openTaskIds.value.has(taskId)) {
-      const s = new Set(openTaskIds.value)
-      s.delete(taskId)
-      openTaskIds.value = s
+  function close(key: string): void {
+    if (openTaskKeys.value.has(key)) {
+      const s = new Set(openTaskKeys.value)
+      s.delete(key)
+      openTaskKeys.value = s
     }
   }
 
-  function getCached(taskId: number): string | null | undefined {
-    return cachedContent.get(taskId)
+  function getCached(key: string): string | null | undefined {
+    return cachedContent.get(key)
   }
 
-  function setCached(taskId: number, content: string | null): void {
-    cachedContent.set(taskId, content)
+  function setCached(key: string, content: string | null): void {
+    cachedContent.set(key, content)
   }
 
-  function isFeedbackOpen(taskId: number): boolean {
-    return openFeedbackIds.value.has(taskId)
+  function isFeedbackOpen(key: string): boolean {
+    return openFeedbackKeys.value.has(key)
   }
 
-  function toggleFeedback(taskId: number): void {
-    const s = new Set(openFeedbackIds.value)
-    if (s.has(taskId)) s.delete(taskId)
-    else s.add(taskId)
-    openFeedbackIds.value = s
+  function toggleFeedback(key: string): void {
+    const s = new Set(openFeedbackKeys.value)
+    if (s.has(key)) s.delete(key)
+    else s.add(key)
+    openFeedbackKeys.value = s
   }
 
-  function getFeedbackCached(taskId: number): string | null | undefined {
-    return cachedFeedback.get(taskId)
+  function getFeedbackCached(key: string): string | null | undefined {
+    return cachedFeedback.get(key)
   }
 
-  function setFeedbackCached(taskId: number, content: string | null): void {
-    cachedFeedback.set(taskId, content)
+  function setFeedbackCached(key: string, content: string | null): void {
+    cachedFeedback.set(key, content)
   }
 
   return { isOpen, toggle, close, getCached, setCached, isFeedbackOpen, toggleFeedback, getFeedbackCached, setFeedbackCached }

@@ -516,14 +516,70 @@ export function serializePlanqOrder(tasks: PlanqTaskRow[]): string {
 }
 
 export function syncPlanqTasksFromParsed(containerId: string, items: PlanqItem[]): void {
-  db.prepare('DELETE FROM planq_tasks WHERE container_id = ?').run(containerId);
-  const insert = db.prepare(`
+  // Update in place rather than wipe-and-reinsert so that DB row IDs are
+  // stable across heartbeats. Stable IDs mean the frontend (keyed by task.id)
+  // preserves component state (expanded rows, cached file content, etc.)
+  // across heartbeat syncs.
+  const existing = getPlanqTasks(containerId);
+  const existingByKey = new Map<string, PlanqTaskRow>();
+  for (const t of existing) {
+    const k = t.filename ?? t.description ?? '';
+    if (k) existingByKey.set(k, t);
+  }
+
+  const insertStmt = db.prepare(`
     INSERT INTO planq_tasks (container_id, task_type, filename, description, position, status, auto_commit, commit_mode, plan_disposition, auto_queue_plan)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const updateStmt = db.prepare(`
+    UPDATE planq_tasks SET task_type = ?, filename = ?, description = ?, position = ?, status = ?, auto_commit = ?, commit_mode = ?, plan_disposition = ?, auto_queue_plan = ?
+    WHERE id = ?
+  `);
+
+  const seenIds = new Set<number>();
   items.forEach((item, i) => {
-    insert.run(containerId, item.task_type, item.filename ?? null, item.description ?? null, i, item.status, item.auto_commit ? 1 : 0, item.commit_mode ?? 'none', item.plan_disposition ?? 'manual', item.auto_queue_plan ? 1 : 0);
+    const key = item.filename ?? item.description ?? '';
+    const existingRow = key ? existingByKey.get(key) : undefined;
+    const effectiveMode = (item.commit_mode && item.commit_mode !== 'none') ? item.commit_mode : (item.auto_commit ? 'auto' : 'none');
+
+    if (existingRow) {
+      // Update in place — preserve ID so frontend component state survives
+      updateStmt.run(
+        item.task_type,
+        item.filename ?? null,
+        item.description ?? null,
+        i,
+        item.status,
+        item.auto_commit ? 1 : 0,
+        effectiveMode,
+        item.plan_disposition ?? 'manual',
+        item.auto_queue_plan ? 1 : 0,
+        existingRow.id,
+      );
+      seenIds.add(existingRow.id);
+    } else {
+      const result = insertStmt.run(
+        containerId,
+        item.task_type,
+        item.filename ?? null,
+        item.description ?? null,
+        i,
+        item.status,
+        item.auto_commit ? 1 : 0,
+        effectiveMode,
+        item.plan_disposition ?? 'manual',
+        item.auto_queue_plan ? 1 : 0,
+      );
+      seenIds.add(result.lastInsertRowid as number);
+    }
   });
+
+  // Delete tasks no longer present in the container's list
+  for (const t of existing) {
+    if (!seenIds.has(t.id)) {
+      db.prepare('DELETE FROM planq_tasks WHERE id = ?').run(t.id);
+    }
+  }
 }
 
 function rowToTask(r: any): PlanqTaskRow {

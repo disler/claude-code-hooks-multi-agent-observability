@@ -35,7 +35,7 @@
         v-if="effectiveFilename"
         @click.stop="toggleDescPopup"
         class="hover:text-slate-100 hover:underline cursor-pointer truncate min-w-0"
-        :title="isOpen(task.id) ? 'Hide description' : 'Show description'"
+        :title="isOpen(taskKey) ? 'Hide description' : 'Show description'"
       >{{ effectiveFilename }}</button>
       <span v-else class="truncate min-w-0">{{ task.description }}</span>
       <!-- Feedback toggle: immediately after filename for investigate tasks -->
@@ -43,9 +43,9 @@
         v-if="task.task_type === 'investigate' && derivedFeedbackFilename"
         @click.stop="toggleFeedbackOpen"
         class="shrink-0 text-xs px-1"
-        :class="isFeedbackOpen(task.id) ? 'text-indigo-300 hover:text-indigo-200' : 'text-slate-500 hover:text-slate-300'"
+        :class="isFeedbackOpen(taskKey) ? 'text-indigo-300 hover:text-indigo-200' : 'text-slate-500 hover:text-slate-300'"
         title="Show investigation feedback"
-      >{{ isFeedbackOpen(task.id) ? 'hide feedback' : 'feedback' }}</button>
+      >{{ isFeedbackOpen(taskKey) ? 'hide feedback' : 'feedback' }}</button>
       <span v-if="task.commit_mode === 'auto' || task.auto_commit" class="shrink-0 text-green-500" title="Auto-commit after">⇒</span>
       <span v-else-if="task.commit_mode === 'stage'" class="shrink-0 text-blue-400" title="Stage-commit after (Claude stages, you commit)">⇒</span>
       <span v-else-if="task.commit_mode === 'manual'" class="shrink-0 text-orange-400" title="Manual-commit after (you stage and commit)">⇒</span>
@@ -197,7 +197,7 @@
 
   <!-- Description popup (shown when filename is clicked) -->
   <div
-    v-if="isOpen(task.id)"
+    v-if="isOpen(taskKey)"
     class="mx-2 mb-1 rounded border border-slate-700 bg-slate-900 p-2"
   >
     <div class="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5 pb-1 border-b border-slate-700/60">
@@ -208,13 +208,13 @@
       <span class="font-mono text-slate-400">{{ task.task_type }}{{ task.filename ? ': ' + task.filename : '' }}</span>
     </div>
     <div v-if="loadingDesc" class="text-xs text-slate-500">Loading…</div>
-    <MarkdownContent v-else-if="getCached(task.id)" :content="getCached(task.id)!" />
+    <MarkdownContent v-else-if="getCached(taskKey)" :content="getCached(taskKey)!" />
     <div v-else class="text-xs text-slate-500 italic">No description available.</div>
   </div>
 
   <!-- Investigate feedback panel -->
   <div
-    v-if="isFeedbackOpen(task.id) && task.task_type === 'investigate' && derivedFeedbackFilename"
+    v-if="isFeedbackOpen(taskKey) && task.task_type === 'investigate' && derivedFeedbackFilename"
     class="mx-2 mb-1 rounded border border-indigo-800/50 bg-indigo-950/30 p-2"
   >
     <div class="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5 pb-1 border-b border-indigo-800/40">
@@ -225,7 +225,7 @@
       <span class="font-mono text-slate-400">{{ task.task_type }}: {{ task.filename }} (feedback)</span>
     </div>
     <div v-if="loadingFeedback" class="text-xs text-slate-500">Loading…</div>
-    <MarkdownContent v-else-if="getFeedbackCached(task.id)" :content="getFeedbackCached(task.id)!" />
+    <MarkdownContent v-else-if="getFeedbackCached(taskKey)" :content="getFeedbackCached(taskKey)!" />
     <div v-else class="text-xs text-slate-500 italic">No feedback file found yet (plans/{{ derivedFeedbackFilename }}).</div>
   </div>
   </div>
@@ -234,7 +234,7 @@
 <script setup lang="ts">
 import { ref, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
-import { useExpandedTasks } from '../composables/useExpandedTasks'
+import { useExpandedTasks, taskStableKey } from '../composables/useExpandedTasks'
 import { useContainers } from '../composables/useContainers'
 import type { PlanqTask, ReviewStatus } from '../types'
 import MarkdownContent from './MarkdownContent.vue'
@@ -265,6 +265,8 @@ const emit = defineEmits<{
 const { readFile } = usePlanq()
 const { isOpen, toggle, getCached, setCached, isFeedbackOpen, toggleFeedback, getFeedbackCached, setFeedbackCached } = useExpandedTasks()
 const { containers } = useContainers()
+// Stable key for this task — survives heartbeat ID reassignment
+const taskKey = computed(() => taskStableKey(props.task))
 const containerInfo = computed(() => containers.value.get(props.containerId))
 
 const editingDesc = ref(false)
@@ -355,10 +357,10 @@ const derivedFeedbackFilename = computed(() => {
 })
 
 async function toggleFeedbackOpen() {
-  toggleFeedback(props.task.id)
-  if (isFeedbackOpen(props.task.id) && getFeedbackCached(props.task.id) === undefined) {
+  toggleFeedback(taskKey.value)
+  if (isFeedbackOpen(taskKey.value) && getFeedbackCached(taskKey.value) === undefined) {
     loadingFeedback.value = true
-    setFeedbackCached(props.task.id, await readFile(props.containerId, derivedFeedbackFilename.value!) ?? null)
+    setFeedbackCached(taskKey.value, await readFile(props.containerId, derivedFeedbackFilename.value!) ?? null)
     loadingFeedback.value = false
   }
 }
@@ -407,15 +409,15 @@ onBeforeUnmount(() => document.removeEventListener('click', closeReviewDropdown)
 const loadingDesc = ref(false)
 
 async function toggleDescPopup() {
-  toggle(props.task.id)
-  if (!isOpen(props.task.id) || getCached(props.task.id) !== undefined) return
+  toggle(taskKey.value)
+  if (!isOpen(taskKey.value) || getCached(taskKey.value) !== undefined) return
 
   if (effectiveFilename.value) {
     loadingDesc.value = true
-    setCached(props.task.id, await readFile(props.containerId, effectiveFilename.value))
+    setCached(taskKey.value, await readFile(props.containerId, effectiveFilename.value))
     loadingDesc.value = false
   } else if (props.task.description) {
-    setCached(props.task.id, props.task.description)
+    setCached(taskKey.value, props.task.description)
   }
 }
 
