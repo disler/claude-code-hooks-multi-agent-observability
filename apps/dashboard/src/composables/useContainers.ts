@@ -20,9 +20,15 @@ async function fetchInitial() {
 
 function handleMessage(msg: DashboardMessage) {
   if (msg.type === 'initial') {
-    const map = new Map<string, ContainerWithState>()
-    for (const c of msg.data) map.set(c.id, c)
-    containers.value = map
+    // Merge rather than replace: update/add containers from the server's list, but
+    // keep any existing containers that are absent from this message (they may have
+    // temporarily dropped during a WS reconnect window).  Explicit removals arrive
+    // via container_removed messages; an absence from 'initial' alone is not
+    // authoritative enough to destroy component state such as open dialogs or
+    // in-progress task edits.
+    const updated = new Map(containers.value)
+    for (const c of msg.data) updated.set(c.id, c)
+    containers.value = updated
   } else if (msg.type === 'container_update') {
     const updated = new Map(containers.value)
     updated.set(msg.data.id, msg.data)
