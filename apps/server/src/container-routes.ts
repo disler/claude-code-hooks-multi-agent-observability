@@ -185,9 +185,8 @@ async function evictOldSessionLogs(): Promise<void> {
   console.log(`[session-log-eviction] Deleted ${stale.length} stale session log(s)`);
 }
 
-// Run eviction on startup and every hour
-evictOldSessionLogs();
-setInterval(evictOldSessionLogs, 60 * 60 * 1000);
+// evictOldSessionLogs() and its interval are started from initContainerRoutes()
+// so that db is guaranteed to be initialized before the first call.
 
 // ── Plans files cache (populated from daemon heartbeats) ───────────────────────
 // containerId → filename → content (most recent content pushed by daemon)
@@ -278,6 +277,9 @@ export function initContainerRoutes(): void {
   console.log(`[init] marked ${result.changes} stale container(s) offline (last_seen > 60s ago)`);
   // Periodically clean up old acked change records (daily)
   setInterval(() => cleanupOldPendingChanges(), 24 * 3600 * 1000);
+  // Session log eviction: run on startup and every hour (must be after db init)
+  evictOldSessionLogs();
+  setInterval(evictOldSessionLogs, 60 * 60 * 1000);
 }
 
 // ── Dashboard broadcast helpers ───────────────────────────────────────────────
