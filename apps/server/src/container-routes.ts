@@ -3,6 +3,7 @@ import { mkdirSync, unlinkSync } from 'node:fs';
 import {
   initContainerDatabase,
   upsertContainer,
+  touchContainerSeen,
   setContainerDisconnected,
   getAllContainers,
   deleteContainer,
@@ -50,6 +51,45 @@ import {
   type StoredGitCommit,
   type HostSourceReport,
 } from './container-db';
+
+// ── Heartbeat change detection ────────────────────────────────────────────────
+// Returns true if the incoming heartbeat data differs from the stored row in any
+// way that warrants a DB write and dashboard broadcast.
+function containerDataChanged(
+  existing: ContainerRow,
+  msg: { machine_hostname?: string; container_hostname?: string; workspace_host_path?: string;
+         git_branch?: string; git_commit_hash?: string; git_staged_count?: number;
+         git_unstaged_count?: number; git_staged_diffstat?: string; git_unstaged_diffstat?: string;
+         versions?: Record<string, string>; planq_order?: string; review_state?: unknown;
+         test_results?: unknown; auto_test_pending?: unknown; running_session_ids?: string[] },
+  resolvedMachineHostname: string,
+  mergedSessionIds: string[],
+): boolean {
+  if (!existing.connected) return true; // was offline — must reconnect
+  // Sort session arrays for stable comparison
+  const sortedMerged = [...mergedSessionIds].sort().join(',');
+  const sortedExisting = [...existing.active_session_ids].sort().join(',');
+  const sortedRunning = [...(Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [])].sort().join(',');
+  const sortedExistingRunning = [...(existing.running_session_ids ?? [])].sort().join(',');
+  return (
+    existing.machine_hostname       !== resolvedMachineHostname ||
+    existing.container_hostname     !== (msg.container_hostname ?? '') ||
+    existing.workspace_host_path    !== (msg.workspace_host_path ?? null) ||
+    existing.git_branch             !== (msg.git_branch ?? null) ||
+    existing.git_commit_hash        !== (msg.git_commit_hash ?? null) ||
+    existing.git_staged_count       !== (msg.git_staged_count ?? 0) ||
+    existing.git_unstaged_count     !== (msg.git_unstaged_count ?? 0) ||
+    existing.git_staged_diffstat    !== (msg.git_staged_diffstat ?? null) ||
+    existing.git_unstaged_diffstat  !== (msg.git_unstaged_diffstat ?? null) ||
+    sortedExisting                  !== sortedMerged ||
+    sortedExistingRunning           !== sortedRunning ||
+    JSON.stringify(existing.versions ?? {}) !== JSON.stringify(msg.versions ?? {}) ||
+    existing.planq_order            !== (msg.planq_order ?? null) ||
+    existing.review_state           !== (msg.review_state != null ? JSON.stringify(msg.review_state) : null) ||
+    existing.test_results           !== (Array.isArray(msg.test_results) ? JSON.stringify(msg.test_results) : null) ||
+    existing.auto_test_pending      !== (msg.auto_test_pending ? JSON.stringify(msg.auto_test_pending) : null)
+  );
+}
 
 // ── Git show cache (LRU-style, max 200 entries) ───────────────────────────────
 const gitShowCache = new Map<string, { diffstat: string; message: string }>();
@@ -628,35 +668,42 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       console.log(`[heartbeat] ${hbCtx}: machine_hostname in message (${JSON.stringify(msg.machine_hostname)}) rejected — keeping ${JSON.stringify(resolvedMachineHostname)}`);
     }
 
-    // Upsert container row
-    const container = upsertContainer({
-      id: containerId,
-      source_repo: msg.source_repo ?? containerId,
-      machine_hostname: resolvedMachineHostname,
-      container_hostname: msg.container_hostname ?? '',
-      workspace_host_path: msg.workspace_host_path ?? null,
-      git_branch: msg.git_branch ?? null,
-      git_worktree: msg.git_worktree ?? null,
-      git_commit_hash: msg.git_commit_hash ?? null,
-      git_commit_message: msg.git_commit_message ?? null,
-      git_staged_count: msg.git_staged_count ?? 0,
-      git_staged_diffstat: msg.git_staged_diffstat ?? null,
-      git_unstaged_count: msg.git_unstaged_count ?? 0,
-      git_unstaged_diffstat: msg.git_unstaged_diffstat ?? null,
-      git_remote_url: msg.git_remote_url ?? null,
-      git_submodules: Array.isArray(msg.git_submodules) ? msg.git_submodules : [],
-      versions: (msg.versions && typeof msg.versions === 'object') ? msg.versions : {},
-      planq_order: msg.planq_order ?? null,
-      planq_history: msg.planq_history ?? null,
-      auto_test_pending: msg.auto_test_pending ?? null,
-      active_session_ids: mergedSessionIds,
-      running_session_ids: Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [],
-      review_state: msg.review_state != null ? JSON.stringify(msg.review_state) : null,
-      test_results: Array.isArray(msg.test_results) ? JSON.stringify(msg.test_results) : null,
-      last_seen: Date.now(),
-    });
-
-    console.log(`[heartbeat] ${hbCtx}: upserted connected=${container.connected} sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}] git: staged=${msg.git_staged_count ?? 'n/a'} unstaged=${msg.git_unstaged_count ?? 'n/a'} branch=${msg.git_branch ?? '-'}`);
+    // Upsert container row only when data has actually changed; otherwise just touch last_seen.
+    const now = Date.now();
+    const changed = !existingContainer || containerDataChanged(existingContainer, msg, resolvedMachineHostname, mergedSessionIds);
+    let container: ContainerRow;
+    if (changed) {
+      container = upsertContainer({
+        id: containerId,
+        source_repo: msg.source_repo ?? containerId,
+        machine_hostname: resolvedMachineHostname,
+        container_hostname: msg.container_hostname ?? '',
+        workspace_host_path: msg.workspace_host_path ?? null,
+        git_branch: msg.git_branch ?? null,
+        git_worktree: msg.git_worktree ?? null,
+        git_commit_hash: msg.git_commit_hash ?? null,
+        git_commit_message: msg.git_commit_message ?? null,
+        git_staged_count: msg.git_staged_count ?? 0,
+        git_staged_diffstat: msg.git_staged_diffstat ?? null,
+        git_unstaged_count: msg.git_unstaged_count ?? 0,
+        git_unstaged_diffstat: msg.git_unstaged_diffstat ?? null,
+        git_remote_url: msg.git_remote_url ?? null,
+        git_submodules: Array.isArray(msg.git_submodules) ? msg.git_submodules : [],
+        versions: (msg.versions && typeof msg.versions === 'object') ? msg.versions : {},
+        planq_order: msg.planq_order ?? null,
+        planq_history: msg.planq_history ?? null,
+        auto_test_pending: msg.auto_test_pending ?? null,
+        active_session_ids: mergedSessionIds,
+        running_session_ids: Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [],
+        review_state: msg.review_state != null ? JSON.stringify(msg.review_state) : null,
+        test_results: Array.isArray(msg.test_results) ? JSON.stringify(msg.test_results) : null,
+        last_seen: now,
+      });
+      console.log(`[heartbeat] ${hbCtx}: updated sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}] git: staged=${msg.git_staged_count ?? 'n/a'} unstaged=${msg.git_unstaged_count ?? 'n/a'} branch=${msg.git_branch ?? '-'}`);
+    } else {
+      touchContainerSeen(containerId, now);
+      container = existingContainer;
+    }
 
     // Sync planq tasks from container — container is the authoritative source.
     // No writeback: dashboard changes are delivered via apply_changes messages.
@@ -762,9 +809,11 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       resolveTaskLinks(containerId, cache);
     }
 
-    // Broadcast to dashboard clients
-    const containerWithState = buildContainerWithState(container);
-    broadcastDashboard({ type: 'container_update', data: containerWithState });
+    // Broadcast to dashboard clients only when something changed
+    if (changed) {
+      const containerWithState = buildContainerWithState(container);
+      broadcastDashboard({ type: 'container_update', data: containerWithState });
+    }
 
     // Auto-restart daemon if it is running an outdated version of itself.
     // Only send once per 5 minutes to avoid restart loops.

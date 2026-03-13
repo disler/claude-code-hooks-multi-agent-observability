@@ -363,6 +363,10 @@ export function upsertContainer(data: Omit<ContainerRow, 'connected'>): Containe
   return getContainer(data.id)!;
 }
 
+export function touchContainerSeen(id: string, ts: number): void {
+  db.prepare('UPDATE containers SET last_seen = ? WHERE id = ?').run(ts, id);
+}
+
 export function setContainerDisconnected(id: string): void {
   db.prepare('UPDATE containers SET connected = 0 WHERE id = ?').run(id);
 }
