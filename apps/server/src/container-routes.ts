@@ -1639,8 +1639,20 @@ function mergePlanqLists(
   const result: PlanqItem[] = [];
   const conflicts: MergeConflict[] = [];
 
-  // Preserve container ordering: process container tasks first, then append server-only tasks
-  const containerKeysInOrder = container.map(taskKey).filter(k => k);
+  // Detect ordering changes relative to base (only for keys present on both sides)
+  const commonKeys = new Set([...serverMap.keys()].filter(k => containerMap.has(k)));
+  const baseKeysCommon = base.map(taskKey).filter(k => k && commonKeys.has(k));
+  const serverKeysCommon = server.map(taskKey).filter(k => k && commonKeys.has(k));
+  const containerKeysCommon = container.map(taskKey).filter(k => k && commonKeys.has(k));
+  const serverReordered = serverKeysCommon.join('\0') !== baseKeysCommon.join('\0');
+  const containerReordered = containerKeysCommon.join('\0') !== baseKeysCommon.join('\0');
+  // If only the server changed ordering (e.g. drag-and-drop), use server ordering so it isn't reverted by a stale heartbeat
+  const useServerOrder = serverReordered && !containerReordered;
+
+  // Use server or container ordering depending on who changed it
+  const primaryOrderKeys = useServerOrder
+    ? server.map(taskKey).filter(k => k) as string[]
+    : container.map(taskKey).filter(k => k) as string[];
   const processedKeys = new Set<string>();
 
   function mergeOne(key: string): PlanqItem | null {
@@ -1734,8 +1746,8 @@ function mergePlanqLists(
     };
   }
 
-  // Process in container order first
-  for (const key of containerKeysInOrder) {
+  // Process in primary order first (server order if server reordered and container didn't, else container order)
+  for (const key of primaryOrderKeys) {
     if (processedKeys.has(key)) continue;
     processedKeys.add(key);
     const merged = mergeOne(key);
@@ -1769,12 +1781,13 @@ function mergePlanqLists(
   return { merged: result, conflicts, hasChanges };
 }
 
-// Write the planq-order.txt through the daemon for a given container
+// Write the planq-order.txt through the daemon for a given container.
+// Does NOT update planq_last_synced — that is only updated once the daemon
+// acknowledges the new state via a heartbeat, so the three-way merge can
+// correctly detect which side made an intentional change.
 async function writePlanqFile(containerId: string, _container: ContainerRow): Promise<void> {
   const tasks = getPlanqTasks(containerId);
   const content = serializePlanqOrder(tasks);
   await relayFileWrite(containerId, 'planq-order.txt', content);
   planqSyncedAt.set(containerId, Date.now());
-  const currentSerialized = serializePlanqOrder(getPlanqTasks(containerId));
-  setPlanqLastSynced(containerId, currentSerialized);
 }
