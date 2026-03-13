@@ -47,6 +47,7 @@
           :fill="isHeadCommit(row.commit.hash) ? '#fff' : laneColor(row.lane)"
           :stroke="dirtyRing(row.commit.hash) ? '#fb923c' : 'none'"
           stroke-width="2"
+          :opacity="row.isOrphan ? 0.75 : 1"
           class="cursor-pointer"
           @click="$emit('select-hash', row.commit.hash)"
         />
@@ -351,7 +352,47 @@ const scrollEl = ref<HTMLElement | null>(null)
 const svgEl = ref<SVGSVGElement | null>(null)
 const flashHash = ref<string | null>(null)
 
-const layout = computed(() => computeLayout(props.commits))
+// Identify orphan commits: no refs, no descendants in the set, not currently checked out.
+const orphanHashes = computed(() => {
+  const commits = props.commits
+  const hashSet = new Set(commits.map(c => c.hash))
+
+  // Commits that are a parent of another commit in the set (have descendants)
+  const hasChild = new Set<string>()
+  for (const c of commits) {
+    for (const p of c.parents) {
+      if (hashSet.has(p)) hasChild.add(p)
+    }
+  }
+
+  // Full hashes of commits currently checked out by any container
+  const checkedOut = new Set<string>()
+  for (const c of props.containers) {
+    if (!c.git_commit_hash) continue
+    const full = commits.find(cm => cm.hash.startsWith(c.git_commit_hash!) || c.git_commit_hash!.startsWith(cm.hash))
+    if (full) checkedOut.add(full.hash)
+  }
+
+  // Hashes with any branch/tag label from any host
+  const hasRef = new Set<string>()
+  for (const c of commits) {
+    if (c.refs.length > 0) hasRef.add(c.hash)
+  }
+  for (const rph of props.refsPerHost) {
+    if (rph.localBranches.length > 0) hasRef.add(rph.hash)
+  }
+
+  const orphans = new Set<string>()
+  for (const c of commits) {
+    if (hasRef.has(c.hash)) continue
+    if (hasChild.has(c.hash)) continue
+    if (checkedOut.has(c.hash)) continue
+    orphans.add(c.hash)
+  }
+  return orphans
+})
+
+const layout = computed(() => computeLayout(props.commits, orphanHashes.value))
 
 const maxLanes = computed(() => {
   let m = 1

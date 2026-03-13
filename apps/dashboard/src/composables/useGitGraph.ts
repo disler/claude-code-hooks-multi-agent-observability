@@ -7,10 +7,15 @@ export interface LaidOutCommit {
   activeLanesBefore: (string | null)[]
   /** Lanes being closed at this row because their first parent is already tracked elsewhere. */
   closingLanes: Array<{ from: number; to: number }>
+  /** True if this commit has no refs, no descendants in the set, and is not currently checked out. */
+  isOrphan: boolean
 }
 
-/** Topologically sort commits (tips/newest first) using Kahn's algorithm. */
-function topoSort(commits: GitCommit[]): GitCommit[] {
+/** Topologically sort commits (tips/newest first) using Kahn's algorithm.
+ *  Orphan commits (no refs, no descendants, not checked out) are deferred
+ *  to be inserted at the position matching their date, not at the very top.
+ */
+function topoSort(commits: GitCommit[], orphanHashes: Set<string>): GitCommit[] {
   const map = new Map<string, GitCommit>()
   for (const c of commits) map.set(c.hash, c)
 
@@ -22,9 +27,13 @@ function topoSort(commits: GitCommit[]): GitCommit[] {
     }
   }
 
-  // Tips first (no children within the set)
-  const queue: GitCommit[] = commits.filter(c => (childCount.get(c.hash) ?? 0) === 0)
+  // Tips first (no children within the set), excluding orphans from initial queue
+  const allTips = commits.filter(c => (childCount.get(c.hash) ?? 0) === 0)
+  const queue: GitCommit[] = allTips.filter(c => !orphanHashes.has(c.hash))
   const seen = new Set(queue.map(c => c.hash))
+  // Orphan tips are held separately and merged by date at the end
+  const orphanTips = allTips.filter(c => orphanHashes.has(c.hash))
+  for (const c of orphanTips) seen.add(c.hash)
   const result: GitCommit[] = []
 
   while (queue.length > 0) {
@@ -41,20 +50,38 @@ function topoSort(commits: GitCommit[]): GitCommit[] {
     }
   }
 
-  // Safety net for cycles or disconnected nodes
+  // Safety net for cycles or disconnected nodes (excluding orphan tips already handled)
   for (const c of commits) {
     if (!seen.has(c.hash)) result.push(c)
   }
 
-  return result
+  if (orphanTips.length === 0) return result
+
+  // Insert orphan tips into the sorted result based on their author_date.
+  // result is newest-first; insert each orphan at the position where its
+  // timestamp fits chronologically so it doesn't appear at the very top.
+  const sorted = orphanTips.slice().sort((a, b) => (b.author_date ?? 0) - (a.author_date ?? 0))
+  const merged = [...result]
+  for (const orphan of sorted) {
+    const orphanDate = orphan.author_date ?? 0
+    const insertIdx = merged.findIndex(c => (c.author_date ?? 0) <= orphanDate)
+    if (insertIdx === -1) {
+      merged.push(orphan)
+    } else {
+      merged.splice(insertIdx, 0, orphan)
+    }
+  }
+  return merged
 }
 
 /**
  * Assign each commit to a lane using the standard git-graph algorithm.
  * Commits are topologically sorted internally (tips first).
+ * Orphan commits (provided via orphanHashes) are placed by date rather than
+ * at the top, and are marked with isOrphan: true in the output.
  */
-export function computeLayout(commits: GitCommit[]): LaidOutCommit[] {
-  const sorted = topoSort(commits)
+export function computeLayout(commits: GitCommit[], orphanHashes: Set<string> = new Set()): LaidOutCommit[] {
+  const sorted = topoSort(commits, orphanHashes)
   const result: LaidOutCommit[] = []
   const activeLanes: (string | null)[] = []
 
@@ -97,7 +124,7 @@ export function computeLayout(commits: GitCommit[]): LaidOutCommit[] {
       activeLanes.pop()
     }
 
-    result.push({ commit, lane: myLane, activeLanesAfter: [...activeLanes], activeLanesBefore, closingLanes })
+    result.push({ commit, lane: myLane, activeLanesAfter: [...activeLanes], activeLanesBefore, closingLanes, isOrphan: orphanHashes.has(commit.hash) })
   }
 
   return result
