@@ -705,9 +705,18 @@ def _handle_file_read(ws, msg: dict):
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': str(e), 'content': ''})
 
 def _handle_session_log_read(ws, msg: dict):
-    """Read a Claude session JSONL from $CLAUDE_CONFIG_DIR/projects/."""
+    """Read a chunk of a Claude session JSONL from $CLAUDE_CONFIG_DIR/projects/.
+
+    Supports chunked reading via line_offset and limit:
+      line_offset  first line to return (0-based, default 0)
+      limit        max lines to return (default 1000, capped at 5000)
+
+    Response extras: line_offset, line_count, total_lines.
+    """
     session_id = msg.get('session_id', '')
     request_id = msg.get('request_id', '')
+    line_offset = max(0, int(msg.get('line_offset', 0)))
+    limit = min(max(1, int(msg.get('limit', 1000))), 5000)
     if not session_id or not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': 'invalid session_id', 'content': ''})
         return
@@ -723,8 +732,18 @@ def _handle_session_log_read(ws, msg: dict):
                         found = candidate
                         break
         if found:
-            content = found.read_text()
-            _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': True, 'content': content})
+            lines = found.read_text().splitlines(keepends=True)
+            total_lines = len(lines)
+            chunk = lines[line_offset:line_offset + limit]
+            _ws_send(ws, {
+                'type': 'file_read_response',
+                'request_id': request_id,
+                'ok': True,
+                'content': ''.join(chunk),
+                'line_offset': line_offset,
+                'line_count': len(chunk),
+                'total_lines': total_lines,
+            })
         else:
             _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': 'session log not found', 'content': ''})
     except OSError as e:

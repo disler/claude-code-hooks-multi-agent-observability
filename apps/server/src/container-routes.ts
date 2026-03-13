@@ -88,6 +88,21 @@ const plansFilesCache = new Map<string, Map<string, string>>();
 // containerIds whose plans/ directory has been fully initialised (first push received)
 const plansFilesCacheReady = new Set<string>();
 
+// ── Session log cache ─────────────────────────────────────────────────────────
+// Accumulates JSONL text per session as chunks are fetched.
+// cachedLines holds all lines from 0..cachedLines-1 as a single raw string.
+// Evicted after SESSION_LOG_CACHE_TTL_MS of inactivity, or when the session
+// goes active again (UserPromptSubmit) which may add new lines.
+const SESSION_LOG_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+interface SessionLogCache { rawText: string; cachedLines: number; totalLines: number; ts: number }
+const sessionLogCache = new Map<string, SessionLogCache>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of sessionLogCache) {
+    if (now - v.ts >= SESSION_LOG_CACHE_TTL_MS) sessionLogCache.delete(k);
+  }
+}, 5 * 60 * 1000).unref?.();
+
 // ── WebSocket connection stores ───────────────────────────────────────────────
 
 // container_id → WebSocket (planq daemon connection)
@@ -99,6 +114,13 @@ const dashboardWsClients = new Set<any>();
 // Pending file I/O requests: request_id → { resolve, reject, timer }
 const pendingFileRequests = new Map<string, {
   resolve: (content: string) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}>();
+
+// Pending session log chunk requests (resolve with full message for chunk metadata)
+const pendingSessionLogRequests = new Map<string, {
+  resolve: (msg: any) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }>();
@@ -297,6 +319,10 @@ export function broadcastAgentUpdate(data: {
   if (data.hook_event_type === 'UserPromptSubmit') {
     status = 'busy';
     last_prompt = (data.payload?.prompt as string) ?? null;
+    // New prompt submitted: mark session log cache as no longer complete so the
+    // next incremental fetch will relay to the daemon for the new lines.
+    const slc = sessionLogCache.get(data.session_id);
+    if (slc) slc.totalLines = 0; // force re-check on next request
   } else if (data.hook_event_type === 'Stop') {
     status = 'idle';
     last_response_summary = data.summary ?? null;
@@ -658,6 +684,15 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
 
   // File read response
   if (msg.type === 'file_read_response') {
+    // Check session log chunk requests first (they need the full message)
+    const slPending = pendingSessionLogRequests.get(msg.request_id);
+    if (slPending) {
+      clearTimeout(slPending.timer);
+      pendingSessionLogRequests.delete(msg.request_id);
+      if (msg.ok === false) slPending.reject(new Error(msg.error || 'Session log read failed'));
+      else slPending.resolve(msg);
+      return;
+    }
     const pending = pendingFileRequests.get(msg.request_id);
     if (pending) {
       clearTimeout(pending.timer);
@@ -837,19 +872,69 @@ export function handleDashboardMessage(ws: any, raw: string | Buffer): void {
 
 // ── File relay helpers ────────────────────────────────────────────────────────
 
-async function relaySessionLogRead(containerId: string, sessionId: string): Promise<string> {
+const SESSION_LOG_DEFAULT_LIMIT = 1000;
+const SESSION_LOG_MAX_LIMIT = 5000;
+
+interface SessionLogChunk {
+  content: string;
+  lineOffset: number;
+  lineCount: number;
+  totalLines: number;
+}
+
+async function relaySessionLogChunk(
+  containerId: string,
+  sessionId: string,
+  lineOffset: number,
+  limit: number,
+): Promise<SessionLogChunk> {
+  const clampedLimit = Math.min(limit, SESSION_LOG_MAX_LIMIT);
+  const cached = sessionLogCache.get(sessionId);
+
+  // Serve entirely from cache when we have all requested lines
+  if (cached && lineOffset + clampedLimit <= cached.cachedLines) {
+    const lines = cached.rawText.split('\n');
+    const chunk = lines.slice(lineOffset, lineOffset + clampedLimit);
+    return { content: chunk.join('\n') + (chunk.length ? '\n' : ''), lineOffset, lineCount: chunk.length, totalLines: cached.totalLines };
+  }
+  // Also serve from cache if lineOffset is at or past totalLines (nothing new to fetch)
+  if (cached && cached.totalLines > 0 && lineOffset >= cached.totalLines) {
+    return { content: '', lineOffset, lineCount: 0, totalLines: cached.totalLines };
+  }
+
   const ws = containerWsMap.get(containerId);
   if (!ws) throw new Error('Container offline');
 
   const requestId = crypto.randomUUID();
-  return new Promise<string>((resolve, reject) => {
+  const raw = await new Promise<any>((resolve, reject) => {
     const timer = setTimeout(() => {
-      pendingFileRequests.delete(requestId);
+      pendingSessionLogRequests.delete(requestId);
       reject(new Error('Session log read timeout'));
-    }, 15_000);
-    pendingFileRequests.set(requestId, { resolve, reject, timer });
-    ws.send(JSON.stringify({ type: 'session_log_read', request_id: requestId, session_id: sessionId }));
+    }, 20_000);
+    pendingSessionLogRequests.set(requestId, { resolve, reject, timer });
+    ws.send(JSON.stringify({ type: 'session_log_read', request_id: requestId, session_id: sessionId, line_offset: lineOffset, limit: clampedLimit }));
   });
+
+  const content: string = raw.content ?? '';
+  const lineCount: number = raw.line_count ?? content.split('\n').filter(Boolean).length;
+  const totalLines: number = raw.total_lines ?? lineCount;
+
+  // Append to cache when this chunk extends the accumulated text sequentially from line 0
+  const entry = sessionLogCache.get(sessionId) ?? { rawText: '', cachedLines: 0, totalLines: 0, ts: 0 };
+  if (lineOffset === 0) {
+    // First chunk — reset accumulated text
+    entry.rawText = content;
+    entry.cachedLines = lineCount;
+  } else if (lineOffset === entry.cachedLines) {
+    // Sequential chunk — append
+    entry.rawText += content;
+    entry.cachedLines += lineCount;
+  }
+  entry.totalLines = totalLines;
+  entry.ts = Date.now();
+  sessionLogCache.set(sessionId, entry);
+
+  return { content, lineOffset, lineCount, totalLines };
 }
 
 async function relayFileRead(containerId: string, filename: string): Promise<string> {
@@ -1398,16 +1483,21 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     }
   }
 
-  // GET /dashboard/session-log/:containerId/:sessionId
+  // GET /dashboard/session-log/:containerId/:sessionId?offset=<lines>&limit=<lines>
   if (pathname.match(/^\/dashboard\/session-log\/[^/]+\/[^/]+$/) && method === 'GET') {
     const parts = pathname.split('/');
     const containerId = decodeURIComponent(parts[3]!);
     const sessionId = decodeURIComponent(parts[4]!);
     if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return err('Invalid session ID', 400);
     if (!getContainer(containerId)) return err('Container not found', 404);
+    const lineOffset = Math.max(0, parseInt(url.searchParams.get('offset') ?? '0', 10) || 0);
+    const limit = Math.min(
+      Math.max(1, parseInt(url.searchParams.get('limit') ?? String(SESSION_LOG_DEFAULT_LIMIT), 10) || SESSION_LOG_DEFAULT_LIMIT),
+      SESSION_LOG_MAX_LIMIT,
+    );
     try {
-      const content = await relaySessionLogRead(containerId, sessionId);
-      return json({ content });
+      const chunk = await relaySessionLogChunk(containerId, sessionId, lineOffset, limit);
+      return json(chunk);
     } catch (e: any) {
       return err(e.message || 'Session log not found', 503);
     }

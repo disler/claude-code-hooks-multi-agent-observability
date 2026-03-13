@@ -40,8 +40,10 @@
           </select>
 
           <span v-if="loading" class="text-xs text-slate-500 italic">Loading…</span>
+          <span v-else-if="loadingMore" class="text-xs text-slate-500 italic">Loading more…</span>
           <span v-else-if="selectedSessionId" class="text-xs text-slate-500">
             {{ promptBlocks.length }} prompt{{ promptBlocks.length !== 1 ? "s" : "" }}
+            <template v-if="loadedLines < totalLines"> · {{ loadedLines }}/{{ totalLines }} lines</template>
           </span>
         </div>
         <div class="flex items-center gap-3">
@@ -192,8 +194,11 @@ const { alias } = useHostnameAliases();
 
 const renderMarkdown = ref(true);
 const loading = ref(false);
+const loadingMore = ref(false);
 const error = ref("");
 const rawLines = ref<any[]>([]);
+const loadedLines = ref(0);
+const totalLines = ref(0);
 const scrollContainer = ref<HTMLElement | null>(null);
 const currentPromptIndex = ref(0);
 
@@ -337,42 +342,89 @@ function formatToolInput(name: string, input: any): string {
   }
 }
 
+const CHUNK_SIZE = 1000;
+
+function parseLines(content: string): any[] {
+  return content
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter(Boolean);
+}
+
+async function loadChunk(offset: number, isIncremental = false): Promise<boolean> {
+  if (!selectedSessionId.value || !activeContainerId.value) return false;
+  const url = `${API_BASE}/dashboard/session-log/${encodeURIComponent(activeContainerId.value)}/${encodeURIComponent(selectedSessionId.value)}?offset=${offset}&limit=${CHUNK_SIZE}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const { content, lineCount, totalLines: total } = await res.json();
+  totalLines.value = total;
+  if (lineCount > 0) {
+    const parsed = parseLines(content);
+    if (isIncremental) {
+      rawLines.value = [...rawLines.value, ...parsed];
+    } else {
+      rawLines.value = [...rawLines.value, ...parsed];
+    }
+    loadedLines.value = offset + lineCount;
+  }
+  return lineCount > 0;
+}
+
 async function load() {
   if (!selectedSessionId.value || !activeContainerId.value) return;
   loading.value = true;
+  loadingMore.value = false;
   error.value = "";
   rawLines.value = [];
+  loadedLines.value = 0;
+  totalLines.value = 0;
   try {
-    const res = await fetch(
-      `${API_BASE}/dashboard/session-log/${encodeURIComponent(activeContainerId.value)}/${encodeURIComponent(selectedSessionId.value)}`,
-    );
-    if (!res.ok) {
-      error.value = `Failed to load log (${res.status})`;
-      return;
-    }
-    const { content } = await res.json();
-    rawLines.value = content
-      .split("\n")
-      .filter(Boolean)
-      .map((l: string) => {
-        try {
-          return JSON.parse(l);
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean);
+    await loadChunk(0);
     await nextTick();
     if (promptBlocks.value.length > 0) {
       currentPromptIndex.value = promptBlocks.value.length - 1;
       scrollToPrompt(currentPromptIndex.value);
     }
+    // Auto-load remaining chunks in the background
+    while (loadedLines.value < totalLines.value) {
+      loadingMore.value = true;
+      await loadChunk(loadedLines.value);
+    }
   } catch (e: any) {
     error.value = e?.message ?? "Unknown error";
   } finally {
     loading.value = false;
+    loadingMore.value = false;
   }
 }
+
+async function loadIncremental() {
+  if (!selectedSessionId.value || !activeContainerId.value) return;
+  if (loadedLines.value === 0) return; // not yet loaded
+  try {
+    let fetched = true;
+    while (fetched && loadedLines.value < totalLines.value || totalLines.value === 0) {
+      fetched = await loadChunk(loadedLines.value, true);
+      if (totalLines.value > 0 && loadedLines.value >= totalLines.value) break;
+      if (!fetched) break;
+    }
+  } catch { /* ignore incremental errors */ }
+}
+
+// Watch session status: fetch incremental content when session stops being busy
+const activeSessionStatus = computed(() => {
+  const session = availableSessions.value.find(s => s.session_id === selectedSessionId.value);
+  if (!session) return null;
+  const container = props.containers.find(c => c.id === session.container_id);
+  return container?.sessions.find(s => s.session_id === selectedSessionId.value)?.status ?? null;
+});
+
+watch(activeSessionStatus, (newStatus, oldStatus) => {
+  if (oldStatus === 'busy' && newStatus !== 'busy' && loadedLines.value > 0) {
+    loadIncremental();
+  }
+});
 
 watch(selectedSessionId, () => {
   currentPromptIndex.value = 0;
