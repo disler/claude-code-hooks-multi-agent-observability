@@ -536,6 +536,23 @@ _last_auto_fetch_time = 0.0
 _last_auto_fetch_lock = threading.Lock()
 
 
+def _get_hostname_aliases() -> dict:
+    """Fetch hostname -> SSH alias mapping from the observability server.
+
+    The server reads ~/.local/devcontainer-sandbox/hostname-aliases.json from the
+    host filesystem.  The daemon uses this to map raw machine_hostnames (as stored
+    in the DB) to the SSH-reachable names that git remotes are configured with.
+    """
+    try:
+        import urllib.request
+        req = urllib.request.urlopen(
+            f'{_http_base_url()}/dashboard/hostname-aliases', timeout=5
+        )
+        return json.loads(req.read().decode())
+    except Exception:
+        return {}
+
+
 def _do_auto_fetch():
     """Poll the server for branch updates and fetch from any host with new commits."""
     global _last_auto_fetch_time
@@ -553,6 +570,10 @@ def _do_auto_fetch():
         log.debug('Auto-fetch poll failed: %s', e)
         return
 
+    # Load hostname aliases so we use the SSH-reachable name (git remote name)
+    # rather than the raw machine_hostname recorded in the DB.
+    aliases = _get_hostname_aliases()
+
     did_fetch = False
     fetched_origin = False
     for item in updates:
@@ -561,14 +582,15 @@ def _do_auto_fetch():
         if host == MACHINE_HOSTNAME:
             continue
         if last_commit_at > since_ts:
-            log.info('Auto-fetch: new commits from %s (mode=%s)', host, mode)
+            remote_name = aliases.get(host, host)
+            log.info('Auto-fetch: new commits from %s (remote=%s, mode=%s)', host, remote_name, mode)
             if mode == 'github':
                 if not fetched_origin:
                     _run(['git', 'fetch', '--no-auto-gc', 'origin'], cwd=str(WORKSPACE_ROOT))
                     fetched_origin = True
                     did_fetch = True
             else:
-                _run(['git', 'fetch', '--no-auto-gc', host], cwd=str(WORKSPACE_ROOT))
+                _run(['git', 'fetch', '--no-auto-gc', remote_name], cwd=str(WORKSPACE_ROOT))
                 did_fetch = True
 
     if did_fetch:
