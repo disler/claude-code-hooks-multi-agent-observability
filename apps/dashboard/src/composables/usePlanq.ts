@@ -21,8 +21,7 @@ export function usePlanq() {
         body: JSON.stringify({ task_type: taskType, filename, description, create_file: createFile, commit_mode: commitMode, auto_commit: commitMode === 'auto', plan_disposition: planDisposition, auto_queue_plan: autoQueuePlan, parent_task_id: parentTaskId, link_type: linkType }),
       })
       if (!res.ok) return null
-      const data = await res.json()
-      return data.task ?? null
+      return await res.json() as PlanqTask
     } catch {
       return null
     }
