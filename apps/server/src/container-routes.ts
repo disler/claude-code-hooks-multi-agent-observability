@@ -155,26 +155,27 @@ async function writeSessionLogFile(
   containerId: string,
   sourceRepo: string,
   lineOffset: number,
+  lineCount: number,
   content: string,
-  totalLines: number,
   isComplete: boolean,
 ): Promise<void> {
   const path = sessionLogPath(sessionId);
   if (lineOffset === 0) {
-    // Full overwrite
+    // First chunk — full overwrite
     await Bun.write(path, content);
   } else {
-    // Incremental append — read existing content and splice
+    // Incremental append
     const existing = Bun.file(path);
     const existingContent = (await existing.exists()) ? await existing.text() : '';
     await Bun.write(path, existingContent + content);
   }
   const fileSize = (await Bun.file(path).stat()).size;
+  // total_lines stores lines-received-so-far, used for alignment checks and acks.
   upsertSessionLog({
     session_id: sessionId,
     container_id: containerId,
     source_repo: sourceRepo,
-    total_lines: totalLines,
+    total_lines: lineOffset + lineCount,
     file_size: fileSize,
     is_complete: isComplete,
     last_pushed: Date.now(),
@@ -193,21 +194,29 @@ async function handleSessionLogPush(ws: any, msg: any): Promise<void> {
 
   const lineOffset: number = Math.max(0, parseInt(msg.line_offset ?? '0', 10) || 0);
   const content: string = msg.content ?? '';
-  const totalLines: number = Math.max(0, parseInt(msg.total_lines ?? '0', 10) || 0);
   const isComplete: boolean = Boolean(msg.is_complete);
 
-  // Verify alignment if incremental
+  // line_count from daemon; fall back to counting newlines in content.
+  const lineCount: number = msg.line_count != null
+    ? Math.max(0, parseInt(msg.line_count, 10) || 0)
+    : content.split('\n').filter(Boolean).length;
+
+  // Verify alignment for every chunk (including the first incremental one).
+  // total_lines in the DB records lines-received-so-far, so it must equal lineOffset.
   if (lineOffset > 0) {
     const existing = getSessionLog(sessionId);
     if (!existing || existing.total_lines !== lineOffset) {
       const fromLine = existing?.total_lines ?? 0;
+      console.warn(`[session_log_push] ${sessionId}: alignment mismatch — expected offset ${fromLine}, got ${lineOffset}; requesting resend`);
       try { ws.send(JSON.stringify({ type: 'session_log_resend', session_id: sessionId, from_line: fromLine })); } catch {}
       return;
     }
   }
 
   try {
-    await writeSessionLogFile(sessionId, containerId, container.source_repo, lineOffset, content, totalLines, isComplete);
+    await writeSessionLogFile(sessionId, containerId, container.source_repo, lineOffset, lineCount, content, isComplete);
+    // (verbose; uncomment to trace chunk receipt)
+    // console.log(`[session_log_push] ${sessionId}: wrote lines ${lineOffset}–${lineOffset + lineCount - 1}${isComplete ? ' (complete)' : ''}`);
   } catch (e) {
     console.error(`[session_log_push] Error writing ${sessionId}:`, e);
   }
@@ -1117,7 +1126,7 @@ async function relaySessionLogChunk(
   if (lineOffset === 0 && content) {
     const container = getContainer(containerId);
     if (container) {
-      writeSessionLogFile(sessionId, containerId, container.source_repo, 0, content, totalLines, false).catch(() => {});
+      writeSessionLogFile(sessionId, containerId, container.source_repo, 0, lineCount, content, false).catch(() => {});
     }
   }
 

@@ -782,8 +782,18 @@ def _find_session_log(session_id: str):
 _server_session_log_lines: dict = {}
 _server_session_log_lines_lock = threading.Lock()
 
+_SESSION_LOG_CHUNK_BYTES = 1_000_000  # max bytes per session_log_push packet
+
+
 def _push_session_log(ws_app, session_id: str, from_line: int = 0):
-    """Push session JSONL content to the server from from_line onwards."""
+    """Push session JSONL content to the server from from_line onwards.
+
+    Splits the content into packets of at most _SESSION_LOG_CHUNK_BYTES each.
+    Each packet contains only complete JSONL lines; a single line that exceeds
+    the chunk size is allowed to push that packet over the limit rather than
+    split mid-line.  line_count is included so the server can update its
+    received-lines counter without re-parsing the content.
+    """
     found = _find_session_log(session_id)
     if not found:
         return
@@ -793,17 +803,35 @@ def _push_session_log(ws_app, session_id: str, from_line: int = 0):
         total_lines = len(lines)
         if from_line >= total_lines:
             return  # Nothing new
-        chunk_lines = lines[from_line:]
-        content = ''.join(chunk_lines)
-        _ws_send(ws_app, {
-            'type': 'session_log_push',
-            'session_id': session_id,
-            'line_offset': from_line,
-            'content': content,
-            'total_lines': total_lines,
-            'is_complete': False,  # conservative; server will mark complete on next push if stable
-        }, _PRIO_DATA)
-        log.debug('Pushed session log %s from line %d (%d lines)', session_id, from_line, len(chunk_lines))
+
+        send_from = from_line
+        while send_from < total_lines:
+            chunk: list[str] = []
+            chunk_bytes = 0
+            i = send_from
+            while i < total_lines:
+                line = lines[i]
+                line_bytes = len(line.encode())
+                # Always include at least one line even if it alone exceeds the limit
+                if chunk_bytes + line_bytes > _SESSION_LOG_CHUNK_BYTES and chunk:
+                    break
+                chunk.append(line)
+                chunk_bytes += line_bytes
+                i += 1
+
+            is_last = (i >= total_lines)
+            _ws_send(ws_app, {
+                'type': 'session_log_push',
+                'session_id': session_id,
+                'line_offset': send_from,
+                'line_count': len(chunk),
+                'content': ''.join(chunk),
+                'total_lines': total_lines,
+                'is_complete': is_last,
+            }, _PRIO_DATA)
+            log.debug('Pushed session log %s lines %d\u2013%d of %d',
+                      session_id, send_from, i - 1, total_lines)
+            send_from = i
     except OSError as e:
         log.warning('Failed to push session log %s: %s', session_id, e)
 
