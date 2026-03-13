@@ -584,6 +584,13 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       const cache = plansFilesCache.get(containerId)!;
       for (const [filename, content] of Object.entries(msg.plans_files as Record<string, string>)) {
         cache.set(filename, content);
+        // Sync review_status from task file content
+        const task = getPlanqTasks(containerId).find(t => t.filename === filename);
+        if (task) {
+          const m = (content as string).match(/^review:\s*(\S+)/m);
+          const newStatus = m ? m[1] : 'none';
+          if (newStatus !== task.review_status) updatePlanqTask(task.id, { review_status: newStatus });
+        }
       }
       if (Array.isArray(msg.plans_files_deleted)) {
         for (const filename of msg.plans_files_deleted as string[]) cache.delete(filename);
@@ -1429,7 +1436,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const updates: { description?: string; status?: string; auto_commit?: boolean; commit_mode?: 'none' | 'auto' | 'stage' | 'manual' } = {};
+    const updates: { description?: string; status?: string; auto_commit?: boolean; commit_mode?: 'none' | 'auto' | 'stage' | 'manual'; review_status?: string } = {};
     if (body.description !== undefined) updates.description = body.description;
     if (body.status !== undefined) updates.status = body.status;
     if (body.commit_mode !== undefined && ['none', 'auto', 'stage', 'manual'].includes(body.commit_mode)) {
@@ -1437,6 +1444,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     } else if (body.auto_commit !== undefined) {
       updates.auto_commit = Boolean(body.auto_commit);
     }
+    if (body.review_status !== undefined) updates.review_status = body.review_status;
     const task = updatePlanqTask(taskId, updates);
     if (!task) return err('Task not found', 404);
     touchPlanqServerModified(containerId);
@@ -1597,7 +1605,23 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       versions: c.versions,
     }));
     const host_source_reports = getAllHostSourceReports();
-    return json({ containers, host_source_reports });
+    // Read this server's own devcontainer stamps as the reference baseline
+    async function readServerStamp(name: string): Promise<string | null> {
+      const candidates = [
+        '/workspace/.devcontainer/versions/' + name,
+        new URL('../../../../.devcontainer/versions/' + name, import.meta.url).pathname,
+      ];
+      for (const p of candidates) {
+        try { return (await Bun.file(p).text()).trim(); } catch {}
+      }
+      return null;
+    }
+    const server_stamps = {
+      devcontainer: await readServerStamp('devcontainer'),
+      planq_daemon: await readServerStamp('planq-daemon'),
+      planq_shell: await readServerStamp('planq-shell'),
+    };
+    return json({ containers, host_source_reports, server_stamps });
   }
 
   // POST /dashboard/restart-planq/:containerId

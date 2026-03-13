@@ -51,6 +51,31 @@
         <span v-if="task.plan_disposition === 'add-after'" class="shrink-0 text-teal-400" :title="task.auto_queue_plan ? 'Plan will be added after this task (auto-queued)' : 'Plan will be added after this task'">📋⇒{{ task.auto_queue_plan ? '⏱' : '' }}</span>
         <span v-else-if="task.plan_disposition === 'add-end'" class="shrink-0 text-cyan-400" :title="task.auto_queue_plan ? 'Plan will be added to end of queue (auto-queued)' : 'Plan will be added to end of queue'">📋↓{{ task.auto_queue_plan ? '⏱' : '' }}</span>
       </template>
+      <!-- Review status badge (shown when non-none, or on hover as placeholder) -->
+      <div class="relative shrink-0" v-if="reviewStatus !== 'none' || true">
+        <button
+          @click="toggleReviewDropdown"
+          class="text-xs px-0.5 leading-none"
+          :class="reviewStatus !== 'none' ? reviewDef.color : 'text-slate-700 hover:text-slate-500 opacity-0 group-hover:opacity-100'"
+          :title="reviewStatus !== 'none' ? `Review: ${reviewDef.label} — click to change` : 'Set review status'"
+        >{{ reviewDef.icon }}</button>
+        <div
+          v-if="showReviewDropdown"
+          class="absolute left-0 top-full mt-0.5 z-50 bg-slate-800 border border-slate-600 rounded shadow-lg py-0.5 min-w-max"
+          @click.stop
+        >
+          <button
+            v-for="opt in REVIEW_STATUS_DEFS"
+            :key="opt.status"
+            @click="selectReviewStatus(opt.status, $event)"
+            class="flex items-center gap-1.5 w-full text-left px-2 py-0.5 text-xs hover:bg-slate-700"
+            :class="[opt.color, opt.status === reviewStatus ? 'bg-slate-700/50 font-semibold' : '']"
+          >
+            <span>{{ opt.icon }}</span>
+            <span>{{ opt.label }}</span>
+          </button>
+        </div>
+      </div>
     </div>
     <input
       v-else
@@ -179,10 +204,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, computed } from 'vue'
+import { ref, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
 import { useExpandedTasks } from '../composables/useExpandedTasks'
-import type { PlanqTask } from '../types'
+import type { PlanqTask, ReviewStatus } from '../types'
 import MarkdownContent from './MarkdownContent.vue'
 
 const props = defineProps<{
@@ -202,6 +227,7 @@ const emit = defineEmits<{
   'drop': [id: number]
   'add-plan': [planFilename: string]
   'archive': [id: number]
+  'set-review-status': [task: PlanqTask, status: ReviewStatus]
 }>()
 
 const { readFile } = usePlanq()
@@ -289,6 +315,45 @@ async function toggleFeedbackOpen() {
     loadingFeedback.value = false
   }
 }
+
+// ── Review status ─────────────────────────────────────────────────────────────
+
+const REVIEW_STATUS_DEFS: Array<{ status: ReviewStatus; icon: string; label: string; color: string }> = [
+  { status: 'none',             icon: '○',  label: 'None',           color: 'text-slate-500 hover:text-slate-300' },
+  { status: 'ready',            icon: '🔵', label: 'Ready',          color: 'text-blue-400 hover:text-blue-200' },
+  { status: 'testing',          icon: '🧪', label: 'Testing',        color: 'text-yellow-400 hover:text-yellow-200' },
+  { status: 'passed',           icon: '🟢', label: 'Passed',         color: 'text-green-400 hover:text-green-200' },
+  { status: 'has-issues',       icon: '🔴', label: 'Has Issues',     color: 'text-red-400 hover:text-red-200' },
+  { status: 'fix-scheduled',    icon: '🔧', label: 'Fix Scheduled',  color: 'text-orange-400 hover:text-orange-200' },
+  { status: 'follow-up',        icon: '🔄', label: 'Follow-up',      color: 'text-purple-400 hover:text-purple-200' },
+  { status: 'revert-scheduled', icon: '⏪', label: 'Revert Sched.',  color: 'text-red-500 hover:text-red-300' },
+  { status: 'ready-for-merge',  icon: '🚀', label: 'Ready to Merge', color: 'text-teal-400 hover:text-teal-200' },
+  { status: 'merged',           icon: '🏁', label: 'Merged',         color: 'text-green-500 hover:text-green-300' },
+  { status: 'cancelled',        icon: '🚫', label: 'Cancelled',      color: 'text-slate-400 hover:text-slate-200' },
+  { status: 'retry-later',      icon: '⏸️',  label: 'Retry Later',   color: 'text-yellow-500 hover:text-yellow-300' },
+]
+
+const reviewStatus = computed(() => props.task.review_status ?? 'none')
+const reviewDef = computed(() => REVIEW_STATUS_DEFS.find(d => d.status === reviewStatus.value) ?? REVIEW_STATUS_DEFS[0])
+const showReviewDropdown = ref(false)
+
+function toggleReviewDropdown(e: Event) {
+  e.stopPropagation()
+  showReviewDropdown.value = !showReviewDropdown.value
+}
+
+function selectReviewStatus(status: ReviewStatus, e: Event) {
+  e.stopPropagation()
+  showReviewDropdown.value = false
+  emit('set-review-status', props.task, status)
+}
+
+function closeReviewDropdown() {
+  showReviewDropdown.value = false
+}
+
+onMounted(() => document.addEventListener('click', closeReviewDropdown))
+onBeforeUnmount(() => document.removeEventListener('click', closeReviewDropdown))
 
 // ── Description popup ─────────────────────────────────────────────────────────
 

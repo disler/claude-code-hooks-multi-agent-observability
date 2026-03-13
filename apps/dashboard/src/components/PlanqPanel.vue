@@ -58,7 +58,7 @@
       </div>
 
       <!-- Status filters -->
-      <div class="flex items-center gap-1 mb-2 flex-wrap">
+      <div class="flex items-center gap-1 mb-1 flex-wrap">
         <button
           v-for="f in statusFilters"
           :key="f.status"
@@ -78,7 +78,32 @@
           v-if="activeFilters.size > 0"
           @click="activeFilters.clear()"
           class="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-600"
-          title="Clear filters"
+          title="Clear work status filter"
+        >✕</button>
+      </div>
+
+      <!-- Review status filters (only shown when any task has a review status set) -->
+      <div v-if="reviewFilterVisible" class="flex items-center gap-1 mb-2 flex-wrap">
+        <button
+          v-for="f in reviewFilters"
+          :key="f.status"
+          @click.exact="toggleReviewFilterExclusive(f.status)"
+          @click.ctrl.exact="toggleReviewFilter(f.status)"
+          @click.meta.exact="toggleReviewFilter(f.status)"
+          :title="`${f.label} (${f.count}) — click to filter, Ctrl/Cmd+click to multi-select`"
+          class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-all"
+          :class="activeReviewFilters.size === 0 || activeReviewFilters.has(f.status)
+            ? [f.activeClass, 'opacity-100']
+            : 'bg-slate-800 text-slate-600 opacity-50'"
+        >
+          <span>{{ f.icon }}</span>
+          <span>{{ f.count }}</span>
+        </button>
+        <button
+          v-if="activeReviewFilters.size > 0"
+          @click="activeReviewFilters.clear()"
+          class="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-600"
+          title="Clear review status filter"
         >✕</button>
       </div>
 
@@ -98,6 +123,7 @@
           @set-commit-mode="(t, m) => setCommitMode(t, m)"
           @add-plan="addPlanFromMakePlan"
           @archive="archiveTask(task.id)"
+          @set-review-status="(t, s) => setReviewStatus(t, s)"
           @dragstart="dragFrom = task.id"
           @drop="dropOn(task.id)"
         />
@@ -153,6 +179,7 @@
     <AddTaskDialog
       v-if="showAddDialog"
       :container-id="containerId"
+      :all-tasks="tasks"
       @close="showAddDialog = false"
       @add="(type, fn, desc, createFile, commitMode, planDisposition, autoQueuePlan) => addTask(type, fn, desc, createFile, commitMode, planDisposition, autoQueuePlan)"
     />
@@ -173,7 +200,7 @@ import { usePlanq } from '../composables/usePlanq'
 import PlanqTaskRow from './PlanqTaskRow.vue'
 import AddTaskDialog from './AddTaskDialog.vue'
 import PlanqFileEditor from './PlanqFileEditor.vue'
-import type { PlanqTask, PlanqItem, AutoTestPending } from '../types'
+import type { PlanqTask, PlanqItem, AutoTestPending, ReviewStatus } from '../types'
 
 const props = defineProps<{
   containerId: string
@@ -207,7 +234,7 @@ async function toggleArchive() {
   }
 }
 
-// Status filters
+// Work status filters
 const activeFilters = reactive(new Set<string>())
 
 function toggleFilter(status: string) {
@@ -224,6 +251,23 @@ function toggleFilterExclusive(status: string) {
   }
 }
 
+// Review status filters
+const activeReviewFilters = reactive(new Set<string>())
+
+function toggleReviewFilter(status: string) {
+  if (activeReviewFilters.has(status)) activeReviewFilters.delete(status)
+  else activeReviewFilters.add(status)
+}
+
+function toggleReviewFilterExclusive(status: string) {
+  if (activeReviewFilters.size === 1 && activeReviewFilters.has(status)) {
+    activeReviewFilters.clear()
+  } else {
+    activeReviewFilters.clear()
+    activeReviewFilters.add(status)
+  }
+}
+
 // Deferred tasks always appear at the bottom
 const sortedTasks = computed(() => {
   const nonDeferred = props.tasks.filter(t => t.status !== 'deferred')
@@ -231,8 +275,36 @@ const sortedTasks = computed(() => {
   return [...nonDeferred, ...deferred]
 })
 
-const filteredTasks = computed(() =>
-  activeFilters.size === 0 ? sortedTasks.value : sortedTasks.value.filter(t => activeFilters.has(t.status))
+const filteredTasks = computed(() => {
+  let list = sortedTasks.value
+  if (activeFilters.size > 0) list = list.filter(t => activeFilters.has(t.status))
+  if (activeReviewFilters.size > 0) list = list.filter(t => activeReviewFilters.has(t.review_status ?? 'none'))
+  return list
+})
+
+const REVIEW_STATUS_DEFS: Array<{ status: string; icon: string; label: string; activeClass: string }> = [
+  { status: 'ready',          icon: '🔵', label: 'Ready',          activeClass: 'bg-blue-900/60 text-blue-300' },
+  { status: 'testing',        icon: '🧪', label: 'Testing',        activeClass: 'bg-yellow-900/60 text-yellow-300' },
+  { status: 'passed',         icon: '🟢', label: 'Passed',         activeClass: 'bg-green-900/60 text-green-300' },
+  { status: 'has-issues',     icon: '🔴', label: 'Has Issues',     activeClass: 'bg-red-900/60 text-red-300' },
+  { status: 'fix-scheduled',  icon: '🔧', label: 'Fix Scheduled',  activeClass: 'bg-orange-900/60 text-orange-300' },
+  { status: 'follow-up',      icon: '🔄', label: 'Follow-up',      activeClass: 'bg-purple-900/60 text-purple-300' },
+  { status: 'revert-scheduled', icon: '⏪', label: 'Revert Sched.', activeClass: 'bg-red-950/80 text-red-400' },
+  { status: 'ready-for-merge', icon: '🚀', label: 'Ready to Merge', activeClass: 'bg-teal-900/60 text-teal-300' },
+  { status: 'merged',         icon: '🏁', label: 'Merged',         activeClass: 'bg-green-950/80 text-green-500' },
+  { status: 'cancelled',      icon: '🚫', label: 'Cancelled',      activeClass: 'bg-slate-700 text-slate-400' },
+  { status: 'retry-later',    icon: '⏸️',  label: 'Retry Later',   activeClass: 'bg-yellow-950/80 text-yellow-500' },
+]
+
+const reviewFilters = computed(() =>
+  REVIEW_STATUS_DEFS.map(f => ({
+    ...f,
+    count: props.tasks.filter(t => (t.review_status ?? 'none') === f.status).length,
+  })).filter(f => f.count > 0)
+)
+
+const reviewFilterVisible = computed(() =>
+  props.tasks.some(t => t.review_status && t.review_status !== 'none')
 )
 
 const STATUS_FILTER_DEFS = [
@@ -317,6 +389,11 @@ async function archiveDone() {
   if (archiveOpen.value && count > 0) {
     archiveTasks.value = await apiFetchArchive(props.containerId)
   }
+}
+
+async function setReviewStatus(task: PlanqTask, status: ReviewStatus) {
+  await apiUpdate(props.containerId, task.id, { review_status: status })
+  emit('tasks-changed')
 }
 
 async function setCommitMode(task: PlanqTask, mode: 'none' | 'auto' | 'stage' | 'manual') {

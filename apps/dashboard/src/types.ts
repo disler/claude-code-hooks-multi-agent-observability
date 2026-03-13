@@ -19,6 +19,11 @@ export interface SessionState {
   last_event_at: number | null
 }
 
+export type ReviewStatus =
+  | 'none' | 'ready' | 'testing' | 'passed' | 'has-issues'
+  | 'fix-scheduled' | 'follow-up' | 'revert-scheduled'
+  | 'ready-for-merge' | 'merged' | 'cancelled' | 'retry-later'
+
 export interface PlanqTask {
   id: number
   container_id: string
@@ -31,6 +36,7 @@ export interface PlanqTask {
   commit_mode: 'none' | 'auto' | 'stage' | 'manual'
   plan_disposition: 'manual' | 'add-after' | 'add-end'
   auto_queue_plan: boolean
+  review_status: ReviewStatus
 }
 
 export interface PlanqItem {

@@ -29,7 +29,7 @@ export function usePlanq() {
   async function updateTask(
     containerId: string,
     taskId: number,
-    updates: { description?: string; status?: string; auto_commit?: boolean; commit_mode?: 'none' | 'auto' | 'stage' | 'manual' }
+    updates: { description?: string; status?: string; auto_commit?: boolean; commit_mode?: 'none' | 'auto' | 'stage' | 'manual'; review_status?: string }
   ): Promise<PlanqTask | null> {
     try {
       const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks/${taskId}`, {
