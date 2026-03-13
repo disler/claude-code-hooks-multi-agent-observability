@@ -1096,11 +1096,13 @@ _wait_for_stage_commit() {
 }
 
 cmd_create() {
-    local task_type="unnamed-task" filename="" description="" auto_commit="" stage_commit="" manual_commit="" add_after="" add_end="" auto_queue_plan=""
+    local task_type="unnamed-task" filename="" description="" auto_commit="" stage_commit="" manual_commit="" add_after="" add_end="" auto_queue_plan="" parent="" link_type="follow-up"
     while [ $# -gt 0 ]; do
         case "$1" in
             --type|-t) task_type="${2:-}"; shift 2 ;;
             --file|-f) filename="${2:-}"; shift 2 ;;
+            --parent|-p) parent="${2:-}"; shift 2 ;;
+            --link-type|-l) link_type="${2:-}"; shift 2 ;;
             --auto-commit) auto_commit="1"; shift ;;
             --stage-commit) stage_commit="1"; shift ;;
             --manual-commit) manual_commit="1"; shift ;;
@@ -1170,8 +1172,48 @@ cmd_create() {
     [ -n "$auto_queue_plan" ] && task_line="${task_line} +auto-queue-plan"
 
     mkdir -p "$PLANS_DIR"
-    printf '%s\n' "$task_line" >> "$PLANQ_FILE"
-    echo "Created: $task_line"
+
+    if [ -n "$parent" ]; then
+        # Subtask: insert after the parent task line
+        local parent_info parent_line_num parent_task_line
+        parent_info="$(_find_task_by_identifier "$parent")" || true
+        if [ -z "$parent_info" ]; then
+            echo "Error: parent task '$parent' not found" >&2; return 1
+        fi
+        parent_line_num="${parent_info%%	*}"
+        parent_task_line="${parent_info#*	}"
+
+        local tmp
+        tmp="$(mktemp)"
+        awk -v n="$parent_line_num" -v newline="$task_line" \
+            'NR == n { print; print newline; next } { print }' \
+            "$PLANQ_FILE" > "$tmp"
+        mv "$tmp" "$PLANQ_FILE"
+
+        # Add link line to parent's plan file (if parent is file-based and this task has a filename)
+        if [ -n "$filename" ]; then
+            local parent_file_part
+            parent_file_part="${parent_task_line#*: }"
+            parent_file_part="${parent_file_part%% +*}"
+            case "$parent_task_line" in
+                task:\ *|plan:\ *|make-plan:\ *|investigate:\ *)
+                    local parent_file="$PLANS_DIR/${parent_file_part}"
+                    if [ -f "$parent_file" ]; then
+                        local link_line="${link_type}: ${filename}"
+                        if ! grep -qF "$link_line" "$parent_file" 2>/dev/null; then
+                            printf '%s\n' "$link_line" >> "$parent_file"
+                            echo "Added link to: plans/${parent_file_part}"
+                        fi
+                    fi
+                    ;;
+            esac
+        fi
+
+        echo "Created subtask (${link_type} → ${parent_task_line%% +*}): $task_line"
+    else
+        printf '%s\n' "$task_line" >> "$PLANQ_FILE"
+        echo "Created: $task_line"
+    fi
     _notify_daemon
 }
 
@@ -1795,10 +1837,12 @@ usage_archive() {
 }
 usage_run()    { echo "Usage: planq run [N] [--dry-run|-n]"; echo "  Run the next pending task, or task #N if given, then mark it done."; }
 usage_create() {
-    echo "Usage: planq create [-t <type>] [-f <file>] [<desc>]"
+    echo "Usage: planq create [-t <type>] [-f <file>] [-p <parent>] [-l <link-type>] [<desc>]"
     echo "  Add a task to the planq file."
     echo "  -t, --type       Task type (default: unnamed-task)"
     echo "  -f, --file       Filename in plans/ (required for task/plan/make-plan types)"
+    echo "  -p, --parent     Parent task number or filename — creates a subtask inserted after the parent"
+    echo "  -l, --link-type  Link type for subtasks: follow-up (default) or fix-required"
     echo "  --auto-commit    After task: Claude commits automatically"
     echo "  --stage-commit   After task: Claude stages + drafts message, task pauses for user to commit"
     echo "  --manual-commit  After task: task pauses at awaiting-commit (user stages and commits manually)"
@@ -1806,6 +1850,10 @@ usage_create() {
     echo ""
     echo "  For make-plan, -f specifies the prompt filename (make-plan-*.md); Claude writes plan-*.md:"
     echo "    planq create -t make-plan -f make-plan-001.md 'Design a caching layer for the API'"
+    echo ""
+    echo "  Subtask examples:"
+    echo "    planq create -p 3 'Fix the login bug found during review'   # unnamed follow-up subtask after task #3"
+    echo "    planq create -p parent.md -l fix-required -t task -f fix-login.md  # file-based fix-required subtask"
 }
 usage_mark()   {
     echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q|awaiting-commit|ac|awaiting-plan|ap|deferred|df> <N|filename|text>"
@@ -1844,7 +1892,7 @@ usage() {
     echo "  show    / s [-a] [N]                            Show next pending task, or task #N"
     echo "  run     / r [N] [--dry-run|-n]                 Run next pending task, or task #N"
     echo "  auto    / A                                    Run auto-queued tasks continuously"
-    echo "  create  / c [-t <type>] [-f <file>] [<desc>]   Add a task (default type: unnamed-task)"
+    echo "  create  / c [-t <type>] [-f <file>] [-p <parent>] [<desc>]  Add a task or subtask (default type: unnamed-task)"
     echo "  mark    / m <done|underway|inactive|queue|ac|ap|deferred> <N|…>  Mark a task (also: mark:<state> / m:<state>)"
     echo "  delete  / x <N>                                Delete task #N"
     echo "  archive / a [N|…] [--unarchive|-U <N|…>]      Archive done tasks; -a flag on list/show for archive"
