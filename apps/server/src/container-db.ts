@@ -53,6 +53,8 @@ export interface PlanqTaskRow {
   plan_disposition: 'manual' | 'add-after' | 'add-end';
   auto_queue_plan: boolean;
   review_status: string;
+  parent_task_id: number | null;
+  link_type: 'follow-up' | 'fix-required' | null;
 }
 
 export interface PlanqItem {
@@ -218,6 +220,12 @@ export function initContainerDatabase(): void {
   }
   if (!taskColumns.includes('review_status')) {
     db.exec("ALTER TABLE planq_tasks ADD COLUMN review_status TEXT DEFAULT 'none'");
+  }
+  if (!taskColumns.includes('parent_task_id')) {
+    db.exec('ALTER TABLE planq_tasks ADD COLUMN parent_task_id INTEGER');
+  }
+  if (!taskColumns.includes('link_type')) {
+    db.exec('ALTER TABLE planq_tasks ADD COLUMN link_type TEXT');
   }
 
   // Migration for git_commits columns added after initial schema
@@ -508,6 +516,8 @@ function rowToTask(r: any): PlanqTaskRow {
     plan_disposition: (r.plan_disposition ?? 'manual') as PlanqTaskRow['plan_disposition'],
     auto_queue_plan: Boolean(r.auto_queue_plan),
     review_status: r.review_status ?? 'none',
+    parent_task_id: r.parent_task_id ?? null,
+    link_type: r.link_type ?? null,
   };
 }
 
@@ -581,6 +591,60 @@ export function getArchiveTasks(containerId: string): PlanqItem[] {
   const row = db.prepare('SELECT planq_history FROM containers WHERE id = ?').get(containerId) as any;
   if (!row?.planq_history) return [];
   return parsePlanqOrder(row.planq_history);
+}
+
+/**
+ * Parse follow-up: and fix-required: link lines from a plan file's content.
+ * Returns an array of {link_type, value} entries.
+ */
+function parseTaskLinks(content: string): Array<{ link_type: 'follow-up' | 'fix-required'; value: string }> {
+  const links: Array<{ link_type: 'follow-up' | 'fix-required'; value: string }> = [];
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('follow-up: ')) {
+      links.push({ link_type: 'follow-up', value: trimmed.slice('follow-up: '.length).trim() });
+    } else if (trimmed.startsWith('fix-required: ')) {
+      links.push({ link_type: 'fix-required', value: trimmed.slice('fix-required: '.length).trim() });
+    }
+  }
+  return links;
+}
+
+/**
+ * Resolve parent→child task links for a container from cached plan file contents.
+ * Scans each task file for follow-up: and fix-required: lines, then updates
+ * parent_task_id and link_type on matching child tasks.
+ * Called after every syncPlanqTasksFromParsed to keep parent links current.
+ */
+export function resolveTaskLinks(containerId: string, filesCache: Map<string, string>): boolean {
+  const tasks = getPlanqTasks(containerId);
+  const taskByFilename = new Map<string, PlanqTaskRow>();
+  const taskByDescription = new Map<string, PlanqTaskRow>();
+  for (const t of tasks) {
+    if (t.filename) taskByFilename.set(t.filename, t);
+    if (t.description) taskByDescription.set(t.description, t);
+  }
+
+  let changed = false;
+  // Clear all existing parent links for this container
+  db.prepare('UPDATE planq_tasks SET parent_task_id = NULL, link_type = NULL WHERE container_id = ?').run(containerId);
+
+  // Re-apply links by scanning each task's file
+  for (const task of tasks) {
+    if (!task.filename) continue;
+    const content = filesCache.get(task.filename);
+    if (!content) continue;
+    const links = parseTaskLinks(content);
+    for (const link of links) {
+      const child = taskByFilename.get(link.value) ?? taskByDescription.get(link.value);
+      if (child && child.id !== task.id) {
+        db.prepare('UPDATE planq_tasks SET parent_task_id = ?, link_type = ? WHERE id = ?')
+          .run(task.id, link.link_type, child.id);
+        changed = true;
+      }
+    }
+  }
+  return changed;
 }
 
 export function archiveTask(taskId: number): { ok: boolean; historyContent: string; containerId: string } {

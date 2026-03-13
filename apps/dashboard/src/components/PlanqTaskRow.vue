@@ -1,16 +1,18 @@
 <template>
-  <div class="flex flex-col">
+  <div class="flex flex-col" :class="isChild ? 'pl-5 border-l border-slate-700/60 ml-1' : ''">
   <div
     class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-700/50 group"
     :class="{ 'opacity-50': task.status === 'done', 'opacity-40 grayscale': task.status === 'deferred', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue', 'bg-purple-900/20': task.status === 'awaiting-commit', 'bg-teal-900/20': task.status === 'awaiting-plan' }"
-    draggable="true"
-    @dragstart="emit('dragstart', task.id)"
+    :draggable="!isChild"
+    @dragstart="!isChild && emit('dragstart', task.id)"
     @dragenter.prevent
     @dragover.prevent
     @drop="emit('drop', task.id)"
   >
-    <!-- Drag handle -->
-    <span class="text-slate-600 cursor-grab text-xs select-none">⠿</span>
+    <!-- Drag handle (hidden for child tasks) / link type badge -->
+    <span v-if="!isChild" class="text-slate-600 cursor-grab text-xs select-none">⠿</span>
+    <span v-else-if="linkType === 'fix-required'" class="text-red-500 text-xs shrink-0" title="fix-required">🔧</span>
+    <span v-else class="text-purple-400 text-xs shrink-0" title="follow-up">↳</span>
 
     <!-- Position -->
     <span class="text-xs text-slate-500 w-4 text-right shrink-0">{{ position }}</span>
@@ -212,9 +214,11 @@ import MarkdownContent from './MarkdownContent.vue'
 
 const props = defineProps<{
   task: PlanqTask
-  position: number
+  position: number | string
   containerId: string
   allTasks?: PlanqTask[]
+  isChild?: boolean
+  linkType?: 'follow-up' | 'fix-required' | null
 }>()
 
 const emit = defineEmits<{

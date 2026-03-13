@@ -34,6 +34,7 @@ import {
   markPendingChangesSent,
   ackPendingDashboardChanges,
   cleanupOldPendingChanges,
+  resolveTaskLinks,
   type ChangeRequest,
   type ContainerRow,
   type PlanqTaskRow,
@@ -518,6 +519,9 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       const containerItems: PlanqItem[] = parsePlanqOrder(msg.planq_order);
       syncPlanqTasksFromParsed(containerId, containerItems);
       setPlanqLastSynced(containerId, msg.planq_order);
+      // Re-resolve parent task links after every sync (syncPlanqTasksFromParsed wipes them)
+      const cache = plansFilesCache.get(containerId);
+      if (cache) resolveTaskLinks(containerId, cache);
     }
 
     // Delete same-container stubs — same physical Docker container absorbed into heartbeat container.
@@ -607,6 +611,8 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
         for (const filename of msg.plans_files_deleted as string[]) cache.delete(filename);
       }
       plansFilesCacheReady.add(containerId);
+      // Re-resolve task links whenever plan files change (follow-up:/fix-required: lines may differ)
+      resolveTaskLinks(containerId, cache);
     }
 
     // Broadcast to dashboard clients

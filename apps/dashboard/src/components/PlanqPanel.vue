@@ -136,24 +136,45 @@
 
       <!-- Task list -->
       <div v-if="filteredTasks.length > 0">
-        <PlanqTaskRow
-          v-for="task in filteredTasks"
-          :key="task.id"
-          :task="task"
-          :position="tasks.indexOf(task) + 1"
-          :container-id="containerId"
-          :all-tasks="tasks"
-          @edit-file="editingFile = task"
-          @set-status="(t, s) => setStatus(t, s)"
-          @delete="deleteTask(task.id)"
-          @update-desc="(id, desc) => updateDesc(id, desc)"
-          @set-commit-mode="(t, m) => setCommitMode(t, m)"
-          @add-plan="addPlanFromMakePlan"
-          @archive="archiveTask(task.id)"
-          @set-review-status="(t, s) => setReviewStatus(t, s)"
-          @dragstart="dragFrom = task.id"
-          @drop="dropOn(task.id)"
-        />
+        <template v-for="(task, idx) in filteredTasks" :key="task.id">
+          <PlanqTaskRow
+            :task="task"
+            :position="tasks.indexOf(task) + 1"
+            :container-id="containerId"
+            :all-tasks="tasks"
+            @edit-file="editingFile = task"
+            @set-status="(t, s) => setStatus(t, s)"
+            @delete="deleteTask(task.id)"
+            @update-desc="(id, desc) => updateDesc(id, desc)"
+            @set-commit-mode="(t, m) => setCommitMode(t, m)"
+            @add-plan="addPlanFromMakePlan"
+            @archive="archiveTask(task.id)"
+            @set-review-status="(t, s) => setReviewStatus(t, s)"
+            @dragstart="dragFrom = task.id"
+            @drop="dropOn(task.id)"
+          />
+          <!-- Subtasks (children of this task) -->
+          <template v-for="(child, childIdx) in taskChildren.get(task.id) ?? []" :key="child.id">
+            <PlanqTaskRow
+              :task="child"
+              :position="`${tasks.indexOf(task) + 1}.${childIdx + 1}`"
+              :container-id="containerId"
+              :all-tasks="tasks"
+              :is-child="true"
+              :link-type="child.link_type"
+              @edit-file="editingFile = child"
+              @set-status="(t, s) => setStatus(t, s)"
+              @delete="deleteTask(child.id)"
+              @update-desc="(id, desc) => updateDesc(id, desc)"
+              @set-commit-mode="(t, m) => setCommitMode(t, m)"
+              @add-plan="addPlanFromMakePlan"
+              @archive="archiveTask(child.id)"
+              @set-review-status="(t, s) => setReviewStatus(t, s)"
+              @dragstart="dragFrom = child.id"
+              @drop="dropOn(child.id)"
+            />
+          </template>
+        </template>
       </div>
       <div v-else-if="tasks.length > 0 && filteredTasks.length === 0" class="text-xs text-slate-500 italic py-1">No tasks match filter.</div>
       <div v-else class="text-xs text-slate-500 italic py-1">No tasks queued.</div>
@@ -296,10 +317,26 @@ function toggleReviewFilterExclusive(status: string) {
   }
 }
 
-// Deferred tasks always appear at the bottom
+// Map from parent task ID to its child tasks (in position order)
+const taskChildren = computed(() => {
+  const map = new Map<number, typeof props.tasks>()
+  for (const t of props.tasks) {
+    if (t.parent_task_id != null) {
+      if (!map.has(t.parent_task_id)) map.set(t.parent_task_id, [])
+      map.get(t.parent_task_id)!.push(t)
+    }
+  }
+  return map
+})
+
+// IDs of tasks that are children of another task (should not appear at top level)
+const childTaskIds = computed(() => new Set(props.tasks.filter(t => t.parent_task_id != null).map(t => t.id)))
+
+// Deferred tasks always appear at the bottom; child tasks are excluded from top level
 const sortedTasks = computed(() => {
-  const nonDeferred = props.tasks.filter(t => t.status !== 'deferred')
-  const deferred = props.tasks.filter(t => t.status === 'deferred')
+  const topLevel = props.tasks.filter(t => !childTaskIds.value.has(t.id))
+  const nonDeferred = topLevel.filter(t => t.status !== 'deferred')
+  const deferred = topLevel.filter(t => t.status === 'deferred')
   return [...nonDeferred, ...deferred]
 })
 

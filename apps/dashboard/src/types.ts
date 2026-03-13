@@ -37,6 +37,8 @@ export interface PlanqTask {
   plan_disposition: 'manual' | 'add-after' | 'add-end'
   auto_queue_plan: boolean
   review_status: ReviewStatus
+  parent_task_id: number | null
+  link_type: 'follow-up' | 'fix-required' | null
 }
 
 export interface PlanqItem {
