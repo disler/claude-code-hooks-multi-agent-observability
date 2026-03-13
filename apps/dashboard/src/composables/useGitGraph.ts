@@ -22,8 +22,11 @@ function topoSort(commits: GitCommit[]): GitCommit[] {
     }
   }
 
-  // Tips first (no children within the set)
-  const queue: GitCommit[] = commits.filter(c => (childCount.get(c.hash) ?? 0) === 0)
+  // Tips first (no children within the set), newest first so HEAD's chain
+  // is processed before older orphan tips — keeps orphans visually lower.
+  const queue: GitCommit[] = commits
+    .filter(c => (childCount.get(c.hash) ?? 0) === 0)
+    .sort((a, b) => b.author_date - a.author_date)
   const seen = new Set(queue.map(c => c.hash))
   const result: GitCommit[] = []
 
