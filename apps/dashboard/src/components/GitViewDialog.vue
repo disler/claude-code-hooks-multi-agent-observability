@@ -159,8 +159,20 @@
 
           <!-- Panel body -->
           <div class="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
-            <!-- Full hash -->
-            <div class="font-mono text-yellow-400 break-all leading-relaxed">{{ selectedHash }}</div>
+            <!-- Hash (short display, copy full) -->
+            <div class="flex items-center gap-1.5">
+              <span class="font-mono text-yellow-400">{{ selectedHash?.slice(0, 8) }}</span>
+              <button
+                @click="copyToClipboard(selectedHash!)"
+                class="text-slate-500 hover:text-slate-300 transition-colors"
+                :title="selectedHash ?? ''"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke="currentColor" fill="none"/>
+                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" fill="none"/>
+                </svg>
+              </button>
+            </div>
 
             <!-- Branch / ref badges -->
             <div v-if="selectedCommitBadges.length" class="flex flex-wrap gap-1">
@@ -187,13 +199,23 @@
               <div
                 v-for="p in selectedCommitParents"
                 :key="p.hash"
-                class="flex items-baseline gap-1.5 min-w-0"
+                class="flex items-center gap-1.5 min-w-0"
               >
                 <button
                   @click="selectHash(p.hash)"
                   class="font-mono text-yellow-500 hover:text-yellow-300 shrink-0 text-xs"
                   :title="p.hash"
                 >{{ p.hash.slice(0, 8) }}</button>
+                <button
+                  @click.stop="copyToClipboard(p.hash)"
+                  class="text-slate-500 hover:text-slate-300 transition-colors shrink-0"
+                  :title="p.hash"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke="currentColor" fill="none"/>
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" fill="none"/>
+                  </svg>
+                </button>
                 <span class="text-slate-400 truncate text-xs">{{ p.subject }}</span>
               </div>
             </div>
@@ -414,6 +436,10 @@ const selectedCommitBadges = computed((): RefBadge[] => {
   }
   return badges
 })
+
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text).catch(() => {})
+}
 
 async function load() {
   const myGen = ++loadGen
