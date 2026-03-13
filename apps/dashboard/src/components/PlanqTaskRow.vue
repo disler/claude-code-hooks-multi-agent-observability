@@ -28,22 +28,30 @@
     <span class="text-xs px-1 py-0.5 rounded font-mono shrink-0" :class="typeBadgeClass">{{ task.task_type }}</span>
 
     <!-- Value: filename is clickable to show description popup -->
-    <span v-if="!editingDesc" class="text-xs text-slate-300 flex-1 truncate font-mono">
+    <div v-if="!editingDesc" class="flex items-center gap-1 text-xs text-slate-300 flex-1 min-w-0 font-mono">
       <button
         v-if="task.filename"
         @click.stop="toggleDescPopup"
-        class="hover:text-slate-100 hover:underline cursor-pointer"
+        class="hover:text-slate-100 hover:underline cursor-pointer truncate min-w-0"
         :title="isOpen(task.id) ? 'Hide description' : 'Show description'"
       >{{ task.filename }}</button>
-      <span v-else>{{ task.description }}</span>
-      <span v-if="task.commit_mode === 'auto' || task.auto_commit" class="ml-1 text-green-500 text-xs" title="Auto-commit after">⇒</span>
-      <span v-else-if="task.commit_mode === 'stage'" class="ml-1 text-blue-400 text-xs" title="Stage-commit after (Claude stages, you commit)">⇒</span>
-      <span v-else-if="task.commit_mode === 'manual'" class="ml-1 text-orange-400 text-xs" title="Manual-commit after (you stage and commit)">⇒</span>
+      <span v-else class="truncate min-w-0">{{ task.description }}</span>
+      <!-- Feedback toggle: immediately after filename for investigate tasks -->
+      <button
+        v-if="task.task_type === 'investigate' && derivedFeedbackFilename !== null"
+        @click.stop="toggleFeedbackOpen"
+        class="shrink-0 text-xs px-1"
+        :class="isFeedbackOpen(task.id) ? 'text-indigo-300 hover:text-indigo-200' : 'text-slate-500 hover:text-slate-300'"
+        title="Show investigation feedback"
+      >{{ isFeedbackOpen(task.id) ? 'hide feedback' : 'feedback' }}</button>
+      <span v-if="task.commit_mode === 'auto' || task.auto_commit" class="shrink-0 text-green-500" title="Auto-commit after">⇒</span>
+      <span v-else-if="task.commit_mode === 'stage'" class="shrink-0 text-blue-400" title="Stage-commit after (Claude stages, you commit)">⇒</span>
+      <span v-else-if="task.commit_mode === 'manual'" class="shrink-0 text-orange-400" title="Manual-commit after (you stage and commit)">⇒</span>
       <template v-if="task.task_type === 'make-plan'">
-        <span v-if="task.plan_disposition === 'add-after'" class="ml-1 text-teal-400 text-xs" :title="task.auto_queue_plan ? 'Plan will be added after this task (auto-queued)' : 'Plan will be added after this task'">📋⇒{{ task.auto_queue_plan ? '⏱' : '' }}</span>
-        <span v-else-if="task.plan_disposition === 'add-end'" class="ml-1 text-cyan-400 text-xs" :title="task.auto_queue_plan ? 'Plan will be added to end of queue (auto-queued)' : 'Plan will be added to end of queue'">📋↓{{ task.auto_queue_plan ? '⏱' : '' }}</span>
+        <span v-if="task.plan_disposition === 'add-after'" class="shrink-0 text-teal-400" :title="task.auto_queue_plan ? 'Plan will be added after this task (auto-queued)' : 'Plan will be added after this task'">📋⇒{{ task.auto_queue_plan ? '⏱' : '' }}</span>
+        <span v-else-if="task.plan_disposition === 'add-end'" class="shrink-0 text-cyan-400" :title="task.auto_queue_plan ? 'Plan will be added to end of queue (auto-queued)' : 'Plan will be added to end of queue'">📋↓{{ task.auto_queue_plan ? '⏱' : '' }}</span>
       </template>
-    </span>
+    </div>
     <input
       v-else
       v-model="editDesc"
@@ -53,15 +61,6 @@
       class="flex-1 text-xs bg-slate-700 border border-slate-500 rounded px-1 py-0.5 text-slate-200 font-mono focus:outline-none"
       ref="editInput"
     />
-
-    <!-- Feedback toggle (investigate tasks, always visible) -->
-    <button
-      v-if="task.task_type === 'investigate' && derivedFeedbackFilename !== null"
-      @click.stop="toggleFeedbackOpen"
-      class="text-xs px-1 shrink-0"
-      :class="isFeedbackOpen(task.id) ? 'text-indigo-300 hover:text-indigo-200' : 'text-slate-500 hover:text-slate-300'"
-      title="Show investigation feedback"
-    >{{ isFeedbackOpen(task.id) ? 'hide feedback' : 'feedback' }}</button>
 
     <!-- Actions (shown on hover) -->
     <div class="hidden group-hover:flex items-center gap-1 shrink-0">
@@ -163,10 +162,7 @@
     class="mx-2 mb-1 rounded border border-slate-700 bg-slate-900 p-2"
   >
     <div v-if="loadingDesc" class="text-xs text-slate-500">Loading…</div>
-    <pre
-      v-else-if="getCached(task.id)"
-      class="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words overflow-y-auto max-h-48"
-    >{{ getCached(task.id) }}</pre>
+    <MarkdownContent v-else-if="getCached(task.id)" :content="getCached(task.id)!" />
     <div v-else class="text-xs text-slate-500 italic">No description available.</div>
   </div>
 
@@ -176,10 +172,7 @@
     class="mx-2 mb-1 rounded border border-indigo-800/50 bg-indigo-950/30 p-2"
   >
     <div v-if="loadingFeedback" class="text-xs text-slate-500">Loading…</div>
-    <pre
-      v-else-if="getFeedbackCached(task.id)"
-      class="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words overflow-y-auto max-h-64"
-    >{{ getFeedbackCached(task.id) }}</pre>
+    <MarkdownContent v-else-if="getFeedbackCached(task.id)" :content="getFeedbackCached(task.id)!" />
     <div v-else class="text-xs text-slate-500 italic">No feedback file found yet (plans/{{ derivedFeedbackFilename }}).</div>
   </div>
   </div>
@@ -190,6 +183,7 @@ import { ref, nextTick, computed } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
 import { useExpandedTasks } from '../composables/useExpandedTasks'
 import type { PlanqTask } from '../types'
+import MarkdownContent from './MarkdownContent.vue'
 
 const props = defineProps<{
   task: PlanqTask

@@ -90,10 +90,9 @@
             <span v-if="loadingFileContents" class="text-slate-500">— loading…</span>
             <span v-else-if="!filePreview && planSlug" class="text-slate-500">— new file (will be created by Claude)</span>
           </label>
-          <pre
-            v-if="filePreview"
-            class="text-xs text-slate-300 font-mono bg-slate-900 border border-slate-700 rounded p-2 overflow-y-auto max-h-60 whitespace-pre-wrap break-words"
-          >{{ filePreview }}</pre>
+          <div v-if="filePreview" class="bg-slate-900 border border-slate-700 rounded p-2">
+            <MarkdownContent :content="filePreview" />
+          </div>
         </div>
       </template>
 
@@ -252,6 +251,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
 import { useConfirmKey } from '../composables/useConfirmKey'
+import MarkdownContent from './MarkdownContent.vue'
 
 const props = defineProps<{ containerId: string }>()
 
