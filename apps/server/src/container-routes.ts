@@ -54,6 +54,12 @@ const githubPrCache = new Map<string, { fetchedAt: number; data: GithubPrData }>
 // containerId → epoch ms
 const planqSyncedAt = new Map<string, number>();
 
+// ── Plans files cache (populated from daemon heartbeats) ───────────────────────
+// containerId → filename → content (most recent content pushed by daemon)
+const plansFilesCache = new Map<string, Map<string, string>>();
+// containerIds whose plans/ directory has been fully initialised (first push received)
+const plansFilesCacheReady = new Set<string>();
+
 // ── WebSocket connection stores ───────────────────────────────────────────────
 
 // container_id → WebSocket (planq daemon connection)
@@ -571,6 +577,19 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     // Send DAG frontier back so daemon can send only new commits next time
     const tips = getGitTips(sourceRepo);
     try { ws.send(JSON.stringify({ type: 'git_known_hashes', hashes: tips })); } catch {}
+
+    // Merge plans files pushed proactively by the daemon
+    if (msg.plans_files && typeof msg.plans_files === 'object') {
+      if (!plansFilesCache.has(containerId)) plansFilesCache.set(containerId, new Map());
+      const cache = plansFilesCache.get(containerId)!;
+      for (const [filename, content] of Object.entries(msg.plans_files as Record<string, string>)) {
+        cache.set(filename, content);
+      }
+      if (Array.isArray(msg.plans_files_deleted)) {
+        for (const filename of msg.plans_files_deleted as string[]) cache.delete(filename);
+      }
+      plansFilesCacheReady.add(containerId);
+    }
 
     // Broadcast to dashboard clients
     const containerWithState = buildContainerWithState(container);
@@ -1514,6 +1533,13 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   // GET /planq/:id/plans-files
   if (pathname.match(/^\/planq\/[^/]+\/plans-files$/) && method === 'GET') {
     const containerId = decodeURIComponent(pathname.split('/')[2]!);
+
+    // Serve from push cache when initialised (works even when container is offline)
+    if (plansFilesCacheReady.has(containerId)) {
+      const files = [...(plansFilesCache.get(containerId)?.keys() ?? [])].sort();
+      return json(files);
+    }
+
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);
     try {
       const files = await relayFileList(containerId);
@@ -1528,6 +1554,10 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const parts = pathname.split('/');
     const containerId = decodeURIComponent(parts[2]!);
     const filename = parts.slice(4).join('/'); // everything after /file/
+
+    // Serve from push cache when available (works even when container is offline)
+    const cached = plansFilesCache.get(containerId)?.get(filename);
+    if (cached !== undefined) return json({ content: cached });
 
     if (!containerWsMap.has(containerId)) return err('Container offline', 503);
 

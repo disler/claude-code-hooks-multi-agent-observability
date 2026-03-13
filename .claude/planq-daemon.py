@@ -132,6 +132,14 @@ _immediate_heartbeat = threading.Event()
 _git_known_hashes: list = []
 _git_known_hashes_lock = threading.Lock()
 
+# ── Plans file watcher state ───────────────────────────────────────────────────
+# filename (relative to plans/) → last reported mtime float
+_plans_file_mtimes: dict = {}
+_plans_file_mtimes_lock = threading.Lock()
+# Pending debounce timer for triggering an immediate heartbeat on file changes
+_plans_watcher_debounce: threading.Timer | None = None
+_plans_watcher_debounce_lock = threading.Lock()
+
 # Per-submodule known hashes: { source_repo -> list[hash] }
 _submodule_known_hashes: dict = {}
 _submodule_known_hashes_lock = threading.Lock()
@@ -888,6 +896,70 @@ def _run_connection():
 
     ws_app.close()
 
+def _plans_files_snapshot() -> tuple[dict, list]:
+    """Scan plans/ and return (changed_files, deleted_files).
+
+    changed_files: {filename: content} for files whose mtime changed since last call.
+    deleted_files: [filename, ...] for files present in previous snapshot but now gone.
+
+    On first call, all existing files are considered "changed" (initial full push).
+    """
+    plans_dir = WORKSPACE_ROOT / 'plans'
+    changed: dict = {}
+    deleted: list = []
+    with _plans_file_mtimes_lock:
+        current: dict = {}
+        if plans_dir.exists():
+            try:
+                for entry in os.scandir(plans_dir):
+                    if entry.is_file() and not entry.name.startswith('.'):
+                        current[entry.name] = entry.stat().st_mtime
+            except OSError:
+                pass
+
+        for name, mtime in current.items():
+            if _plans_file_mtimes.get(name) != mtime:
+                try:
+                    content = (plans_dir / name).read_text(errors='replace')
+                except OSError:
+                    content = ''
+                changed[name] = content
+
+        for name in list(_plans_file_mtimes):
+            if name not in current:
+                deleted.append(name)
+
+        _plans_file_mtimes.clear()
+        _plans_file_mtimes.update(current)
+    return changed, deleted
+
+
+def _plans_watcher_thread():
+    """Poll plans/ every 0.5s; on mtime change trigger a debounced 2s heartbeat."""
+    global _plans_watcher_debounce
+    plans_dir = WORKSPACE_ROOT / 'plans'
+    local_snapshot: dict = {}
+    while True:
+        time.sleep(0.5)
+        current: dict = {}
+        try:
+            if plans_dir.exists():
+                for entry in os.scandir(plans_dir):
+                    if entry.is_file() and not entry.name.startswith('.'):
+                        current[entry.name] = entry.stat().st_mtime
+        except OSError:
+            pass
+        if current != local_snapshot:
+            local_snapshot = current
+            with _plans_watcher_debounce_lock:
+                if _plans_watcher_debounce is not None:
+                    _plans_watcher_debounce.cancel()
+                t = threading.Timer(2.0, _immediate_heartbeat.set)
+                t.daemon = True
+                t.start()
+                _plans_watcher_debounce = t
+
+
 def _send_heartbeat(ws_app):
     git = _git_info()
     source_repo = SOURCE_REPO
@@ -905,6 +977,7 @@ def _send_heartbeat(ws_app):
     git_commits = _git_log_incremental()
     submodule_commits = _git_log_for_submodules()
     review = _review_state()
+    plans_files, plans_files_deleted = _plans_files_snapshot()
 
     versions = {
         'planq_daemon': _read_version_stamp('planq-daemon'),
@@ -930,6 +1003,8 @@ def _send_heartbeat(ws_app):
         'versions': versions,
         'review_state': review,
         'test_results': _test_results(),
+        'plans_files': plans_files,
+        'plans_files_deleted': plans_files_deleted,
         **git,
     }
 
@@ -946,6 +1021,7 @@ def _send_heartbeat(ws_app):
 def main():
     log.info('Starting — server=%s, repo=%s, stamp=%s', SERVER_URL, SOURCE_REPO, DAEMON_RUNNING_STAMP or 'none')
     _write_status('starting')
+    threading.Thread(target=_plans_watcher_thread, daemon=True, name='plans-watcher').start()
     backoff = 5
     try:
         while True:
