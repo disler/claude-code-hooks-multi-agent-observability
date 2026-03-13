@@ -490,10 +490,17 @@ _archive_one_task() {
 
     mkdir -p "$ARCHIVE_DIR"
 
-    if [ "$task_type" = "task" ] || [ "$task_type" = "plan" ] || [ "$task_type" = "make-plan" ]; then
+    if [ "$task_type" = "task" ] || [ "$task_type" = "plan" ] || [ "$task_type" = "make-plan" ] || [ "$task_type" = "investigate" ]; then
         if [ -f "$PLANS_DIR/$task_value" ]; then
             mv "$PLANS_DIR/$task_value" "$ARCHIVE_DIR/$task_value"
             echo "  Moved: plans/$task_value → plans/archive/$task_value"
+        fi
+        if [ "$task_type" = "investigate" ]; then
+            local feedback="${task_value/#investigate-/feedback-}"
+            if [ -f "$PLANS_DIR/$feedback" ]; then
+                mv "$PLANS_DIR/$feedback" "$ARCHIVE_DIR/$feedback"
+                echo "  Moved: plans/$feedback → plans/archive/$feedback"
+            fi
         fi
     fi
 
@@ -546,6 +553,20 @@ _show_task_details() {
             head -5 "$plans_base/$task_value" | sed 's/^/  /'
         else
             echo "  (prompt file not found)"
+        fi
+    elif [ "$task_type" = "investigate" ]; then
+        local feedback="${task_value/#investigate-/feedback-}"
+        printf "  Prompt file:   plans/%s\n" "$task_value"
+        printf "  Feedback file: plans/%s\n" "$feedback"
+        if [ -f "$plans_base/$task_value" ]; then
+            echo "  --- prompt preview ---"
+            head -5 "$plans_base/$task_value" | sed 's/^/  /'
+        else
+            echo "  (prompt file not found)"
+        fi
+        if [ -f "$plans_base/$feedback" ]; then
+            echo "  --- result ---"
+            cat "$plans_base/$feedback" | sed 's/^/  /'
         fi
     else
         printf "  Desc:  %s\n" "$task_value"
@@ -651,6 +672,7 @@ cmd_run() {
             task)          echo "[dry-run] Would run: claude \"\$(cat $PLANS_DIR/$task_value)\"" ;;
             plan)          echo "[dry-run] Would run: claude \"Read plans/$task_value and implement the plan\"" ;;
             make-plan)     echo "[dry-run] Would run: claude \"\$(cat $PLANS_DIR/$task_value) Write the plan to plans/${task_value/#make-plan-/plan-}.\"" ;;
+            investigate)   echo "[dry-run] Would run: claude \"\$(cat $PLANS_DIR/$task_value) Write your findings to plans/${task_value/#investigate-/feedback-}.\"" ;;
             unnamed-task)  echo "[dry-run] Would run: claude \"$task_value\"" ;;
             manual-*) echo "[dry-run] Would prompt for manual step: $task_value" ;;
             *)        echo "[dry-run] Unknown task type: $task_type" ;;
@@ -705,6 +727,18 @@ cmd_run() {
                 _notify_daemon
                 return 0
             fi
+            ;;
+
+        investigate)
+            local inv_file="$PLANS_DIR/$task_value"
+            if [ ! -f "$inv_file" ]; then
+                echo "Error: investigate file not found: $inv_file" >&2; return 1
+            fi
+            local inv_prompt inv_feedback
+            inv_prompt="$(cat "$inv_file")"
+            inv_feedback="${task_value/#investigate-/feedback-}"
+            claude "${inv_prompt} Write your findings and conclusions to plans/${inv_feedback}."
+            _mark_done "$line_num" "$task_line"
             ;;
 
         unnamed-task)

@@ -64,7 +64,7 @@ bash .claude/planq.sh show [N]
 If there are no pending tasks, report that and stop. Note: if N was specified, verify the task at that position matches expectations — task positions shift as tasks complete.
 
 Step 1b — Mark the task as underway using its **identifier** (filename or description), never by position number:
-- If the task has a filename (task/plan/make-plan): `bash .claude/planq.sh mark:underway <filename>`
+- If the task has a filename (task/plan/make-plan/investigate): `bash .claude/planq.sh mark:underway <filename>`
 - If the task is an unnamed-task or other description-only type: `bash .claude/planq.sh mark:underway "<exact description text>"`
 
 Step 2 — Execute the task **inline** (do NOT call `claude` or spawn any subprocess):
@@ -74,11 +74,12 @@ Step 2 — Execute the task **inline** (do NOT call `claude` or spawn any subpro
 | `task` | Read `plans/<filename>` and carry out the instructions in it. |
 | `plan` | Read `plans/<filename>` and implement the plan described in it. |
 | `make-plan` | Read the prompt from `plans/<filename>`. Write a detailed implementation plan to `plans/<target>`, where `<target>` is `<filename>` with `make-plan-` replaced by `plan-`. |
+| `investigate` | Read the prompt from `plans/<filename>`. Research the question thoroughly and write your findings and conclusions to `plans/<feedback>`, where `<feedback>` is `<filename>` with `investigate-` replaced by `feedback-`. |
 | `unnamed-task` | The description text IS the prompt — execute it directly. |
 | `manual-test` / `manual-commit` / `manual-task` | Tell the user this is a manual step, describe what needs to be done, and ask them to confirm when complete. Do NOT mark it done — let the user do that. |
 
 Step 3 — After successfully completing the task (not for manual steps), mark it done using whichever identifier you have:
-- If the task has a filename (task/plan/make-plan): `bash .claude/planq.sh mark:done <filename>`
+- If the task has a filename (task/plan/make-plan/investigate): `bash .claude/planq.sh mark:done <filename>`
 - If the task is an unnamed-task or other description-only type: `bash .claude/planq.sh mark:done "<exact description text>"`
 
 Step 4 — If the task details showed `Auto-commit after: yes`, perform a git commit now. Follow the standard commit protocol: stage relevant files, write a concise commit message describing what was done, and create the commit. Do NOT skip this step if the flag was present.

@@ -1389,6 +1389,10 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (task_type === 'make-plan' && filename && description) {
       await relayFileWrite(containerId, filename, description).catch(() => {});
     }
+    // For investigate, write the prompt to the filename directly (filename IS investigate-*.md)
+    if (task_type === 'investigate' && filename && description) {
+      await relayFileWrite(containerId, filename, description).catch(() => {});
+    }
 
     // Write updated planq file through daemon
     await writePlanqFile(containerId, container).catch(() => {});

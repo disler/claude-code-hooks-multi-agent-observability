@@ -15,6 +15,7 @@
           <option value="task">task — run as Claude prompt</option>
           <option value="plan">plan — implement plan from file</option>
           <option value="make-plan">make-plan — generate a plan file from a prompt</option>
+          <option value="investigate">investigate — research a question and write findings</option>
           <option value="auto-test">auto-test — run shell command as automated test</option>
           <option value="auto-commit">auto-commit — commit staged/unstaged changes</option>
           <option value="manual-test">manual-test — manual testing step</option>
@@ -118,6 +119,32 @@
             rows="4"
             class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize"
             placeholder="Design a caching layer for the API…"
+          />
+        </div>
+      </template>
+
+      <!-- investigate: slug + prompt -->
+      <template v-else-if="taskType === 'investigate'">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-slate-400">Filename <span class="text-slate-500">(Claude will write findings to feedback-*.md)</span></label>
+          <div class="flex items-center gap-1">
+            <span class="text-xs text-slate-500 font-mono shrink-0">investigate-</span>
+            <input
+              v-model="investigateSlug"
+              type="text"
+              class="flex-1 text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400"
+              placeholder="api-performance"
+            />
+            <span class="text-xs text-slate-500 font-mono shrink-0">.md</span>
+          </div>
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-slate-400">Prompt <span class="text-slate-500">(what to investigate)</span></label>
+          <textarea
+            v-model="description"
+            rows="4"
+            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize"
+            placeholder="Investigate the performance bottlenecks in the API…"
           />
         </div>
       </template>
@@ -240,6 +267,7 @@ const taskType = ref('task')
 const taskSlug = ref('')
 const planSlug = ref('')
 const makePlanSlug = ref('')
+const investigateSlug = ref('')
 const description = ref('')
 const commitMode = ref<'none' | 'auto' | 'stage' | 'manual'>('none')
 const planDisposition = ref<'manual' | 'add-after' | 'add-end'>('manual')
@@ -277,6 +305,7 @@ const planSlugs = computed(() =>
 const taskFilename = computed(() => taskSlug.value ? `task-${taskSlug.value}.md` : null)
 const planFilename = computed(() => planSlug.value ? `plan-${planSlug.value}.md` : null)
 const makePlanFilename = computed(() => makePlanSlug.value ? `make-plan-${makePlanSlug.value}.md` : null)
+const investigateFilename = computed(() => investigateSlug.value ? `investigate-${investigateSlug.value}.md` : null)
 
 const isExistingTaskFile = computed(() => !!taskFilename.value && plansFiles.value.includes(taskFilename.value))
 const isExistingPlanFile = computed(() => !!planFilename.value && plansFiles.value.includes(planFilename.value))
@@ -287,21 +316,24 @@ onMounted(async () => {
 
 // Reset slug/preview when task type changes; preserve description and carry slug across file-based types.
 watch(taskType, (newType, oldType) => {
-  const slugTypes = ['task', 'plan', 'make-plan']
+  const slugTypes = ['task', 'plan', 'make-plan', 'investigate']
   let preserved = ''
   if (slugTypes.includes(oldType)) {
     preserved = oldType === 'task' ? taskSlug.value
               : oldType === 'plan' ? planSlug.value
-              : makePlanSlug.value
+              : oldType === 'make-plan' ? makePlanSlug.value
+              : investigateSlug.value
   }
   taskSlug.value = ''
   planSlug.value = ''
   makePlanSlug.value = ''
+  investigateSlug.value = ''
   filePreview.value = null
   if (preserved && slugTypes.includes(newType)) {
     if (newType === 'task') taskSlug.value = preserved
     else if (newType === 'plan') planSlug.value = preserved
-    else makePlanSlug.value = preserved
+    else if (newType === 'make-plan') makePlanSlug.value = preserved
+    else investigateSlug.value = preserved
   }
 })
 
@@ -336,6 +368,9 @@ const isValid = computed(() => {
   if (taskType.value === 'make-plan') {
     return !!makePlanFilename.value && description.value.trim().length > 0
   }
+  if (taskType.value === 'investigate') {
+    return !!investigateFilename.value && description.value.trim().length > 0
+  }
   if (taskType.value === 'auto-commit') return true  // options are optional
   if (taskType.value === 'auto-test') return description.value.trim().length > 0
   return description.value.trim().length > 0
@@ -358,6 +393,8 @@ function submit() {
     emit('add', 'plan', planFilename.value, null, false, cm)
   } else if (taskType.value === 'make-plan') {
     emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, undefined, planDisposition.value, planDisposition.value !== 'manual' ? autoQueuePlan.value : undefined)
+  } else if (taskType.value === 'investigate') {
+    emit('add', 'investigate', investigateFilename.value, description.value.trim(), false, cm)
   } else if (taskType.value === 'auto-commit') {
     const opts = description.value.trim() || null
     emit('add', 'auto-commit', null, opts, false, 'none')

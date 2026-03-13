@@ -121,6 +121,15 @@
         :title="`Add ${derivedPlanFilename} to task list`"
       >+ plan</button>
 
+      <!-- Show result (investigate tasks) -->
+      <button
+        v-if="task.task_type === 'investigate' && derivedFeedbackFilename !== null"
+        @click.stop="toggleResult"
+        class="text-xs px-1"
+        :class="showResult ? 'text-indigo-300 hover:text-indigo-200' : 'text-slate-500 hover:text-slate-300'"
+        title="Show investigation findings"
+      >{{ showResult ? 'hide result' : 'result' }}</button>
+
       <!-- Archive (done tasks only) -->
       <button
         v-if="task.status === 'done'"
@@ -149,6 +158,19 @@
       class="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words overflow-y-auto max-h-48"
     >{{ getCached(task.id) }}</pre>
     <div v-else class="text-xs text-slate-500 italic">No description available.</div>
+  </div>
+
+  <!-- Investigate result panel -->
+  <div
+    v-if="showResult && task.task_type === 'investigate' && derivedFeedbackFilename !== null"
+    class="mx-2 mb-1 rounded border border-indigo-800/50 bg-indigo-950/30 p-2"
+  >
+    <div v-if="loadingResult" class="text-xs text-slate-500">Loading…</div>
+    <pre
+      v-else-if="resultContent"
+      class="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words overflow-y-auto max-h-64"
+    >{{ resultContent }}</pre>
+    <div v-else class="text-xs text-slate-500 italic">No feedback file found yet (plans/{{ derivedFeedbackFilename }}).</div>
   </div>
   </div>
 </template>
@@ -223,6 +245,7 @@ const typeBadgeClass = computed(() => ({
   'task': 'bg-blue-900/60 text-blue-300',
   'plan': 'bg-purple-900/60 text-purple-300',
   'make-plan': 'bg-teal-900/60 text-teal-300',
+  'investigate': 'bg-indigo-900/60 text-indigo-300',
   'auto-test': 'bg-yellow-900/60 text-yellow-300',
   'auto-commit': 'bg-green-900/60 text-green-300',
   'manual-test': 'bg-yellow-900/40 text-yellow-400',
@@ -243,6 +266,26 @@ function saveDesc() {
     emit('update-desc', props.task.id, editDesc.value.trim())
   }
   editingDesc.value = false
+}
+
+// ── Investigate result ────────────────────────────────────────────────────────
+
+const showResult = ref(false)
+const resultContent = ref<string | null>(null)
+const loadingResult = ref(false)
+
+const derivedFeedbackFilename = computed(() => {
+  if (props.task.task_type !== 'investigate' || !props.task.filename) return null
+  return props.task.filename.replace(/^investigate-/, 'feedback-')
+})
+
+async function toggleResult() {
+  showResult.value = !showResult.value
+  if (showResult.value && resultContent.value === null) {
+    loadingResult.value = true
+    resultContent.value = await readFile(props.containerId, derivedFeedbackFilename.value!) ?? null
+    loadingResult.value = false
+  }
 }
 
 // ── Description popup ─────────────────────────────────────────────────────────

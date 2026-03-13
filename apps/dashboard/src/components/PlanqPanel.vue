@@ -195,6 +195,7 @@ function archiveBadgeClass(taskType: string): string {
     'task': 'bg-blue-900/40 text-blue-400',
     'plan': 'bg-purple-900/40 text-purple-400',
     'make-plan': 'bg-teal-900/40 text-teal-400',
+    'investigate': 'bg-indigo-900/40 text-indigo-400',
     'auto-test': 'bg-yellow-900/40 text-yellow-400',
     'auto-commit': 'bg-green-900/40 text-green-400',
     'manual-test': 'bg-yellow-900/30 text-yellow-500',
