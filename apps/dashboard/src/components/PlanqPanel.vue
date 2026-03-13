@@ -85,7 +85,7 @@
       <!-- Task list -->
       <div v-if="filteredTasks.length > 0">
         <PlanqTaskRow
-          v-for="(task, i) in filteredTasks"
+          v-for="task in filteredTasks"
           :key="task.id"
           :task="task"
           :position="tasks.indexOf(task) + 1"
@@ -224,8 +224,15 @@ function toggleFilterExclusive(status: string) {
   }
 }
 
+// Deferred tasks always appear at the bottom
+const sortedTasks = computed(() => {
+  const nonDeferred = props.tasks.filter(t => t.status !== 'deferred')
+  const deferred = props.tasks.filter(t => t.status === 'deferred')
+  return [...nonDeferred, ...deferred]
+})
+
 const filteredTasks = computed(() =>
-  activeFilters.size === 0 ? props.tasks : props.tasks.filter(t => activeFilters.has(t.status))
+  activeFilters.size === 0 ? sortedTasks.value : sortedTasks.value.filter(t => activeFilters.has(t.status))
 )
 
 const STATUS_FILTER_DEFS = [
@@ -235,6 +242,7 @@ const STATUS_FILTER_DEFS = [
   { status: 'awaiting-commit', icon: '💾', label: 'Awaiting commit', activeClass: 'bg-purple-900/60 text-purple-300' },
   { status: 'awaiting-plan',   icon: '📋', label: 'Awaiting plan',   activeClass: 'bg-teal-900/60 text-teal-300' },
   { status: 'done',            icon: '✅', label: 'Done',            activeClass: 'bg-green-900/40 text-green-400' },
+  { status: 'deferred',        icon: '⏸',  label: 'Deferred',        activeClass: 'bg-slate-700 text-slate-400' },
 ]
 
 const statusFilters = computed(() =>
@@ -276,7 +284,7 @@ async function addTask(taskType: string, filename: string | null, description: s
   emit('tasks-changed')
 }
 
-async function setStatus(task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan') {
+async function setStatus(task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan' | 'deferred') {
   console.log(`[planq] set status ${task.status}→${status} task=${task.filename ?? task.description} container=${cid()}`)
   await apiUpdate(props.containerId, task.id, { status })
   emit('tasks-changed')

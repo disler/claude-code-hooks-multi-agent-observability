@@ -58,7 +58,7 @@ export interface PlanqItem {
   task_type: string;
   filename: string | null;
   description: string | null;
-  status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan';
+  status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan' | 'deferred';
   auto_commit: boolean;
   commit_mode: 'none' | 'auto' | 'stage' | 'manual';
   plan_disposition?: 'manual' | 'add-after' | 'add-end';
@@ -390,6 +390,9 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
     } else if (trimmed.startsWith('# awaiting-plan:')) {
       status = 'awaiting-plan';
       activeLine = trimmed.slice('# awaiting-plan:'.length).trim();
+    } else if (trimmed.startsWith('# deferred:')) {
+      status = 'deferred';
+      activeLine = trimmed.slice('# deferred:'.length).trim();
     } else if (trimmed.startsWith('#')) {
       continue; // regular comment
     }
@@ -460,6 +463,7 @@ export function serializePlanqOrder(tasks: PlanqTaskRow[]): string {
     else if (t.status === 'auto-queue') value = `# auto-queue: ${value}`;
     else if (t.status === 'awaiting-commit') value = `# awaiting-commit: ${value}`;
     else if (t.status === 'awaiting-plan') value = `# awaiting-plan: ${value}`;
+    else if (t.status === 'deferred') value = `# deferred: ${value}`;
     lines.push(value);
   }
   return lines.join('\n') + '\n';

@@ -2,7 +2,7 @@
   <div class="flex flex-col">
   <div
     class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-700/50 group"
-    :class="{ 'opacity-50': task.status === 'done', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue', 'bg-purple-900/20': task.status === 'awaiting-commit', 'bg-teal-900/20': task.status === 'awaiting-plan' }"
+    :class="{ 'opacity-50': task.status === 'done', 'opacity-40 grayscale': task.status === 'deferred', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue', 'bg-purple-900/20': task.status === 'awaiting-commit', 'bg-teal-900/20': task.status === 'awaiting-plan' }"
     draggable="true"
     @dragstart="emit('dragstart', task.id)"
     @dragenter.prevent
@@ -21,6 +21,7 @@
     <span v-else-if="task.status === 'auto-queue'" class="text-cyan-400 text-xs">⏱</span>
     <span v-else-if="task.status === 'awaiting-commit'" class="text-purple-400 text-xs">💾</span>
     <span v-else-if="task.status === 'awaiting-plan'" class="text-teal-400 text-xs">📋</span>
+    <span v-else-if="task.status === 'deferred'" class="text-slate-500 text-xs">⏸</span>
     <span v-else class="text-slate-600 text-xs">▶</span>
 
     <!-- Type badge -->
@@ -190,7 +191,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'edit-file': [task: PlanqTask]
-  'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan']
+  'set-status': [task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan' | 'deferred']
   'delete': [id: number]
   'update-desc': [id: number, desc: string]
   'set-commit-mode': [task: PlanqTask, mode: 'none' | 'auto' | 'stage' | 'manual']

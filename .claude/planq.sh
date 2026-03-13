@@ -48,9 +48,11 @@ _list_tasks() {
         return
     fi
     local i=0
+    # Pass 1: all non-deferred tasks
     while IFS= read -r line; do
         local trimmed="${line#"${line%%[![:space:]]*}"}"
         [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "# deferred:"* ]] && continue  # skip deferred in pass 1
         if [[ "$trimmed" == "# done:"* ]]; then
             i=$((i + 1))
             printf "  \033[2m✅ %-3d  %s\033[0m\n" "$i" "${trimmed#"# done: "}"
@@ -73,6 +75,19 @@ _list_tasks() {
             printf "  ▶  %-3d  %s\n" "$i" "$trimmed"
         fi
     done < "$PLANQ_FILE"
+    # Pass 2: deferred tasks at the bottom (grayed out)
+    local deferred_count=0
+    while IFS= read -r line; do
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "# deferred:"* ]] || continue
+        if [ "$deferred_count" -eq 0 ]; then
+            printf "  \033[2m--- deferred ---\033[0m\n"
+        fi
+        i=$((i + 1))
+        deferred_count=$((deferred_count + 1))
+        printf "  \033[2m⏸  %-3d  %s\033[0m\n" "$i" "${trimmed#"# deferred: "}"
+    done < "$PLANQ_FILE"
 }
 
 # Outputs: line_number TAB task_line  (first pending task only)
@@ -91,30 +106,45 @@ _find_next_task() {
 
 # Outputs: line_number TAB task_line  for the task at visible position N (1-based)
 # Visible position counts all non-comment, non-blank lines (pending and done).
+# Deferred tasks are numbered after all non-deferred tasks (matching _list_tasks order).
 _find_task_by_number() {
     local target="$1"
     [ ! -f "$PLANQ_FILE" ] && return
     local n=0 i=0
+    _strip_status_prefix() {
+        local t="$1"
+        if [[ "$t" == "# done: "* ]]; then t="${t#"# done: "}"
+        elif [[ "$t" == "# underway: "* ]]; then t="${t#"# underway: "}"
+        elif [[ "$t" == "# auto-queue: "* ]]; then t="${t#"# auto-queue: "}"
+        elif [[ "$t" == "# awaiting-commit: "* ]]; then t="${t#"# awaiting-commit: "}"
+        elif [[ "$t" == "# awaiting-plan: "* ]]; then t="${t#"# awaiting-plan: "}"
+        elif [[ "$t" == "# deferred: "* ]]; then t="${t#"# deferred: "}"
+        fi
+        printf '%s' "$t"
+    }
+    # Pass 1: non-deferred tasks
     while IFS= read -r line; do
         n=$((n + 1))
         local trimmed="${line#"${line%%[![:space:]]*}"}"
         [ -z "$trimmed" ] && continue
-        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* && "$trimmed" != "# auto-queue:"* && "$trimmed" != "# awaiting-commit:"* && "$trimmed" != "# awaiting-plan:"* ]] && continue  # skip regular comments
+        [[ "$trimmed" == "# deferred:"* ]] && continue
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* && "$trimmed" != "# auto-queue:"* && "$trimmed" != "# awaiting-commit:"* && "$trimmed" != "# awaiting-plan:"* ]] && continue
         i=$((i + 1))
         if [ "$i" -eq "$target" ]; then
-            # Strip status prefixes if present so we get the raw task line
-            if [[ "$trimmed" == "# done: "* ]]; then
-                trimmed="${trimmed#"# done: "}"
-            elif [[ "$trimmed" == "# underway: "* ]]; then
-                trimmed="${trimmed#"# underway: "}"
-            elif [[ "$trimmed" == "# auto-queue: "* ]]; then
-                trimmed="${trimmed#"# auto-queue: "}"
-            elif [[ "$trimmed" == "# awaiting-commit: "* ]]; then
-                trimmed="${trimmed#"# awaiting-commit: "}"
-            elif [[ "$trimmed" == "# awaiting-plan: "* ]]; then
-                trimmed="${trimmed#"# awaiting-plan: "}"
-            fi
-            printf '%d\t%s\n' "$n" "$trimmed"
+            printf '%d\t%s\n' "$n" "$(_strip_status_prefix "$trimmed")"
+            return
+        fi
+    done < "$PLANQ_FILE"
+    # Pass 2: deferred tasks
+    n=0
+    while IFS= read -r line; do
+        n=$((n + 1))
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "# deferred:"* ]] || continue
+        i=$((i + 1))
+        if [ "$i" -eq "$target" ]; then
+            printf '%d\t%s\n' "$n" "$(_strip_status_prefix "$trimmed")"
             return
         fi
     done < "$PLANQ_FILE"
@@ -133,7 +163,7 @@ _find_task_by_identifier() {
         n=$((n + 1))
         local trimmed="${line#"${line%%[![:space:]]*}"}"
         [ -z "$trimmed" ] && continue
-        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* && "$trimmed" != "# auto-queue:"* && "$trimmed" != "# awaiting-commit:"* && "$trimmed" != "# awaiting-plan:"* ]] && continue
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* && "$trimmed" != "# auto-queue:"* && "$trimmed" != "# awaiting-commit:"* && "$trimmed" != "# awaiting-plan:"* && "$trimmed" != "# deferred:"* ]] && continue
         local task_line="$trimmed"
         if [[ "$task_line" == "# done: "* ]]; then
             task_line="${task_line#"# done: "}"
@@ -145,6 +175,8 @@ _find_task_by_identifier() {
             task_line="${task_line#"# awaiting-commit: "}"
         elif [[ "$task_line" == "# awaiting-plan: "* ]]; then
             task_line="${task_line#"# awaiting-plan: "}"
+        elif [[ "$task_line" == "# deferred: "* ]]; then
+            task_line="${task_line#"# deferred: "}"
         fi
         local task_value="${task_line#*: }"
         # Strip commit/plan flags from comparison (flags, not part of filename/description)
@@ -217,6 +249,16 @@ _mark_awaiting_plan() {
     tmp="$(mktemp)"
     awk -v n="$line_num" -v orig="$original_line" \
         'NR == n { print "# awaiting-plan: " orig; next } { print }' \
+        "$PLANQ_FILE" > "$tmp"
+    mv "$tmp" "$PLANQ_FILE"
+}
+
+_mark_deferred() {
+    local line_num="$1" original_line="$2"
+    local tmp
+    tmp="$(mktemp)"
+    awk -v n="$line_num" -v orig="$original_line" \
+        'NR == n { print "# deferred: " orig; next } { print }' \
         "$PLANQ_FILE" > "$tmp"
     mv "$tmp" "$PLANQ_FILE"
 }
@@ -1199,7 +1241,7 @@ cmd_mark() {
         state="${state%%:*}"
     fi
     if [ -z "$state" ] || [ -z "$ident" ]; then
-        echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q|awaiting-commit|ac> <N|filename|text>" >&2; return 1
+        echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q|awaiting-commit|ac|deferred|df> <N|filename|text>" >&2; return 1
     fi
     case "$state" in
         done|d)                  state=done ;;
@@ -1208,7 +1250,8 @@ cmd_mark() {
         queue|q)                 state=queue ;;
         awaiting-commit|ac)      state=awaiting-commit ;;
         awaiting-plan|ap)        state=awaiting-plan ;;
-        *) echo "Error: state must be done/d, underway/u, inactive/i, queue/q, awaiting-commit/ac, or awaiting-plan/ap; got: $state" >&2; return 1 ;;
+        deferred|df)             state=deferred ;;
+        *) echo "Error: state must be done/d, underway/u, inactive/i, queue/q, awaiting-commit/ac, awaiting-plan/ap, or deferred/df; got: $state" >&2; return 1 ;;
     esac
     local next
     next="$(_find_task_by_identifier "$ident")"
@@ -1249,6 +1292,7 @@ cmd_mark() {
         queue)            _mark_auto_queue      "$line_num" "$task_line"; echo "Marked as auto-queue." ;;
         awaiting-commit)  _mark_awaiting_commit "$line_num" "$task_line"; echo "Marked as awaiting-commit." ;;
         awaiting-plan)    _mark_awaiting_plan   "$line_num" "$task_line"; echo "Marked as awaiting-plan." ;;
+        deferred)         _mark_deferred        "$line_num" "$task_line"; echo "Marked as deferred." ;;
     esac
     _notify_daemon
 }

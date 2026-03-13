@@ -26,7 +26,7 @@ export interface PlanqTask {
   filename: string | null
   description: string | null
   position: number
-  status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan'
+  status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan' | 'deferred'
   auto_commit: boolean
   commit_mode: 'none' | 'auto' | 'stage' | 'manual'
   plan_disposition: 'manual' | 'add-after' | 'add-end'
@@ -37,7 +37,7 @@ export interface PlanqItem {
   task_type: string
   filename: string | null
   description: string | null
-  status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan'
+  status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan' | 'deferred'
   auto_commit: boolean
   commit_mode: 'none' | 'auto' | 'stage' | 'manual'
 }
