@@ -6,9 +6,11 @@ sending heartbeats with git/session state and relaying file read/write
 requests from the server to the local workspace.
 """
 
+import itertools
 import json
 import logging
 import os
+import queue
 import re
 import signal
 import subprocess
@@ -709,7 +711,7 @@ def _handle_file_read(ws, msg: dict):
     target = WORKSPACE_ROOT / 'plans' / filename
     try:
         content = target.read_text() if target.exists() else ''
-        _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': True, 'filename': filename, 'content': content})
+        _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': True, 'filename': filename, 'content': content}, _PRIO_DATA)
     except OSError as e:
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': str(e), 'content': ''})
 
@@ -752,7 +754,7 @@ def _handle_session_log_read(ws, msg: dict):
                 'line_offset': line_offset,
                 'line_count': len(chunk),
                 'total_lines': total_lines,
-            })
+            }, _PRIO_DATA)
         else:
             _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': 'session log not found', 'content': ''})
     except OSError as e:
@@ -800,7 +802,7 @@ def _push_session_log(ws_app, session_id: str, from_line: int = 0):
             'content': content,
             'total_lines': total_lines,
             'is_complete': False,  # conservative; server will mark complete on next push if stable
-        })
+        }, _PRIO_DATA)
         log.debug('Pushed session log %s from line %d (%d lines)', session_id, from_line, len(chunk_lines))
     except OSError as e:
         log.warning('Failed to push session log %s: %s', session_id, e)
@@ -868,11 +870,26 @@ def _handle_file_write_new(ws, msg: dict):
 
 # ── WebSocket helpers ─────────────────────────────────────────────────────────
 
-def _ws_send(ws, data: dict):
-    try:
-        ws.send(json.dumps(data))
-    except Exception as e:
-        log.error('Send error: %s', e)
+# ── Outbound send queue ───────────────────────────────────────────────────────
+# Priority constants: lower value = higher priority.
+_PRIO_CONTROL = 0  # heartbeats, acks, small responses — must not be delayed
+_PRIO_DATA    = 1  # file reads, session log pushes — potentially large
+
+# Per-connection enqueue function; replaced at on_open, cleared at on_close.
+# Signature: _ws_enqueue(serialized: str, priority: int) -> None
+_ws_enqueue: 'threading.local | None' = None
+
+def _ws_send(ws, data: dict, priority: int = _PRIO_CONTROL):
+    """Serialise data and hand it to the per-connection send queue."""
+    serialized = json.dumps(data)
+    if _ws_enqueue is not None:
+        _ws_enqueue(serialized, priority)
+    else:
+        # Queue not yet initialised (very early send); fall back to direct send.
+        try:
+            ws.send(serialized)
+        except Exception as e:
+            log.error('Send error: %s', e)
 
 # ── Main connection loop ──────────────────────────────────────────────────────
 
@@ -890,11 +907,38 @@ def _run_connection():
     connected = threading.Event()
     stop_event = threading.Event()
     close_reason = {'code': None, 'msg': None}
+    _conn: dict = {}  # shared mutable state for on_open / on_close closures
 
     def on_open(ws):
+        global _ws_enqueue
         connected.set()
         log.info('Connected to server %s', SERVER_URL)
         _write_status('connected', SERVER_URL)
+
+        # Set up a priority send queue for this connection.
+        # The sender thread is the only caller of ws.send(), eliminating races.
+        send_queue: queue.PriorityQueue = queue.PriorityQueue()
+        _conn['send_queue'] = send_queue
+        seq = itertools.count()
+
+        def _enqueue(serialized: str, priority: int) -> None:
+            send_queue.put((priority, next(seq), serialized))
+
+        _ws_enqueue = _enqueue
+
+        def _sender():
+            while True:
+                item = send_queue.get()
+                if item is None:
+                    break  # sentinel: connection closed
+                _, _, serialized = item
+                try:
+                    ws.send(serialized)
+                except Exception as e:
+                    log.error('Send error: %s', e)
+
+        threading.Thread(target=_sender, daemon=True).start()
+
         # Force a full plans-files push on (re)connect so a restarted server
         # always gets the complete file list rather than only changed files.
         with _plans_file_mtimes_lock:
@@ -972,8 +1016,13 @@ def _run_connection():
         log.error('WebSocket error: %s', error)
 
     def on_close(ws, code, msg):
+        global _ws_enqueue
         close_reason['code'] = code
         close_reason['msg'] = msg
+        _ws_enqueue = None
+        sq = _conn.get('send_queue')
+        if sq is not None:
+            sq.put(None)  # sentinel: stop sender thread
         stop_event.set()
         log.info('Disconnected (code=%s)', code)
         _write_status('disconnected', f'code={code}')
@@ -1252,10 +1301,7 @@ def _apply_changes(ws, changes: list) -> None:
         except Exception as e:
             log.error('Failed to apply change %s (%s): %s', cid, ctype, e)
     if ack_ids:
-        try:
-            ws.send(json.dumps({'type': 'change_ack', 'ids': ack_ids}))
-        except Exception:
-            pass
+        _ws_send(ws, {'type': 'change_ack', 'ids': ack_ids})
     if ack_ids:
         # Trigger an immediate heartbeat so the server sees the updated state
         _immediate_heartbeat.set()
@@ -1373,14 +1419,7 @@ def _send_heartbeat(ws_app):
         **git,
     }
 
-    try:
-        if hasattr(ws_app, 'send'):
-            ws_app.send(json.dumps(heartbeat))
-        else:
-            # websocket.WebSocketApp — send via internal socket
-            ws_app.sock and ws_app.sock.send(json.dumps(heartbeat))
-    except Exception as e:
-        log.error('Heartbeat send error: %s', e)
+    _ws_send(ws_app, heartbeat)
 
 
 def main():
