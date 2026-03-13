@@ -1705,7 +1705,7 @@ cmd_set_review() {
     local ident="${1:-}"
     local status="${2:-}"
     if [ -z "$ident" ] || [ -z "$status" ]; then
-        echo "Usage: planq set-review <filename-or-N> <status>" >&2
+        echo "Usage: planq task-review <filename-or-N> <status>" >&2
         echo "  status: none|ready|testing|passed|has-issues|fix-scheduled|follow-up|revert-scheduled|ready-for-merge|merged|cancelled|retry-later" >&2
         return 1
     fi
@@ -1850,8 +1850,8 @@ usage() {
     echo "  archive / a [N|…] [--unarchive|-U <N|…>]      Archive done tasks; -a flag on list/show for archive"
     echo "  daemon  / d [start|stop|restart|status]        Manage the planq WebSocket daemon"
     echo "  logs    / L [-c] [-f] [-n <N>]                Show daemon log (default: tail)"
-    echo "  review  <state|notes <text>|status>            Set/show worktree-level review state"
-    echo "  set-review <N|file> <status>                   Set task-level review status (none|ready|testing|passed|has-issues|fix-scheduled|follow-up|revert-scheduled|ready-for-merge|merged|cancelled|retry-later)"
+    echo "  worktree-review / wr <state|notes <text>|status>  Set/show worktree-level review state"
+    echo "  task-review     / tr <N|file> <status>            Set task-level review status (none|ready|testing|passed|has-issues|fix-scheduled|follow-up|revert-scheduled|ready-for-merge|merged|cancelled|retry-later)"
     echo "  shell   / sh                                   Interactive planq REPL"
     echo ""
     echo "Task types:"
@@ -1911,8 +1911,8 @@ case "$SUBCMD" in
     archive|a)           cmd_archive "$@" ;;
     daemon|d)            cmd_daemon "$@" ;;
     logs|L)              cmd_logs "$@" ;;
-    review)              shift; cmd_review "$@" ;;
-    set-review)          shift; cmd_set_review "$@" ;;
+    worktree-review|wr)  shift; cmd_review "$@" ;;
+    task-review|tr)      shift; cmd_set_review "$@" ;;
     shell|sh)            exec bash "$SCRIPT_DIR/planq-shell.sh" "$@" ;;
     --help|-h|help|"")   usage ;;
     *)
