@@ -215,7 +215,18 @@
                 class="px-1 py-0.5 rounded font-mono shrink-0"
                 :class="archiveBadgeClass(item.task_type)"
               >{{ item.task_type }}</span>
-              <span class="text-slate-400 truncate font-mono">{{ item.filename ?? item.description }}</span>
+              <button
+                v-if="item.filename"
+                @click="archiveViewingFile = item.filename"
+                class="text-slate-400 truncate font-mono hover:text-slate-200 hover:underline text-left min-w-0"
+              >{{ item.filename }}</button>
+              <span v-else class="text-slate-400 truncate font-mono">{{ item.description }}</span>
+              <button
+                v-if="item.task_type === 'investigate' && item.filename"
+                @click="archiveViewingFile = item.filename.replace(/^investigate-/, 'feedback-')"
+                class="shrink-0 text-indigo-500 hover:text-indigo-300 text-xs"
+                title="View investigation feedback"
+              >feedback</button>
             </div>
           </div>
         </div>
@@ -237,6 +248,13 @@
       :filename="editingFile.filename!"
       @close="editingFile = null"
       @saved="editingFile = null"
+    />
+    <PlanqFileEditor
+      v-if="archiveViewingFile"
+      :container-id="containerId"
+      :filename="archiveViewingFile"
+      @close="archiveViewingFile = null"
+      @saved="archiveViewingFile = null"
     />
   </div>
 </template>
