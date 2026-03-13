@@ -106,6 +106,15 @@
         :title="task.status === 'awaiting-commit' ? 'Abort commit wait (mark underway)' : task.status === 'awaiting-plan' ? 'Abort plan wait (mark underway)' : task.status === 'underway' ? 'Mark inactive' : 'Mark underway'"
       >⏳</button>
 
+      <!-- Toggle deferred -->
+      <button
+        v-if="task.status === 'pending' || task.status === 'deferred'"
+        @click="emit('set-status', task, task.status === 'deferred' ? 'pending' : 'deferred')"
+        class="text-xs px-1"
+        :class="task.status === 'deferred' ? 'text-slate-300 hover:text-slate-100' : 'text-slate-500 hover:text-slate-300'"
+        :title="task.status === 'deferred' ? 'Un-defer (mark pending)' : 'Defer (skip for now)'"
+      >💤</button>
+
       <!-- Mark done / pending -->
       <button
         @click="emit('set-status', task, task.status === 'done' ? 'pending' : 'done')"

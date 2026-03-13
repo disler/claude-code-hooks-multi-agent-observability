@@ -58,7 +58,7 @@
       </div>
 
       <!-- Status filters -->
-      <div v-if="tasks.length > 0" class="flex items-center gap-1 mb-2 flex-wrap">
+      <div class="flex items-center gap-1 mb-2 flex-wrap">
         <button
           v-for="f in statusFilters"
           :key="f.status"
@@ -249,7 +249,7 @@ const statusFilters = computed(() =>
   STATUS_FILTER_DEFS.map(f => ({
     ...f,
     count: props.tasks.filter(t => t.status === f.status).length,
-  })).filter(f => f.count > 0)
+  }))
 )
 
 const pendingCount = computed(() => props.tasks.filter(t => t.status === 'pending').length)
