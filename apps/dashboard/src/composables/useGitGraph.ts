@@ -57,18 +57,31 @@ function topoSort(commits: GitCommit[], orphanHashes: Set<string>): GitCommit[] 
 
   if (orphanTips.length === 0) return result
 
-  // Insert orphan tips into the sorted result based on their author_date.
-  // result is newest-first; insert each orphan at the position where its
-  // timestamp fits chronologically so it doesn't appear at the very top.
-  const sorted = orphanTips.slice().sort((a, b) => (b.author_date ?? 0) - (a.author_date ?? 0))
+  // Insert each orphan tip just before its first parent in the result.
+  // Because a non-orphan child of that parent was already processed by
+  // Kahn's algorithm and placed the parent into activeLanes, the orphan will
+  // find its parent already tracked when the layout runs — producing a
+  // single-row closing line into the parent's lane rather than a long
+  // phantom lane stretching down to where the parent would eventually appear.
+  //
+  // Fallback: if the first parent is itself an orphan or is beyond the
+  // displayed window, insert by author_date so at least the commit appears
+  // at a chronologically sensible position rather than right at the top.
   const merged = [...result]
+  // Sort newest-first so earlier inserts don't shift later indices unexpectedly.
+  const sorted = orphanTips.slice().sort((a, b) => (b.author_date ?? 0) - (a.author_date ?? 0))
   for (const orphan of sorted) {
-    const orphanDate = orphan.author_date ?? 0
-    const insertIdx = merged.findIndex(c => (c.author_date ?? 0) <= orphanDate)
-    if (insertIdx === -1) {
-      merged.push(orphan)
+    const parentHash = orphan.parents[0]
+    const parentIdx = parentHash ? merged.findIndex(c => c.hash === parentHash) : -1
+    if (parentIdx !== -1) {
+      // Insert just before the parent (parent's lane is already open at this point)
+      merged.splice(parentIdx, 0, orphan)
     } else {
-      merged.splice(insertIdx, 0, orphan)
+      // Parent not in result — fall back to date-based position
+      const orphanDate = orphan.author_date ?? 0
+      const insertIdx = merged.findIndex(c => (c.author_date ?? 0) <= orphanDate)
+      if (insertIdx === -1) merged.push(orphan)
+      else merged.splice(insertIdx, 0, orphan)
     }
   }
   return merged
@@ -108,16 +121,8 @@ export function computeLayout(commits: GitCommit[], orphanHashes: Set<string> = 
       if (existingFirstParentLane !== -1 && existingFirstParentLane !== myLane) {
         closingLanes.push({ from: myLane, to: existingFirstParentLane })
         activeLanes[myLane] = null
-      } else if (orphanHashes.has(commit.hash) && existingFirstParentLane === -1) {
-        // Orphan commit whose parent isn't already tracked: don't open a new tracking
-        // lane (parent will be reached via the main chain). Closing immediately keeps
-        // the graph width tight even when many orphan tips are date-interleaved.
-        activeLanes[myLane] = null
       } else {
         activeLanes[myLane] = firstParent
-      }
-      // Track additional parents (merge sources) for non-orphan commits only.
-      if (!orphanHashes.has(commit.hash)) {
         for (let i = 1; i < commit.parents.length; i++) {
           const p = commit.parents[i]
           if (activeLanes.includes(p)) continue
