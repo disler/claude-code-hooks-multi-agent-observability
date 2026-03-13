@@ -45,6 +45,19 @@
           </span>
         </div>
         <div class="flex items-center gap-3">
+          <!-- Rendered / Raw toggle -->
+          <div class="flex items-center gap-1 text-xs">
+            <button
+              @click="renderMarkdown = true"
+              class="px-2 py-0.5 rounded border"
+              :class="renderMarkdown ? 'bg-slate-600 border-slate-500 text-slate-200' : 'bg-transparent border-slate-700 text-slate-500 hover:text-slate-400'"
+            >Rendered</button>
+            <button
+              @click="renderMarkdown = false"
+              class="px-2 py-0.5 rounded border"
+              :class="!renderMarkdown ? 'bg-slate-600 border-slate-500 text-slate-200' : 'bg-transparent border-slate-700 text-slate-500 hover:text-slate-400'"
+            >Raw</button>
+          </div>
           <!-- Prompt navigation -->
           <div
             v-if="promptBlocks.length > 1"
@@ -104,7 +117,8 @@
                 copy
               </button>
             </div>
-            <pre class="text-sm text-slate-100 whitespace-pre-wrap font-sans leading-relaxed">{{ block.text }}</pre>
+            <MarkdownContent v-if="renderMarkdown" :content="block.text" class="text-sm text-slate-100" />
+            <pre v-else class="text-sm text-slate-100 whitespace-pre-wrap font-sans leading-relaxed">{{ block.text }}</pre>
           </div>
 
           <!-- Assistant response block -->
@@ -119,7 +133,8 @@
                 copy
               </button>
             </div>
-            <pre class="text-sm text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">{{ block.text }}</pre>
+            <MarkdownContent v-if="renderMarkdown" :content="block.text" class="text-sm text-slate-300" />
+            <pre v-else class="text-sm text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">{{ block.text }}</pre>
           </div>
 
           <!-- Tool use block -->
@@ -162,6 +177,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { API_BASE } from "../config";
 import { useHostnameAliases } from "../composables/useHostnameAliases";
+import MarkdownContent from "./MarkdownContent.vue";
 import type { ContainerWithState } from "../types";
 
 const props = defineProps<{
@@ -174,6 +190,7 @@ const emit = defineEmits<{ close: [] }>();
 
 const { alias } = useHostnameAliases();
 
+const renderMarkdown = ref(true);
 const loading = ref(false);
 const error = ref("");
 const rawLines = ref<any[]>([]);
