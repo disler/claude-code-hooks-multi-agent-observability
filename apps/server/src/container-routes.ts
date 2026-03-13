@@ -34,6 +34,7 @@ import {
   markPendingChangesSent,
   ackPendingDashboardChanges,
   cleanupOldPendingChanges,
+  reapplyPendingChangesToProjection,
   resolveTaskLinks,
   type ChangeRequest,
   type ContainerRow,
@@ -547,6 +548,8 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     if (msg.planq_order) {
       const containerItems: PlanqItem[] = parsePlanqOrder(msg.planq_order);
       syncPlanqTasksFromParsed(containerId, containerItems);
+      // Re-apply unacked dashboard changes so they survive the heartbeat wipe.
+      reapplyPendingChangesToProjection(containerId);
       setPlanqLastSynced(containerId, msg.planq_order);
       // Re-resolve parent task links after every sync (syncPlanqTasksFromParsed wipes them)
       const cache = plansFilesCache.get(containerId);
@@ -1867,7 +1870,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   return null; // not handled
 }
 
-// ── Planq three-way merge ─────────────────────────────────────────────────────
+// ── Planq three-way merge (kept for reference; replaced by reapplyPendingChangesToProjection) ──
 
 // Status ordering: higher = more advanced/done
 const STATUS_ORDER: Record<string, number> = {

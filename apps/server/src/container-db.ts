@@ -202,6 +202,24 @@ export function initContainerDatabase(): void {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_pdc_container ON pending_dashboard_changes(container_id, status)');
 
+  // Completed sync changes received from containers (audit log)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sync_changes (
+      id TEXT PRIMARY KEY,
+      container_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      source TEXT NOT NULL,
+      task_key TEXT,
+      payload TEXT NOT NULL,
+      timestamp REAL NOT NULL,
+      done INTEGER NOT NULL DEFAULT 0,
+      applied_at REAL,
+      received_at INTEGER NOT NULL,
+      error TEXT
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sc_container ON sync_changes(container_id, received_at)');
+
   // Migration for planq_tasks columns added after initial schema
   const taskColumns = (db.prepare('PRAGMA table_info(planq_tasks)').all() as any[]).map((r: any) => r.name);
   if (!taskColumns.includes('auto_commit')) {
@@ -843,4 +861,61 @@ export function cleanupOldPendingChanges(): void {
   db.prepare(
     `DELETE FROM pending_dashboard_changes WHERE status IN ('acked','failed') AND created_at < ?`
   ).run(cutoff);
+}
+
+/**
+ * Re-apply unacked dashboard changes to the server's planq_tasks projection.
+ *
+ * Called after syncPlanqTasksFromParsed to ensure pending dashboard changes
+ * (status updates, adds, deletes, reorders sent to the container but not yet
+ * acked) survive the container heartbeat wipe-and-replace.
+ */
+export function reapplyPendingChangesToProjection(containerId: string): void {
+  const unacked = [
+    ...getPendingDashboardChanges(containerId, 'pending'),
+    ...getPendingDashboardChanges(containerId, 'sent'),
+  ].sort((a, b) => a.timestamp - b.timestamp);
+  if (!unacked.length) return;
+
+  for (const cr of unacked) {
+    const { type, task_key, payload } = cr;
+    if (type === 'update_status') {
+      const task = getPlanqTasks(containerId).find(t => (t.filename ?? t.description) === task_key);
+      if (task) updatePlanqTask(task.id, { status: payload.status });
+    } else if (type === 'update_content') {
+      const task = getPlanqTasks(containerId).find(t => (t.filename ?? t.description) === task_key);
+      if (task) {
+        if (payload.field === 'commit_mode') updatePlanqTask(task.id, { commit_mode: payload.value });
+        else if (payload.field === 'description') updatePlanqTask(task.id, { description: payload.value });
+      }
+    } else if (type === 'add_task') {
+      const exists = getPlanqTasks(containerId).some(t => (t.filename ?? t.description) === task_key);
+      if (!exists) {
+        addPlanqTask(
+          containerId,
+          payload.task_type,
+          payload.filename ?? null,
+          payload.description ?? null,
+          false,
+          payload.commit_mode ?? 'none',
+          payload.plan_disposition ?? 'manual',
+          payload.auto_queue_plan ?? false,
+        );
+      }
+    } else if (type === 'delete_task') {
+      const task = getPlanqTasks(containerId).find(t => (t.filename ?? t.description) === task_key);
+      if (task) deletePlanqTask(task.id);
+    } else if (type === 'reorder') {
+      if (Array.isArray(payload.order)) {
+        const tasks = getPlanqTasks(containerId);
+        const keyToPos = new Map((payload.order as string[]).map((k, i) => [k, i]));
+        for (const task of tasks) {
+          const key = task.filename ?? task.description;
+          if (key && keyToPos.has(key)) {
+            db.prepare('UPDATE planq_tasks SET position = ? WHERE id = ?').run(keyToPos.get(key)!, task.id);
+          }
+        }
+      }
+    }
+  }
 }
