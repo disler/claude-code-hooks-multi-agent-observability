@@ -108,15 +108,23 @@ export function computeLayout(commits: GitCommit[], orphanHashes: Set<string> = 
       if (existingFirstParentLane !== -1 && existingFirstParentLane !== myLane) {
         closingLanes.push({ from: myLane, to: existingFirstParentLane })
         activeLanes[myLane] = null
+      } else if (orphanHashes.has(commit.hash) && existingFirstParentLane === -1) {
+        // Orphan commit whose parent isn't already tracked: don't open a new tracking
+        // lane (parent will be reached via the main chain). Closing immediately keeps
+        // the graph width tight even when many orphan tips are date-interleaved.
+        activeLanes[myLane] = null
       } else {
         activeLanes[myLane] = firstParent
       }
-      for (let i = 1; i < commit.parents.length; i++) {
-        const p = commit.parents[i]
-        if (activeLanes.includes(p)) continue
-        const free = activeLanes.indexOf(null)
-        if (free !== -1) activeLanes[free] = p
-        else activeLanes.push(p)
+      // Track additional parents (merge sources) for non-orphan commits only.
+      if (!orphanHashes.has(commit.hash)) {
+        for (let i = 1; i < commit.parents.length; i++) {
+          const p = commit.parents[i]
+          if (activeLanes.includes(p)) continue
+          const free = activeLanes.indexOf(null)
+          if (free !== -1) activeLanes[free] = p
+          else activeLanes.push(p)
+        }
       }
     }
 
