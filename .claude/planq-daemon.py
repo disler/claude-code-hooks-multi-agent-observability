@@ -644,7 +644,7 @@ def _handle_file_read(ws, msg: dict):
     target = WORKSPACE_ROOT / 'plans' / filename
     try:
         content = target.read_text() if target.exists() else ''
-        _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': True, 'filename': filename, 'content': content}, _PRIO_DATA)
+        _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': True, 'filename': filename, 'content': content})
     except OSError as e:
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': str(e), 'content': ''})
 
@@ -661,6 +661,7 @@ def _handle_session_log_read(ws, msg: dict):
     request_id = msg.get('request_id', '')
     line_offset = max(0, int(msg.get('line_offset', 0)))
     limit = min(max(1, int(msg.get('limit', 1000))), 5000)
+    log.info('[session_log_read] request session=%s offset=%d limit=%d', session_id[:8], line_offset, limit)
     if not session_id or not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': 'invalid session_id', 'content': ''})
         return
@@ -679,6 +680,8 @@ def _handle_session_log_read(ws, msg: dict):
             lines = found.read_text().splitlines(keepends=True)
             total_lines = len(lines)
             chunk = lines[line_offset:line_offset + limit]
+            log.info('[session_log_read] sending %d lines (total=%d) for session=%s', len(chunk), total_lines, session_id[:8])
+            # Use PRIO_CONTROL: server has a live HTTP request waiting on this response
             _ws_send(ws, {
                 'type': 'file_read_response',
                 'request_id': request_id,
@@ -687,8 +690,9 @@ def _handle_session_log_read(ws, msg: dict):
                 'line_offset': line_offset,
                 'line_count': len(chunk),
                 'total_lines': total_lines,
-            }, _PRIO_DATA)
+            })
         else:
+            log.info('[session_log_read] session not found: %s', session_id[:8])
             _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': 'session log not found', 'content': ''})
     except OSError as e:
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': str(e), 'content': ''})
@@ -737,7 +741,10 @@ def _push_session_log(ws_app, session_id: str, from_line: int = 0):
         if from_line >= total_lines:
             return  # Nothing new
 
+        n_chunks = 0
         send_from = from_line
+        log.info('[session_log_push] starting session=%s from_line=%d total_lines=%d file=%s',
+                 session_id[:8], from_line, total_lines, found.name)
         while send_from < total_lines:
             chunk: list[str] = []
             chunk_bytes = 0
@@ -762,11 +769,12 @@ def _push_session_log(ws_app, session_id: str, from_line: int = 0):
                 'total_lines': total_lines,
                 'is_complete': is_last,
             }, _PRIO_DATA)
-            log.debug('Pushed session log %s lines %d\u2013%d of %d',
-                      session_id, send_from, i - 1, total_lines)
+            n_chunks += 1
             send_from = i
+        log.info('[session_log_push] queued %d chunk(s) for session=%s (%d lines)',
+                 n_chunks, session_id[:8], total_lines - from_line)
     except OSError as e:
-        log.warning('Failed to push session log %s: %s', session_id, e)
+        log.warning('[session_log_push] failed for session=%s: %s', session_id[:8], e)
 
 def _handle_file_write(ws, msg: dict):
     filename = msg.get('filename', '')
