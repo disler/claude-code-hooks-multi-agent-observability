@@ -1,3 +1,9 @@
+// Prepend ISO timestamp to all console output
+for (const level of ['log', 'error', 'warn', 'info'] as const) {
+  const orig = console[level].bind(console);
+  console[level] = (...args: unknown[]) => orig(new Date().toISOString(), ...args);
+}
+
 import { initDatabase, insertEvent, getFilterOptions, getRecentEvents, updateEventHITLResponse } from './db';
 import type { HookEvent, HumanInTheLoopResponse } from './types';
 import {
