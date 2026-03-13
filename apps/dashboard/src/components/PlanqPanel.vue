@@ -151,6 +151,7 @@
             @add-plan="addPlanFromMakePlan"
             @archive="archiveTask(task.id)"
             @set-review-status="(t, s) => setReviewStatus(t, s)"
+            @add-subtask="addingSubtaskTo = task"
             @dragstart="dragFrom = task.id"
             @drop="dropOn(task.id)"
           />
@@ -175,13 +176,6 @@
               @drop="dropOn(child.id)"
             />
           </template>
-          <!-- Add subtask button (only for file-based tasks) -->
-          <button
-            v-if="task.filename"
-            @click="addingSubtaskTo = task"
-            class="ml-6 mb-1 text-xs text-slate-600 hover:text-slate-400 flex items-center gap-0.5 py-0.5"
-            title="Add a follow-up or fix-required subtask"
-          >⊕ subtask</button>
         </template>
       </div>
       <div v-else-if="tasks.length > 0 && filteredTasks.length === 0" class="text-xs text-slate-500 italic py-1">No tasks match filter.</div>

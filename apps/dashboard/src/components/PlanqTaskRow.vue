@@ -32,15 +32,15 @@
     <!-- Value: filename is clickable to show description popup -->
     <div v-if="!editingDesc" class="flex items-center gap-1 text-xs text-slate-300 flex-1 min-w-0 font-mono">
       <button
-        v-if="task.filename"
+        v-if="effectiveFilename"
         @click.stop="toggleDescPopup"
         class="hover:text-slate-100 hover:underline cursor-pointer truncate min-w-0"
         :title="isOpen(task.id) ? 'Hide description' : 'Show description'"
-      >{{ task.filename }}</button>
+      >{{ effectiveFilename }}</button>
       <span v-else class="truncate min-w-0">{{ task.description }}</span>
       <!-- Feedback toggle: immediately after filename for investigate tasks -->
       <button
-        v-if="task.task_type === 'investigate' && derivedFeedbackFilename !== null"
+        v-if="task.task_type === 'investigate' && derivedFeedbackFilename"
         @click.stop="toggleFeedbackOpen"
         class="shrink-0 text-xs px-1"
         :class="isFeedbackOpen(task.id) ? 'text-indigo-300 hover:text-indigo-200' : 'text-slate-500 hover:text-slate-300'"
@@ -53,12 +53,16 @@
         <span v-if="task.plan_disposition === 'add-after'" class="shrink-0 text-teal-400" :title="task.auto_queue_plan ? 'Plan will be added after this task (auto-queued)' : 'Plan will be added after this task'">📋⇒{{ task.auto_queue_plan ? '⏱' : '' }}</span>
         <span v-else-if="task.plan_disposition === 'add-end'" class="shrink-0 text-cyan-400" :title="task.auto_queue_plan ? 'Plan will be added to end of queue (auto-queued)' : 'Plan will be added to end of queue'">📋↓{{ task.auto_queue_plan ? '⏱' : '' }}</span>
       </template>
-      <!-- Review status badge (shown when non-none, or on hover as placeholder) -->
-      <div class="relative shrink-0" v-if="reviewStatus !== 'none' || true">
+      <!-- Review status badge — always visible for done tasks, hover-only otherwise -->
+      <div class="relative shrink-0">
         <button
           @click="toggleReviewDropdown"
           class="text-xs px-0.5 leading-none"
-          :class="reviewStatus !== 'none' ? reviewDef.color : 'text-slate-700 hover:text-slate-500 opacity-0 group-hover:opacity-100'"
+          :class="reviewStatus !== 'none'
+            ? reviewDef.color
+            : task.status === 'done'
+              ? 'text-slate-500 hover:text-slate-300'
+              : 'text-slate-700 hover:text-slate-500 opacity-0 group-hover:opacity-100'"
           :title="reviewStatus !== 'none' ? `Review: ${reviewDef.label} — click to change` : 'Set review status'"
         >{{ reviewDef.icon }}</button>
         <div
@@ -174,6 +178,14 @@
         title="Archive this task"
       >🗄️</button>
 
+      <!-- Add subtask -->
+      <button
+        v-if="!isChild && effectiveFilename"
+        @click.stop="emit('add-subtask', task)"
+        class="text-xs px-1 text-slate-500 hover:text-slate-300"
+        title="Add a follow-up or fix-required subtask"
+      >⊕</button>
+
       <!-- Delete -->
       <button
         @click="emit('delete', task.id)"
@@ -202,7 +214,7 @@
 
   <!-- Investigate feedback panel -->
   <div
-    v-if="isFeedbackOpen(task.id) && task.task_type === 'investigate' && derivedFeedbackFilename !== null"
+    v-if="isFeedbackOpen(task.id) && task.task_type === 'investigate' && derivedFeedbackFilename"
     class="mx-2 mb-1 rounded border border-indigo-800/50 bg-indigo-950/30 p-2"
   >
     <div class="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5 pb-1 border-b border-indigo-800/40">
@@ -247,6 +259,7 @@ const emit = defineEmits<{
   'add-plan': [planFilename: string]
   'archive': [id: number]
   'set-review-status': [task: PlanqTask, status: ReviewStatus]
+  'add-subtask': [task: PlanqTask]
 }>()
 
 const { readFile } = usePlanq()
@@ -319,13 +332,26 @@ function saveDesc() {
   editingDesc.value = false
 }
 
+// ── Effective filename (falls back to description for file-based task types) ──
+
+// Some tasks were created without a filename in the DB (description = the filename).
+// Derive an effective filename so the click-to-view and feedback logic work.
+const effectiveFilename = computed(() => {
+  if (props.task.filename) return props.task.filename
+  const d = props.task.description
+  if (d && /^\S+\.md$/.test(d) && ['investigate', 'task', 'plan', 'make-plan'].includes(props.task.task_type)) {
+    return d
+  }
+  return null
+})
+
 // ── Investigate feedback ──────────────────────────────────────────────────────
 
 const loadingFeedback = ref(false)
 
 const derivedFeedbackFilename = computed(() => {
-  if (props.task.task_type !== 'investigate' || !props.task.filename) return null
-  return props.task.filename.replace(/^investigate-/, 'feedback-')
+  if (props.task.task_type !== 'investigate') return null
+  return effectiveFilename.value?.replace(/^investigate-/, 'feedback-') ?? null
 })
 
 async function toggleFeedbackOpen() {
@@ -384,14 +410,12 @@ async function toggleDescPopup() {
   toggle(props.task.id)
   if (!isOpen(props.task.id) || getCached(props.task.id) !== undefined) return
 
-  if (props.task.description) {
-    setCached(props.task.id, props.task.description)
-    return
-  }
-  if (props.task.filename) {
+  if (effectiveFilename.value) {
     loadingDesc.value = true
-    setCached(props.task.id, await readFile(props.containerId, props.task.filename))
+    setCached(props.task.id, await readFile(props.containerId, effectiveFilename.value))
     loadingDesc.value = false
+  } else if (props.task.description) {
+    setCached(props.task.id, props.task.description)
   }
 }
 
