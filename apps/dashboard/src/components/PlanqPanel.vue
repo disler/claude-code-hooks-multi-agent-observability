@@ -57,13 +57,38 @@
         </div>
       </div>
 
+      <!-- Status filters -->
+      <div v-if="tasks.length > 0" class="flex items-center gap-1 mb-2 flex-wrap">
+        <button
+          v-for="f in statusFilters"
+          :key="f.status"
+          @click.exact="toggleFilterExclusive(f.status)"
+          @click.ctrl.exact="toggleFilter(f.status)"
+          @click.meta.exact="toggleFilter(f.status)"
+          :title="`${f.label} (${f.count}) — click to filter, Ctrl/Cmd+click to multi-select`"
+          class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-all"
+          :class="activeFilters.size === 0 || activeFilters.has(f.status)
+            ? [f.activeClass, 'opacity-100']
+            : 'bg-slate-800 text-slate-600 opacity-50'"
+        >
+          <span>{{ f.icon }}</span>
+          <span>{{ f.count }}</span>
+        </button>
+        <button
+          v-if="activeFilters.size > 0"
+          @click="activeFilters.clear()"
+          class="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-600"
+          title="Clear filters"
+        >✕</button>
+      </div>
+
       <!-- Task list -->
-      <div v-if="tasks.length > 0">
+      <div v-if="filteredTasks.length > 0">
         <PlanqTaskRow
-          v-for="(task, i) in tasks"
+          v-for="(task, i) in filteredTasks"
           :key="task.id"
           :task="task"
-          :position="i + 1"
+          :position="tasks.indexOf(task) + 1"
           :container-id="containerId"
           :all-tasks="tasks"
           @edit-file="editingFile = task"
@@ -77,6 +102,7 @@
           @drop="dropOn(task.id)"
         />
       </div>
+      <div v-else-if="tasks.length > 0 && filteredTasks.length === 0" class="text-xs text-slate-500 italic py-1">No tasks match filter.</div>
       <div v-else class="text-xs text-slate-500 italic py-1">No tasks queued.</div>
 
       <!-- Add buttons -->
@@ -142,7 +168,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
 import PlanqTaskRow from './PlanqTaskRow.vue'
 import AddTaskDialog from './AddTaskDialog.vue'
@@ -180,6 +206,43 @@ async function toggleArchive() {
     archiveLoading.value = false
   }
 }
+
+// Status filters
+const activeFilters = reactive(new Set<string>())
+
+function toggleFilter(status: string) {
+  if (activeFilters.has(status)) activeFilters.delete(status)
+  else activeFilters.add(status)
+}
+
+function toggleFilterExclusive(status: string) {
+  if (activeFilters.size === 1 && activeFilters.has(status)) {
+    activeFilters.clear()
+  } else {
+    activeFilters.clear()
+    activeFilters.add(status)
+  }
+}
+
+const filteredTasks = computed(() =>
+  activeFilters.size === 0 ? props.tasks : props.tasks.filter(t => activeFilters.has(t.status))
+)
+
+const STATUS_FILTER_DEFS = [
+  { status: 'pending',         icon: '▶',  label: 'Pending',         activeClass: 'bg-slate-700 text-slate-300' },
+  { status: 'underway',        icon: '⚡', label: 'Underway',        activeClass: 'bg-amber-900/60 text-amber-300' },
+  { status: 'auto-queue',      icon: '⏱',  label: 'Auto-queued',     activeClass: 'bg-cyan-900/60 text-cyan-300' },
+  { status: 'awaiting-commit', icon: '💾', label: 'Awaiting commit', activeClass: 'bg-purple-900/60 text-purple-300' },
+  { status: 'awaiting-plan',   icon: '📋', label: 'Awaiting plan',   activeClass: 'bg-teal-900/60 text-teal-300' },
+  { status: 'done',            icon: '✅', label: 'Done',            activeClass: 'bg-green-900/40 text-green-400' },
+]
+
+const statusFilters = computed(() =>
+  STATUS_FILTER_DEFS.map(f => ({
+    ...f,
+    count: props.tasks.filter(t => t.status === f.status).length,
+  })).filter(f => f.count > 0)
+)
 
 const pendingCount = computed(() => props.tasks.filter(t => t.status === 'pending').length)
 const underwayCount = computed(() => props.tasks.filter(t => t.status === 'underway').length)
