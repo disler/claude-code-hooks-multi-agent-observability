@@ -2070,11 +2070,16 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   if (pathname.match(/^\/dashboard\/restart-planq\/[^/]+$/) && method === 'POST') {
     const containerId = decodeURIComponent(pathname.slice('/dashboard/restart-planq/'.length));
     const ws = containerWsMap.get(containerId);
-    if (!ws) return err('Container offline or not found', 404);
+    if (!ws) {
+      console.log(`[restart-planq] container not found or offline: ${containerId}`);
+      return err('Container offline or not found', 404);
+    }
     try {
       ws.send(JSON.stringify({ type: 'restart' }));
+      console.log(`[restart-planq] sent restart to container ${containerId}`);
       return json({ ok: true });
     } catch (e: any) {
+      console.log(`[restart-planq] send failed for ${containerId}: ${e.message}`);
       return err(e.message || 'Send failed', 503);
     }
   }

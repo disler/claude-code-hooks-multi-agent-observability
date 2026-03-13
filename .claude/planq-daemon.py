@@ -125,6 +125,7 @@ DAEMON_RUNNING_STAMP: str | None = _startup_daemon_stamp()
 
 # Set by SIGUSR1 to trigger an immediate heartbeat
 _immediate_heartbeat = threading.Event()
+_restart_requested = threading.Event()  # set by on_message('restart'); handled in main loop
 
 # DAG frontier hashes last acknowledged by the server; used to send only new commits.
 # Protected by _git_known_hashes_lock.
@@ -974,12 +975,8 @@ def _run_connection():
             if sid:
                 threading.Thread(target=_push_session_log, args=(ws, sid, from_line), daemon=True).start()
         elif mtype == 'restart':
-            log.info('Received restart request from server — restarting daemon')
-            try:
-                ws.close()
-            except Exception:
-                pass
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            log.info('Received restart request from server — signalling main thread to restart')
+            _restart_requested.set()
 
     def on_error(ws, error):
         log.error('WebSocket error: %s', error)
@@ -1019,6 +1016,17 @@ def _run_connection():
     last_beat = time.time()
     _prev_running_ids: set = set()
     while not stop_event.is_set():
+        if _restart_requested.is_set():
+            _restart_requested.clear()
+            log.info('Restarting daemon (execv) from main thread')
+            try:
+                ws_app.close()
+            except Exception:
+                pass
+            try:
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            except Exception as e:
+                log.error('os.execv failed: %s — continuing', e)
         time.sleep(1)
         now = time.time()
         if _immediate_heartbeat.is_set() or now - last_beat >= HEARTBEAT_INTERVAL:
