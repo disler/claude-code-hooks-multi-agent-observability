@@ -553,7 +553,7 @@ export function addPlanqTask(
 
 export function updatePlanqTask(
   taskId: number,
-  updates: { description?: string; status?: string; auto_commit?: boolean; commit_mode?: 'none' | 'auto' | 'stage' | 'manual'; review_status?: string }
+  updates: { description?: string; status?: string; auto_commit?: boolean; commit_mode?: 'none' | 'auto' | 'stage' | 'manual'; review_status?: string; parent_task_id?: number | null; link_type?: 'follow-up' | 'fix-required' | null }
 ): PlanqTaskRow | null {
   const fields: string[] = [];
   const values: any[] = [];
@@ -567,6 +567,8 @@ export function updatePlanqTask(
     fields.push('commit_mode = ?'); values.push(updates.auto_commit ? 'auto' : 'none');
   }
   if (updates.review_status !== undefined) { fields.push('review_status = ?'); values.push(updates.review_status); }
+  if (updates.parent_task_id !== undefined) { fields.push('parent_task_id = ?'); values.push(updates.parent_task_id); }
+  if (updates.link_type !== undefined) { fields.push('link_type = ?'); values.push(updates.link_type); }
   if (!fields.length) return null;
   values.push(taskId);
   db.prepare(`UPDATE planq_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values);

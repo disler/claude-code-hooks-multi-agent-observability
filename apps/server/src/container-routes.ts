@@ -1424,7 +1424,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const { task_type, description, create_file, auto_commit, commit_mode, plan_disposition, auto_queue_plan } = body;
+    const { task_type, description, create_file, auto_commit, commit_mode, plan_disposition, auto_queue_plan, parent_task_id, link_type: rawLinkType } = body;
+    const linkType: 'follow-up' | 'fix-required' | undefined = ['follow-up', 'fix-required'].includes(rawLinkType) ? rawLinkType : undefined;
     let { filename } = body;
     if (!task_type) return err('task_type required');
 
@@ -1457,6 +1458,23 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
         plan_disposition: task.plan_disposition, auto_queue_plan: task.auto_queue_plan,
       },
     }]);
+
+    // If this is a subtask, link it to the parent and write the link line to the parent file
+    if (parent_task_id && linkType && task.filename) {
+      updatePlanqTask(task.id, { parent_task_id, link_type: linkType });
+      const parentTask = getPlanqTasks(containerId).find(t => t.id === parent_task_id);
+      if (parentTask?.filename && containerWsMap.has(containerId)) {
+        const cache = plansFilesCache.get(containerId);
+        const parentContent = cache?.get(parentTask.filename) ?? '';
+        const linkLine = `${linkType}: ${task.filename}`;
+        if (!parentContent.includes(linkLine)) {
+          const trimmed = parentContent.trimEnd();
+          const newParentContent = trimmed + (trimmed ? '\n' : '') + `${linkLine}\n`;
+          if (cache) cache.set(parentTask.filename, newParentContent);
+          relayFileWrite(containerId, parentTask.filename, newParentContent).catch(() => {});
+        }
+      }
+    }
 
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
     return json(task, 201);

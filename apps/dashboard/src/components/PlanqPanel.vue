@@ -173,6 +173,13 @@
               @drop="dropOn(child.id)"
             />
           </template>
+          <!-- Add subtask button (only for file-based tasks) -->
+          <button
+            v-if="task.filename"
+            @click="addingSubtaskTo = task"
+            class="ml-6 mb-1 text-xs text-slate-600 hover:text-slate-400 flex items-center gap-0.5 py-0.5"
+            title="Add a follow-up or fix-required subtask"
+          >⊕ subtask</button>
         </template>
       </div>
       <div v-else-if="tasks.length > 0 && filteredTasks.length === 0" class="text-xs text-slate-500 italic py-1">No tasks match filter.</div>
@@ -241,6 +248,14 @@
       @close="showAddDialog = false"
       @add="(type, fn, desc, createFile, commitMode, planDisposition, autoQueuePlan) => addTask(type, fn, desc, createFile, commitMode, planDisposition, autoQueuePlan)"
     />
+    <AddTaskDialog
+      v-if="addingSubtaskTo"
+      :container-id="containerId"
+      :all-tasks="tasks"
+      :parent-task="addingSubtaskTo"
+      @close="addingSubtaskTo = null"
+      @add="(type, fn, desc, createFile, commitMode, planDisposition, autoQueuePlan, parentTaskId, linkType) => addTask(type, fn, desc, createFile, commitMode, planDisposition, autoQueuePlan, parentTaskId, linkType)"
+    />
 
     <PlanqFileEditor
       v-if="editingFile"
@@ -283,7 +298,9 @@ const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTa
 
 const { open, toggle: toggleOpen } = usePlanqPanelState(props.containerId)
 const showAddDialog = ref(false)
+const addingSubtaskTo = ref<PlanqTask | null>(null)
 const editingFile = ref<PlanqTask | null>(null)
+const archiveViewingFile = ref<string | null>(null)
 const dragFrom = ref<number | null>(null)
 
 // Archive
@@ -469,9 +486,9 @@ function archiveBadgeClass(taskType: string): string {
 
 const cid = () => props.containerId
 
-async function addTask(taskType: string, filename: string | null, description: string | null, createFile = false, commitMode: 'none' | 'auto' | 'stage' | 'manual' = 'none', planDisposition?: 'manual' | 'add-after' | 'add-end', autoQueuePlan?: boolean) {
+async function addTask(taskType: string, filename: string | null, description: string | null, createFile = false, commitMode: 'none' | 'auto' | 'stage' | 'manual' = 'none', planDisposition?: 'manual' | 'add-after' | 'add-end', autoQueuePlan?: boolean, parentTaskId?: number, linkType?: 'follow-up' | 'fix-required') {
   console.log(`[planq] add task type=${taskType} file=${filename ?? '—'} commit_mode=${commitMode} container=${cid()}`)
-  await apiAdd(props.containerId, taskType, filename, description, createFile, commitMode, planDisposition, autoQueuePlan)
+  await apiAdd(props.containerId, taskType, filename, description, createFile, commitMode, planDisposition, autoQueuePlan, parentTaskId, linkType)
   emit('tasks-changed')
 }
 

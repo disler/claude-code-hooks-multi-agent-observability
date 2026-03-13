@@ -1,8 +1,13 @@
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="emit('close')" @keydown="onConfirmKey($event, submit)">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="emit('close')" @keydown="onConfirmKey($event, submit)" @keydown.escape="emit('close')">
     <div class="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-5 min-w-[32rem] flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-slate-200">Add Task</h3>
+        <div>
+          <h3 class="text-sm font-semibold text-slate-200">{{ props.parentTask ? 'Add Subtask' : 'Add Task' }}</h3>
+          <div v-if="props.parentTask" class="text-xs text-slate-400 mt-0.5">
+            Adding subtask to: <span class="font-mono text-slate-300">{{ props.parentTask.filename ?? props.parentTask.description }}</span>
+          </div>
+        </div>
         <button @click="emit('close')" class="text-slate-500 hover:text-slate-300 text-sm">✕</button>
       </div>
 
@@ -17,9 +22,7 @@
           <option value="make-plan">make-plan — generate a plan file from a prompt</option>
           <option value="investigate">investigate — research a question and write findings</option>
           <option value="auto-test">auto-test — run shell command as automated test</option>
-          <option value="auto-commit">auto-commit — commit staged/unstaged changes</option>
           <option value="manual-test">manual-test — manual testing step</option>
-          <option value="manual-commit">manual-commit — manual git commit</option>
           <option value="manual-task">manual-task — any manual step</option>
         </select>
       </div>
@@ -229,9 +232,28 @@
         <p v-if="planDisposition === 'manual'" class="text-xs text-slate-500">Auto-queue will pause until you add the plan to the queue manually.</p>
       </div>
 
-      <!-- Commit mode selector (for non-auto-commit, non-manual, non-make-plan task types) -->
+      <!-- Link type selector (only when adding a subtask) -->
+      <div v-if="props.parentTask" class="flex flex-col gap-1">
+        <label class="text-xs text-slate-400">Link type</label>
+        <div class="flex gap-1">
+          <button
+            type="button"
+            @click="linkType = 'follow-up'"
+            class="text-xs px-2 py-1 rounded border transition-colors"
+            :class="linkType === 'follow-up' ? 'border-purple-600 bg-purple-900/50 text-purple-300' : 'border-slate-600 bg-slate-700 text-slate-400 hover:bg-slate-600'"
+          >↳ follow-up</button>
+          <button
+            type="button"
+            @click="linkType = 'fix-required'"
+            class="text-xs px-2 py-1 rounded border transition-colors"
+            :class="linkType === 'fix-required' ? 'border-orange-600 bg-orange-900/50 text-orange-300' : 'border-slate-600 bg-slate-700 text-slate-400 hover:bg-slate-600'"
+          >🔧 fix-required</button>
+        </div>
+      </div>
+
+      <!-- Commit mode selector (for non-manual, non-make-plan task types) -->
       <div
-        v-if="taskType !== 'auto-commit' && taskType !== 'manual-commit' && taskType !== 'manual-test' && taskType !== 'manual-task' && taskType !== 'make-plan'"
+        v-if="taskType !== 'manual-test' && taskType !== 'manual-task' && taskType !== 'make-plan'"
         class="flex flex-col gap-1"
       >
         <label class="text-xs text-slate-400">After this task</label>
@@ -271,11 +293,11 @@ import { useConfirmKey } from '../composables/useConfirmKey'
 import MarkdownContent from './MarkdownContent.vue'
 import type { PlanqTask } from '../types'
 
-const props = defineProps<{ containerId: string; allTasks?: PlanqTask[] }>()
+const props = defineProps<{ containerId: string; allTasks?: PlanqTask[]; parentTask?: PlanqTask }>()
 
 const emit = defineEmits<{
   close: []
-  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, commitMode: 'none' | 'auto' | 'stage' | 'manual' | undefined, planDisposition?: 'manual' | 'add-after' | 'add-end', autoQueuePlan?: boolean]
+  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, commitMode: 'none' | 'auto' | 'stage' | 'manual' | undefined, planDisposition?: 'manual' | 'add-after' | 'add-end', autoQueuePlan?: boolean, parentTaskId?: number, linkType?: 'follow-up' | 'fix-required']
 }>()
 
 const { readFile, listPlansFiles } = usePlanq()
@@ -290,6 +312,7 @@ const description = ref('')
 const commitMode = ref<'none' | 'auto' | 'stage' | 'manual'>('none')
 const planDisposition = ref<'manual' | 'add-after' | 'add-end'>('manual')
 const autoQueuePlan = ref(false)
+const linkType = ref<'follow-up' | 'fix-required'>('follow-up')
 
 const commitModeOptions = [
   { value: 'none' as const, label: 'Nothing', activeClass: 'border-slate-500 bg-slate-600 text-slate-200' },
@@ -468,28 +491,27 @@ function submit() {
   if (!isValid.value) return
 
   const cm = commitMode.value
+  const parentTaskId = props.parentTask?.id
+  const lt = props.parentTask ? linkType.value : undefined
 
   if (taskType.value === 'task') {
     if (taskFilename.value) {
       const createFile = !isExistingTaskFile.value
-      emit('add', 'task', taskFilename.value, description.value.trim(), createFile, cm)
+      emit('add', 'task', taskFilename.value, description.value.trim(), createFile, cm, undefined, undefined, parentTaskId, lt)
     } else {
       const unnamedDesc = description.value.trim().split('\n').map(l => l.trim()).filter(Boolean).join('. ')
-      emit('add', 'unnamed-task', null, unnamedDesc, false, cm)
+      emit('add', 'unnamed-task', null, unnamedDesc, false, cm, undefined, undefined, parentTaskId, lt)
     }
   } else if (taskType.value === 'plan') {
-    emit('add', 'plan', planFilename.value, null, false, cm)
+    emit('add', 'plan', planFilename.value, null, false, cm, undefined, undefined, parentTaskId, lt)
   } else if (taskType.value === 'make-plan') {
-    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, undefined, planDisposition.value, planDisposition.value !== 'manual' ? autoQueuePlan.value : undefined)
+    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, undefined, planDisposition.value, planDisposition.value !== 'manual' ? autoQueuePlan.value : undefined, parentTaskId, lt)
   } else if (taskType.value === 'investigate') {
-    emit('add', 'investigate', investigateFilename.value, description.value.trim(), false, cm)
-  } else if (taskType.value === 'auto-commit') {
-    const opts = description.value.trim() || null
-    emit('add', 'auto-commit', null, opts, false, 'none')
+    emit('add', 'investigate', investigateFilename.value, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt)
   } else if (taskType.value === 'auto-test') {
-    emit('add', 'auto-test', null, description.value.trim(), false, cm)
+    emit('add', 'auto-test', null, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt)
   } else {
-    emit('add', taskType.value, null, description.value.trim(), false, cm)
+    emit('add', taskType.value, null, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt)
   }
   emit('close')
 }
