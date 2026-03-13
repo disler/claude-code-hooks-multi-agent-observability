@@ -299,9 +299,13 @@ function daemonStampTooltip(versions: Record<string, string | null> | null | und
   }
   if (isStale(fileStamp, serverStamps.value.planq_daemon)) {
     const serverHash = stampHash(serverStamps.value.planq_daemon);
+    const devcStale = isStale(versions?.devcontainer, serverStamps.value.devcontainer);
+    const advice = devcStale
+      ? 'Update the devcontainer on the host first, then rebuild the container.'
+      : 'Run: update-projects.sh apply-daemon';
     return [
       'Outdated — planq-daemon needs updating',
-      'Run: update-projects.sh apply-daemon',
+      advice,
       `installed: ${fileHash}`,
       `current:   ${serverHash ?? '?'}`,
       `stamped: ${ts ?? '?'}`,
