@@ -1266,6 +1266,10 @@ def _send_heartbeat(ws_app):
 
 def main():
     log.info('Starting — server=%s, repo=%s, stamp=%s', SERVER_URL, SOURCE_REPO, DAEMON_RUNNING_STAMP or 'none')
+    log.info('Version stamps — daemon=%s, shell=%s, devcontainer=%s',
+             _read_version_stamp('planq-daemon') or 'none',
+             _read_version_stamp('planq-shell') or 'none',
+             _read_version_stamp('devcontainer') or 'none')
     _write_status('starting')
     threading.Thread(target=_plans_watcher_thread, daemon=True, name='plans-watcher').start()
     backoff = 5
