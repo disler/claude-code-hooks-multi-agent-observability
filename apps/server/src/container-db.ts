@@ -220,6 +220,22 @@ export function initContainerDatabase(): void {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_sc_container ON sync_changes(container_id, received_at)');
 
+  // Server-side session log index (files stored in data/session-logs/)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_logs (
+      session_id    TEXT PRIMARY KEY,
+      container_id  TEXT NOT NULL,
+      source_repo   TEXT NOT NULL,
+      total_lines   INTEGER NOT NULL DEFAULT 0,
+      file_size     INTEGER NOT NULL DEFAULT 0,
+      is_complete   INTEGER NOT NULL DEFAULT 0,
+      last_pushed   INTEGER NOT NULL DEFAULT 0,
+      last_accessed INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sl_container ON session_logs(container_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sl_last_accessed ON session_logs(last_accessed)');
+
   // Migration for planq_tasks columns added after initial schema
   const taskColumns = (db.prepare('PRAGMA table_info(planq_tasks)').all() as any[]).map((r: any) => r.name);
   if (!taskColumns.includes('auto_commit')) {
@@ -974,4 +990,66 @@ export function reapplyPendingChangesToProjection(containerId: string): void {
       }
     }
   }
+}
+
+// ── Session log index ─────────────────────────────────────────────────────────
+
+export interface SessionLogRow {
+  session_id: string;
+  container_id: string;
+  source_repo: string;
+  total_lines: number;
+  file_size: number;
+  is_complete: boolean;
+  last_pushed: number;
+  last_accessed: number;
+}
+
+export function upsertSessionLog(row: Omit<SessionLogRow, 'last_accessed'> & { last_accessed?: number }): void {
+  db.prepare(`
+    INSERT INTO session_logs (session_id, container_id, source_repo, total_lines, file_size, is_complete, last_pushed, last_accessed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      total_lines = excluded.total_lines,
+      file_size = excluded.file_size,
+      is_complete = excluded.is_complete,
+      last_pushed = excluded.last_pushed,
+      last_accessed = excluded.last_accessed
+  `).run(
+    row.session_id,
+    row.container_id,
+    row.source_repo,
+    row.total_lines,
+    row.file_size,
+    row.is_complete ? 1 : 0,
+    row.last_pushed,
+    row.last_accessed ?? Date.now(),
+  );
+}
+
+export function getSessionLog(sessionId: string): SessionLogRow | null {
+  const r = db.prepare('SELECT * FROM session_logs WHERE session_id = ?').get(sessionId) as any;
+  if (!r) return null;
+  return { ...r, is_complete: Boolean(r.is_complete) };
+}
+
+export function touchSessionLogAccessed(sessionId: string): void {
+  db.prepare('UPDATE session_logs SET last_accessed = ? WHERE session_id = ?').run(Date.now(), sessionId);
+}
+
+export function getSessionLogsByContainer(containerId: string): SessionLogRow[] {
+  const rows = db.prepare('SELECT * FROM session_logs WHERE container_id = ?').all(containerId) as any[];
+  return rows.map(r => ({ ...r, is_complete: Boolean(r.is_complete) }));
+}
+
+/** Returns session_ids of all logs not accessed since cutoffMs. */
+export function listSessionLogsOlderThan(cutoffMs: number): string[] {
+  const rows = db.prepare('SELECT session_id FROM session_logs WHERE last_accessed < ?').all(cutoffMs) as any[];
+  return rows.map(r => r.session_id);
+}
+
+export function deleteSessionLogs(sessionIds: string[]): void {
+  if (!sessionIds.length) return;
+  const placeholders = sessionIds.map(() => '?').join(',');
+  db.prepare(`DELETE FROM session_logs WHERE session_id IN (${placeholders})`).run(...sessionIds);
 }

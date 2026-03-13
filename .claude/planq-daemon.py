@@ -749,6 +749,53 @@ def _handle_session_log_read(ws, msg: dict):
     except OSError as e:
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': str(e), 'content': ''})
 
+def _find_session_log(session_id: str):
+    """Return Path to the session JSONL file, or None if not found."""
+    claude_config_dir = Path(os.environ.get('CLAUDE_CONFIG_DIR', '/home/node/.claude'))
+    # Check .claude/logs/ first (hook-generated logs live here)
+    logs_dir = WORKSPACE_ROOT / '.claude' / 'logs'
+    candidate = logs_dir / f'{session_id}.jsonl'
+    if candidate.exists():
+        return candidate
+    # Fall back to ~/.claude/projects/*/session_id.jsonl
+    projects_dir = claude_config_dir / 'projects'
+    if projects_dir.is_dir():
+        for proj_dir in projects_dir.iterdir():
+            if proj_dir.is_dir():
+                candidate = proj_dir / f'{session_id}.jsonl'
+                if candidate.exists():
+                    return candidate
+    return None
+
+# session_id → total_lines the server already has (from session_log_ack)
+_server_session_log_lines: dict = {}
+_server_session_log_lines_lock = threading.Lock()
+
+def _push_session_log(ws_app, session_id: str, from_line: int = 0):
+    """Push session JSONL content to the server from from_line onwards."""
+    found = _find_session_log(session_id)
+    if not found:
+        return
+    try:
+        content_bytes = found.read_bytes()
+        lines = content_bytes.decode(errors='replace').splitlines(keepends=True)
+        total_lines = len(lines)
+        if from_line >= total_lines:
+            return  # Nothing new
+        chunk_lines = lines[from_line:]
+        content = ''.join(chunk_lines)
+        _ws_send(ws_app, {
+            'type': 'session_log_push',
+            'session_id': session_id,
+            'line_offset': from_line,
+            'content': content,
+            'total_lines': total_lines,
+            'is_complete': False,  # conservative; server will mark complete on next push if stable
+        })
+        log.debug('Pushed session log %s from line %d (%d lines)', session_id, from_line, len(chunk_lines))
+    except OSError as e:
+        log.warning('Failed to push session log %s: %s', session_id, e)
+
 def _handle_file_write(ws, msg: dict):
     filename = msg.get('filename', '')
     request_id = msg.get('request_id', '')
@@ -876,6 +923,34 @@ def _run_connection():
         elif mtype == 'apply_changes':
             changes = msg.get('changes', [])
             threading.Thread(target=_apply_changes, args=(ws, changes), daemon=True).start()
+        elif mtype == 'session_log_ack':
+            # Server tells us what it has; update our record and push any idle sessions
+            # that the server hasn't fully cached yet.
+            sessions = msg.get('sessions', {})
+            with _server_session_log_lines_lock:
+                _server_session_log_lines.update(sessions)
+            # Push idle (non-running) sessions not fully cached by the server
+            running_now = set(_running_session_ids())
+            active_ids = _active_session_ids()
+            for sid in active_ids:
+                if sid in running_now:
+                    continue  # still running, will push when idle
+                server_lines = sessions.get(sid, 0)
+                found = _find_session_log(sid)
+                if not found:
+                    continue
+                try:
+                    total = len(found.read_bytes().decode(errors='replace').splitlines())
+                except OSError:
+                    continue
+                if total > server_lines:
+                    threading.Thread(target=_push_session_log, args=(ws, sid, server_lines), daemon=True).start()
+        elif mtype == 'session_log_resend':
+            # Server asks us to re-send a session from a given line
+            sid = msg.get('session_id', '')
+            from_line = int(msg.get('from_line', 0))
+            if sid:
+                threading.Thread(target=_push_session_log, args=(ws, sid, from_line), daemon=True).start()
         elif mtype == 'restart':
             log.info('Received restart request from server — restarting daemon')
             try:
@@ -916,6 +991,7 @@ def _run_connection():
     # Heartbeat loop
     last_beat = time.time()
     last_auto_fetch = 0.0
+    _prev_running_ids: set = set()
     while not stop_event.is_set():
         time.sleep(1)
         now = time.time()
@@ -926,6 +1002,14 @@ def _run_connection():
             _immediate_heartbeat.clear()
             _send_heartbeat(ws_app)
             last_beat = time.time()
+            # Detect sessions that just became idle (were running, now not) and push their logs
+            current_running = set(_running_session_ids())
+            newly_idle = _prev_running_ids - current_running
+            for sid in newly_idle:
+                with _server_session_log_lines_lock:
+                    from_line = _server_session_log_lines.get(sid, 0)
+                threading.Thread(target=_push_session_log, args=(ws_app, sid, from_line), daemon=True).start()
+            _prev_running_ids = current_running
 
     ws_app.close()
 

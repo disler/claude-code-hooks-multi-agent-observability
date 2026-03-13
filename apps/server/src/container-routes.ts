@@ -1,4 +1,5 @@
 import { db } from './db';
+import { mkdirSync, unlinkSync } from 'node:fs';
 import {
   initContainerDatabase,
   upsertContainer,
@@ -35,6 +36,12 @@ import {
   ackPendingDashboardChanges,
   cleanupOldPendingChanges,
   reapplyPendingChangesToProjection,
+  upsertSessionLog,
+  getSessionLog,
+  touchSessionLogAccessed,
+  getSessionLogsByContainer,
+  listSessionLogsOlderThan,
+  deleteSessionLogs,
   resolveTaskLinks,
   type ChangeRequest,
   type ContainerRow,
@@ -82,6 +89,105 @@ function sendApplyChanges(containerId: string, changes: ChangeRequest[]): void {
     // send failed; changes remain as 'pending' and will be retried on reconnect
   }
 }
+
+// ── Session log filesystem cache ──────────────────────────────────────────────
+// Stored under data/session-logs/ next to the server's working directory.
+// Configurable via OBSERVABILITY_DATA_DIR env var.
+
+const SESSION_LOG_DIR = (() => {
+  const base = process.env.OBSERVABILITY_DATA_DIR ?? 'data';
+  return `${base}/session-logs`;
+})();
+
+const SESSION_LOG_TTL_DAYS = parseInt(process.env.OBSERVABILITY_SESSION_LOG_TTL_DAYS ?? '30', 10);
+
+// Ensure the session-logs directory exists on startup (best-effort)
+try { mkdirSync(SESSION_LOG_DIR, { recursive: true }); } catch {}
+
+/** Path to the on-disk JSONL file for a session. */
+function sessionLogPath(sessionId: string): string {
+  return `${SESSION_LOG_DIR}/${sessionId}.jsonl`;
+}
+
+/** Write (or append) session log content to the filesystem and update DB index. */
+async function writeSessionLogFile(
+  sessionId: string,
+  containerId: string,
+  sourceRepo: string,
+  lineOffset: number,
+  content: string,
+  totalLines: number,
+  isComplete: boolean,
+): Promise<void> {
+  const path = sessionLogPath(sessionId);
+  if (lineOffset === 0) {
+    // Full overwrite
+    await Bun.write(path, content);
+  } else {
+    // Incremental append — read existing content and splice
+    const existing = Bun.file(path);
+    const existingContent = (await existing.exists()) ? await existing.text() : '';
+    await Bun.write(path, existingContent + content);
+  }
+  const fileSize = (await Bun.file(path).stat()).size;
+  upsertSessionLog({
+    session_id: sessionId,
+    container_id: containerId,
+    source_repo: sourceRepo,
+    total_lines: totalLines,
+    file_size: fileSize,
+    is_complete: isComplete,
+    last_pushed: Date.now(),
+  });
+}
+
+/** Handle session_log_push from daemon. */
+async function handleSessionLogPush(ws: any, msg: any): Promise<void> {
+  const containerId: string = ws.__containerId;
+  if (!containerId) return;
+  const container = getContainer(containerId);
+  if (!container) return;
+
+  const sessionId: string = msg.session_id ?? '';
+  if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return;
+
+  const lineOffset: number = Math.max(0, parseInt(msg.line_offset ?? '0', 10) || 0);
+  const content: string = msg.content ?? '';
+  const totalLines: number = Math.max(0, parseInt(msg.total_lines ?? '0', 10) || 0);
+  const isComplete: boolean = Boolean(msg.is_complete);
+
+  // Verify alignment if incremental
+  if (lineOffset > 0) {
+    const existing = getSessionLog(sessionId);
+    if (!existing || existing.total_lines !== lineOffset) {
+      const fromLine = existing?.total_lines ?? 0;
+      try { ws.send(JSON.stringify({ type: 'session_log_resend', session_id: sessionId, from_line: fromLine })); } catch {}
+      return;
+    }
+  }
+
+  try {
+    await writeSessionLogFile(sessionId, containerId, container.source_repo, lineOffset, content, totalLines, isComplete);
+  } catch (e) {
+    console.error(`[session_log_push] Error writing ${sessionId}:`, e);
+  }
+}
+
+/** Eviction sweep: delete logs not accessed within TTL. Called on startup + hourly. */
+async function evictOldSessionLogs(): Promise<void> {
+  const cutoff = Date.now() - SESSION_LOG_TTL_DAYS * 24 * 3600 * 1000;
+  const stale = listSessionLogsOlderThan(cutoff);
+  if (!stale.length) return;
+  for (const sessionId of stale) {
+    try { unlinkSync(sessionLogPath(sessionId)); } catch {}
+  }
+  deleteSessionLogs(stale);
+  console.log(`[session-log-eviction] Deleted ${stale.length} stale session log(s)`);
+}
+
+// Run eviction on startup and every hour
+evictOldSessionLogs();
+setInterval(evictOldSessionLogs, 60 * 60 * 1000);
 
 // ── Plans files cache (populated from daemon heartbeats) ───────────────────────
 // containerId → filename → content (most recent content pushed by daemon)
@@ -450,6 +556,13 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
           console.log(`[ws-identified] ${ws.__wsLabel}: drained ${pendingChanges.length} pending change(s)`);
         } catch {}
       }
+      // Send session_log_ack so daemon only pushes sessions with new lines
+      const cachedSessions = getSessionLogsByContainer(containerId);
+      if (cachedSessions.length > 0) {
+        const ackMap: Record<string, number> = {};
+        for (const s of cachedSessions) ackMap[s.session_id] = s.total_lines;
+        try { ws.send(JSON.stringify({ type: 'session_log_ack', sessions: ackMap })); } catch {}
+      }
     }
 
     const existingContainer = getContainer(containerId);
@@ -766,6 +879,12 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     }
     return;
   }
+
+  // Daemon pushes session JSONL content to server filesystem cache
+  if (msg.type === 'session_log_push') {
+    handleSessionLogPush(ws, msg).catch(e => console.error('[session_log_push] unexpected error:', e));
+    return;
+  }
 }
 
 export function handleContainerClose(ws: any): void {
@@ -892,19 +1011,40 @@ async function relaySessionLogChunk(
   limit: number,
 ): Promise<SessionLogChunk> {
   const clampedLimit = Math.min(limit, SESSION_LOG_MAX_LIMIT);
-  const cached = sessionLogCache.get(sessionId);
 
-  // Serve entirely from cache when we have all requested lines
+  // 1. Try filesystem cache (persistent, survives container disconnect)
+  const dbRow = getSessionLog(sessionId);
+  if (dbRow) {
+    const filePath = sessionLogPath(sessionId);
+    const file = Bun.file(filePath);
+    if (await file.exists()) {
+      touchSessionLogAccessed(sessionId);
+      const allContent = await file.text();
+      const lines = allContent.split('\n');
+      // Remove trailing empty element from final newline
+      if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+      const totalLines = dbRow.total_lines || lines.length;
+
+      if (lineOffset >= totalLines) {
+        return { content: '', lineOffset, lineCount: 0, totalLines };
+      }
+      const chunk = lines.slice(lineOffset, lineOffset + clampedLimit);
+      return { content: chunk.join('\n') + (chunk.length ? '\n' : ''), lineOffset, lineCount: chunk.length, totalLines };
+    }
+  }
+
+  // 2. Try in-memory cache
+  const cached = sessionLogCache.get(sessionId);
   if (cached && lineOffset + clampedLimit <= cached.cachedLines) {
     const lines = cached.rawText.split('\n');
     const chunk = lines.slice(lineOffset, lineOffset + clampedLimit);
     return { content: chunk.join('\n') + (chunk.length ? '\n' : ''), lineOffset, lineCount: chunk.length, totalLines: cached.totalLines };
   }
-  // Also serve from cache if lineOffset is at or past totalLines (nothing new to fetch)
   if (cached && cached.totalLines > 0 && lineOffset >= cached.totalLines) {
     return { content: '', lineOffset, lineCount: 0, totalLines: cached.totalLines };
   }
 
+  // 3. Relay to container daemon
   const ws = containerWsMap.get(containerId);
   if (!ws) throw new Error('Container offline');
 
@@ -922,14 +1062,20 @@ async function relaySessionLogChunk(
   const lineCount: number = raw.line_count ?? content.split('\n').filter(Boolean).length;
   const totalLines: number = raw.total_lines ?? lineCount;
 
-  // Append to cache when this chunk extends the accumulated text sequentially from line 0
+  // Cache to filesystem as a side-effect when this is a full response from offset 0
+  if (lineOffset === 0 && content) {
+    const container = getContainer(containerId);
+    if (container) {
+      writeSessionLogFile(sessionId, containerId, container.source_repo, 0, content, totalLines, false).catch(() => {});
+    }
+  }
+
+  // Also update in-memory cache
   const entry = sessionLogCache.get(sessionId) ?? { rawText: '', cachedLines: 0, totalLines: 0, ts: 0 };
   if (lineOffset === 0) {
-    // First chunk — reset accumulated text
     entry.rawText = content;
     entry.cachedLines = lineCount;
   } else if (lineOffset === entry.cachedLines) {
-    // Sequential chunk — append
     entry.rawText += content;
     entry.cachedLines += lineCount;
   }
