@@ -45,12 +45,18 @@
                   :title="isHostStale(c.machine_hostname) ? 'Host devcontainer is outdated — update the devcontainer on this host first, then rebuild containers' : undefined"
                 >{{ c.machine_hostname }}</td>
                 <td class="path" :title="c.workspace_host_path ?? c.id">{{ displayPath(c.workspace_host_path ?? c.id, c.machine_hostname) }}</td>
-                <td>
+                <td class="daemon-cell">
                   <span
                     :class="daemonStampClass(c.versions)"
                     :title="daemonStampTooltip(c.versions)"
                     @click.stop="showTooltip($event, daemonStampTooltip(c.versions))"
                   >{{ daemonStampSymbol(c.versions) }}</span>
+                  <button
+                    v-if="daemonNeedsRestart(c.versions)"
+                    class="daemon-restart-btn"
+                    title="Send restart signal to daemon"
+                    @click.stop="restartDaemon(c.id)"
+                  >&#x1F504;</button>
                 </td>
                 <td>
                   <span
@@ -243,6 +249,21 @@ function stampTooltip(stamp: string | null | undefined, serverStamp?: string | n
   return lines.join('\n');
 }
 
+// Returns true when the running daemon hash differs from the installed file hash.
+function daemonNeedsRestart(versions: Record<string, string | null> | null | undefined): boolean {
+  const fileStamp = versions?.planq_daemon;
+  const runningHash = versions?.planq_daemon_running;
+  if (!fileStamp || fileStamp === '(no stamp)') return false;
+  const fileHash = stampHash(fileStamp);
+  return !!(fileHash && runningHash && runningHash !== fileHash);
+}
+
+async function restartDaemon(containerId: string) {
+  try {
+    await fetch(`${API_BASE}/dashboard/restart-planq/${encodeURIComponent(containerId)}`, { method: 'POST' });
+  } catch {}
+}
+
 // Daemon-specific helpers: distinguish "needs update" vs "needs restart"
 function daemonStampSymbol(versions: Record<string, string | null> | null | undefined): string {
   const fileStamp = versions?.planq_daemon;
@@ -430,6 +451,18 @@ onUnmounted(() => {
 .stamp-hash { font-family: monospace; }
 .loading, .error { font-size: 0.85em; padding: 4px 0; }
 .error { color: #f66; }
+.daemon-cell { white-space: nowrap; }
+.daemon-restart-btn {
+  margin-left: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1em;
+  padding: 0 2px;
+  vertical-align: middle;
+  opacity: 0.8;
+}
+.daemon-restart-btn:hover { opacity: 1; }
 .stamp-popup {
   position: absolute;
   z-index: 9999;

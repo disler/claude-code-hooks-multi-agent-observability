@@ -857,6 +857,13 @@ def _run_connection():
         elif mtype == 'apply_changes':
             changes = msg.get('changes', [])
             threading.Thread(target=_apply_changes, args=(ws, changes), daemon=True).start()
+        elif mtype == 'restart':
+            log.info('Received restart request from server — restarting daemon')
+            try:
+                ws.close()
+            except Exception:
+                pass
+            os.execv(sys.executable, [sys.executable] + sys.argv)
 
     def on_error(ws, error):
         log.error('WebSocket error: %s', error)

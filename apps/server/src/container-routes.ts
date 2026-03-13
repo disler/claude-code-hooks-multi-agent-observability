@@ -106,6 +106,9 @@ const pendingFileRequests = new Map<string, {
 // Offline grace-period timers: container_id → timer
 const offlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// Track last time we sent a daemon restart so we don't spam it on every heartbeat.
+const daemonRestartSentAt = new Map<string, number>();
+
 // Pending git fresh-fetch operations: repo → { pendingContainerIds, dashboardClients, timer }
 const pendingGitRefresh = new Map<string, {
   pendingContainerIds: Set<string>;
@@ -618,6 +621,25 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     // Broadcast to dashboard clients
     const containerWithState = buildContainerWithState(container);
     broadcastDashboard({ type: 'container_update', data: containerWithState });
+
+    // Auto-restart daemon if it is running an outdated version of itself.
+    // Only send once per 5 minutes to avoid restart loops.
+    const versions = container.versions as Record<string, string | null> | null | undefined;
+    if (versions) {
+      const fileStamp = versions.planq_daemon;
+      const runningHash = versions.planq_daemon_running;
+      if (fileStamp && fileStamp !== '(no stamp)' && runningHash) {
+        const fileHash = fileStamp.split(' ')[0];
+        if (fileHash && runningHash !== fileHash) {
+          const lastSent = daemonRestartSentAt.get(containerId) ?? 0;
+          if (Date.now() - lastSent > 5 * 60 * 1000) {
+            daemonRestartSentAt.set(containerId, Date.now());
+            console.log(`[heartbeat] ${hbCtx}: daemon hash mismatch (running=${runningHash} file=${fileHash}) — sending restart`);
+            try { ws.send(JSON.stringify({ type: 'restart' })); } catch {}
+          }
+        }
+      }
+    }
 
     // Resolve any pending git fresh-fetch waiting on this container
     for (const [repo, pending] of pendingGitRefresh.entries()) {
