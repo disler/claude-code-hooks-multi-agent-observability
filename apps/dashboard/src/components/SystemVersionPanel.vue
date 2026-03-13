@@ -1,18 +1,25 @@
 <template>
   <div class="system-version-panel">
+    <!-- Title bar -->
+    <div class="title-bar">
+      <span class="title-text">System Versions</span>
+      <div class="toggle-group">
+        <button
+          class="btn-toggle"
+          :class="!showAll ? 'btn-toggle-active' : ''"
+          @click="showAll = false"
+        >filtered</button>
+        <button
+          class="btn-toggle"
+          :class="showAll ? 'btn-toggle-active' : ''"
+          @click="showAll = true"
+        >show all</button>
+      </div>
+    </div>
     <div class="panel-body">
       <div v-if="loading" class="loading">Loading...</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <template v-else>
-        <!-- Filter toggle -->
-        <div class="filter-row">
-          <button
-            class="btn-toggle"
-            :class="showAll ? 'btn-toggle-active' : ''"
-            @click="showAll = !showAll"
-          >{{ showAll ? 'show all' : 'filtered' }}</button>
-        </div>
-
         <div class="section">
           <div class="section-title">Worktrees</div>
           <table class="version-table">
@@ -36,7 +43,7 @@
                   :class="isHostStale(c.machine_hostname) ? 'host-stale' : ''"
                   :title="isHostStale(c.machine_hostname) ? 'Host devcontainer is outdated — update the devcontainer on this host first, then rebuild containers' : undefined"
                 >{{ c.machine_hostname }}</td>
-                <td class="path" :title="c.workspace_host_path ?? c.id">{{ displayPath(c.workspace_host_path ?? c.id) }}</td>
+                <td class="path" :title="c.workspace_host_path ?? c.id">{{ displayPath(c.workspace_host_path ?? c.id, c.machine_hostname) }}</td>
                 <td>
                   <span
                     :class="daemonStampClass(c.versions)"
@@ -309,11 +316,38 @@ function showTooltip(event: MouseEvent, text: string) {
   };
 }
 
-function displayPath(path: string): string {
-  // Strip leading /workspace or common long prefixes, show last 3 components
-  const stripped = path.replace(/^\/workspace\/?/, '').replace(/\\/g, '/');
-  const parts = stripped.split('/').filter(Boolean);
-  return parts.length > 0 ? parts.slice(-3).join('/') : path;
+// Compute the longest common path prefix for worktrees on each host.
+const hostPathPrefixes = computed(() => {
+  const byHost = new Map<string, string[]>();
+  for (const c of containerVersions.value) {
+    if (!c.workspace_host_path) continue;
+    const list = byHost.get(c.machine_hostname) ?? [];
+    list.push(c.workspace_host_path.replace(/\\/g, '/'));
+    byHost.set(c.machine_hostname, list);
+  }
+  const result = new Map<string, string>();
+  for (const [host, paths] of byHost) {
+    if (paths.length === 0) continue;
+    let prefix = paths[0];
+    for (const p of paths.slice(1)) {
+      while (prefix && !p.startsWith(prefix)) {
+        const last = prefix.lastIndexOf('/', prefix.length - 2);
+        prefix = last > 0 ? prefix.substring(0, last + 1) : '';
+      }
+    }
+    // Only strip a prefix that ends at a / boundary with at least one component left
+    if (prefix && prefix !== '/' && paths.some(p => p !== prefix)) {
+      result.set(host, prefix);
+    }
+  }
+  return result;
+});
+
+function displayPath(path: string, hostname: string): string {
+  const norm = path.replace(/\\/g, '/');
+  const prefix = hostPathPrefixes.value.get(hostname) ?? '';
+  if (prefix && norm.startsWith(prefix)) return norm.substring(prefix.length) || norm;
+  return norm;
 }
 
 function relativeTime(ms: number | null): string {
@@ -345,11 +379,25 @@ onUnmounted(() => {
   margin: 8px 0;
   background: #1a1a2e;
 }
-.filter-row {
+.title-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px 2px;
+  justify-content: space-between;
+  padding: 5px 12px;
+  border-bottom: 1px solid #2a2a45;
+  background: #14142a;
+  border-radius: 4px 4px 0 0;
+}
+.title-text {
+  font-size: 0.78em;
+  font-weight: 600;
+  color: #99a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.toggle-group {
+  display: flex;
+  gap: 2px;
 }
 .btn-toggle {
   font-size: 0.75em;
@@ -357,11 +405,11 @@ onUnmounted(() => {
   border-radius: 3px;
   border: 1px solid #444;
   background: #252545;
-  color: #aaa;
+  color: #888;
   cursor: pointer;
 }
 .btn-toggle:hover { background: #333365; }
-.btn-toggle-active { color: #fff; border-color: #668; background: #2a2a55; }
+.btn-toggle-active { color: #dde; border-color: #668; background: #2a2a55; }
 .panel-body { padding: 8px 12px; }
 .section { margin-bottom: 16px; }
 .section-title { font-size: 0.8em; text-transform: uppercase; color: #888; margin-bottom: 6px; }
