@@ -14,6 +14,7 @@
           :class="showAll ? 'btn-toggle-active' : ''"
           @click="showAll = true"
         >show all</button>
+        <button @click="refresh" class="btn-toggle" title="Refresh">&#8635;</button>
       </div>
     </div>
     <div class="panel-body">
@@ -97,9 +98,6 @@
               </tr>
             </tbody>
           </table>
-        </div>
-        <div class="actions">
-          <button @click="refresh" class="btn-refresh">&#8635; Refresh</button>
         </div>
       </template>
     </div>
@@ -430,9 +428,6 @@ onUnmounted(() => {
 .stamp-stale { background: #3a3000; color: #fa0; }
 .host-stale { color: #fa0; cursor: help; }
 .stamp-hash { font-family: monospace; }
-.actions { margin-top: 8px; }
-.btn-refresh { background: #252545; border: 1px solid #444; color: #ccc; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 0.85em; }
-.btn-refresh:hover { background: #333365; }
 .loading, .error { font-size: 0.85em; padding: 4px 0; }
 .error { color: #f66; }
 .stamp-popup {
