@@ -10,9 +10,9 @@ async function fetchInitial() {
     const res = await fetch(`${API_BASE}/dashboard/containers`)
     if (!res.ok) return
     const data: ContainerWithState[] = await res.json()
-    const map = new Map<string, ContainerWithState>()
-    for (const c of data) map.set(c.id, c)
-    containers.value = map
+    // In-place mutation — never replace containers.value, so Vue preserves all
+    // component instances and their local state (filters, open panels, etc.).
+    for (const c of data) containers.value.set(c.id, c)
   } catch {
     // ignore
   }
