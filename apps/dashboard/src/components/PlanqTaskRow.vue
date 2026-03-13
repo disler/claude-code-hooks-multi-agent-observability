@@ -54,6 +54,15 @@
       ref="editInput"
     />
 
+    <!-- Feedback toggle (investigate tasks, always visible) -->
+    <button
+      v-if="task.task_type === 'investigate' && derivedFeedbackFilename !== null"
+      @click.stop="toggleFeedbackOpen"
+      class="text-xs px-1 shrink-0"
+      :class="isFeedbackOpen(task.id) ? 'text-indigo-300 hover:text-indigo-200' : 'text-slate-500 hover:text-slate-300'"
+      title="Show investigation feedback"
+    >{{ isFeedbackOpen(task.id) ? 'hide feedback' : 'feedback' }}</button>
+
     <!-- Actions (shown on hover) -->
     <div class="hidden group-hover:flex items-center gap-1 shrink-0">
       <!-- Copy to clipboard -->
@@ -131,15 +140,6 @@
         :title="`Add ${derivedPlanFilename} to task list`"
       >+ plan</button>
 
-      <!-- Show result (investigate tasks) -->
-      <button
-        v-if="task.task_type === 'investigate' && derivedFeedbackFilename !== null"
-        @click.stop="toggleResult"
-        class="text-xs px-1"
-        :class="showResult ? 'text-indigo-300 hover:text-indigo-200' : 'text-slate-500 hover:text-slate-300'"
-        title="Show investigation findings"
-      >{{ showResult ? 'hide result' : 'result' }}</button>
-
       <!-- Archive (done tasks only) -->
       <button
         v-if="task.status === 'done'"
@@ -170,16 +170,16 @@
     <div v-else class="text-xs text-slate-500 italic">No description available.</div>
   </div>
 
-  <!-- Investigate result panel -->
+  <!-- Investigate feedback panel -->
   <div
-    v-if="showResult && task.task_type === 'investigate' && derivedFeedbackFilename !== null"
+    v-if="isFeedbackOpen(task.id) && task.task_type === 'investigate' && derivedFeedbackFilename !== null"
     class="mx-2 mb-1 rounded border border-indigo-800/50 bg-indigo-950/30 p-2"
   >
-    <div v-if="loadingResult" class="text-xs text-slate-500">Loading…</div>
+    <div v-if="loadingFeedback" class="text-xs text-slate-500">Loading…</div>
     <pre
-      v-else-if="resultContent"
+      v-else-if="getFeedbackCached(task.id)"
       class="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words overflow-y-auto max-h-64"
-    >{{ resultContent }}</pre>
+    >{{ getFeedbackCached(task.id) }}</pre>
     <div v-else class="text-xs text-slate-500 italic">No feedback file found yet (plans/{{ derivedFeedbackFilename }}).</div>
   </div>
   </div>
@@ -211,7 +211,7 @@ const emit = defineEmits<{
 }>()
 
 const { readFile } = usePlanq()
-const { isOpen, toggle, getCached, setCached } = useExpandedTasks()
+const { isOpen, toggle, getCached, setCached, isFeedbackOpen, toggleFeedback, getFeedbackCached, setFeedbackCached } = useExpandedTasks()
 
 const editingDesc = ref(false)
 const editDesc = ref('')
@@ -278,23 +278,21 @@ function saveDesc() {
   editingDesc.value = false
 }
 
-// ── Investigate result ────────────────────────────────────────────────────────
+// ── Investigate feedback ──────────────────────────────────────────────────────
 
-const showResult = ref(false)
-const resultContent = ref<string | null>(null)
-const loadingResult = ref(false)
+const loadingFeedback = ref(false)
 
 const derivedFeedbackFilename = computed(() => {
   if (props.task.task_type !== 'investigate' || !props.task.filename) return null
   return props.task.filename.replace(/^investigate-/, 'feedback-')
 })
 
-async function toggleResult() {
-  showResult.value = !showResult.value
-  if (showResult.value && resultContent.value === null) {
-    loadingResult.value = true
-    resultContent.value = await readFile(props.containerId, derivedFeedbackFilename.value!) ?? null
-    loadingResult.value = false
+async function toggleFeedbackOpen() {
+  toggleFeedback(props.task.id)
+  if (isFeedbackOpen(props.task.id) && getFeedbackCached(props.task.id) === undefined) {
+    loadingFeedback.value = true
+    setFeedbackCached(props.task.id, await readFile(props.containerId, derivedFeedbackFilename.value!) ?? null)
+    loadingFeedback.value = false
   }
 }
 

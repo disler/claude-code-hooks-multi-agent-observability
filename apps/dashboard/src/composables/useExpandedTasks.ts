@@ -4,6 +4,10 @@ import { ref } from 'vue'
 const openTaskIds = ref(new Set<number>())
 const cachedContent = new Map<number, string | null>()
 
+// Feedback panel state (investigate tasks)
+const openFeedbackIds = ref(new Set<number>())
+const cachedFeedback = new Map<number, string | null>()
+
 export function useExpandedTasks() {
   function isOpen(taskId: number): boolean {
     return openTaskIds.value.has(taskId)
@@ -32,5 +36,24 @@ export function useExpandedTasks() {
     cachedContent.set(taskId, content)
   }
 
-  return { isOpen, toggle, close, getCached, setCached }
+  function isFeedbackOpen(taskId: number): boolean {
+    return openFeedbackIds.value.has(taskId)
+  }
+
+  function toggleFeedback(taskId: number): void {
+    const s = new Set(openFeedbackIds.value)
+    if (s.has(taskId)) s.delete(taskId)
+    else s.add(taskId)
+    openFeedbackIds.value = s
+  }
+
+  function getFeedbackCached(taskId: number): string | null | undefined {
+    return cachedFeedback.get(taskId)
+  }
+
+  function setFeedbackCached(taskId: number, content: string | null): void {
+    cachedFeedback.set(taskId, content)
+  }
+
+  return { isOpen, toggle, close, getCached, setCached, isFeedbackOpen, toggleFeedback, getFeedbackCached, setFeedbackCached }
 }
