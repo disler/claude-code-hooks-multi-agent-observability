@@ -184,6 +184,22 @@ export function initContainerDatabase(): void {
     )
   `);
 
+  // Dashboard-originated changes queued for delivery to containers
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pending_dashboard_changes (
+      id TEXT PRIMARY KEY,
+      container_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      task_key TEXT,
+      payload TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      sent_at INTEGER,
+      ack_at INTEGER,
+      status TEXT DEFAULT 'pending'
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_pdc_container ON pending_dashboard_changes(container_id, status)');
+
   // Migration for planq_tasks columns added after initial schema
   const taskColumns = (db.prepare('PRAGMA table_info(planq_tasks)').all() as any[]).map((r: any) => r.name);
   if (!taskColumns.includes('auto_commit')) {
@@ -704,4 +720,61 @@ export function archiveDoneTasks(containerId: string): { count: number; historyC
   for (const task of doneTasks) stmt.run(task.id);
 
   return { count: doneTasks.length, historyContent: updatedHistory };
+}
+
+// ── Dashboard change queue ─────────────────────────────────────────────────────
+
+export interface ChangeRequest {
+  id: string;
+  type: 'add_task' | 'update_status' | 'update_content' | 'reorder' | 'delete_task';
+  source: 'dashboard';
+  timestamp: number;
+  task_key: string | null;
+  payload: Record<string, any>;
+}
+
+export function insertPendingDashboardChange(containerId: string, change: ChangeRequest): void {
+  db.prepare(`
+    INSERT INTO pending_dashboard_changes (id, container_id, type, task_key, payload, created_at, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending')
+    ON CONFLICT(id) DO NOTHING
+  `).run(change.id, containerId, change.type, change.task_key ?? null, JSON.stringify(change.payload), Date.now());
+}
+
+export function getPendingDashboardChanges(containerId: string, statusFilter = 'pending'): ChangeRequest[] {
+  const rows = db.prepare(
+    `SELECT * FROM pending_dashboard_changes WHERE container_id = ? AND status = ? ORDER BY created_at`
+  ).all(containerId, statusFilter) as any[];
+  return rows.map(r => ({
+    id: r.id,
+    type: r.type as ChangeRequest['type'],
+    source: 'dashboard' as const,
+    timestamp: r.created_at / 1000,
+    task_key: r.task_key,
+    payload: JSON.parse(r.payload),
+  }));
+}
+
+export function markPendingChangesSent(ids: string[]): void {
+  if (!ids.length) return;
+  const placeholders = ids.map(() => '?').join(',');
+  db.prepare(
+    `UPDATE pending_dashboard_changes SET status = 'sent', sent_at = ? WHERE id IN (${placeholders})`
+  ).run(Date.now(), ...ids);
+}
+
+export function ackPendingDashboardChanges(ids: string[]): void {
+  if (!ids.length) return;
+  const placeholders = ids.map(() => '?').join(',');
+  db.prepare(
+    `UPDATE pending_dashboard_changes SET status = 'acked', ack_at = ? WHERE id IN (${placeholders})`
+  ).run(Date.now(), ...ids);
+}
+
+/** Prune old acked/failed changes older than 7 days to prevent unbounded growth. */
+export function cleanupOldPendingChanges(): void {
+  const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+  db.prepare(
+    `DELETE FROM pending_dashboard_changes WHERE status IN ('acked','failed') AND created_at < ?`
+  ).run(cutoff);
 }

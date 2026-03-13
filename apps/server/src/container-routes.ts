@@ -29,6 +29,12 @@ import {
   getGitCommitRefs,
   upsertHostSourceReport,
   getAllHostSourceReports,
+  insertPendingDashboardChange,
+  getPendingDashboardChanges,
+  markPendingChangesSent,
+  ackPendingDashboardChanges,
+  cleanupOldPendingChanges,
+  type ChangeRequest,
   type ContainerRow,
   type PlanqTaskRow,
   type PlanqItem,
@@ -53,6 +59,27 @@ const githubPrCache = new Map<string, { fetchedAt: number; data: GithubPrData }>
 // Used to detect unsynced server-side changes on daemon reconnection.
 // containerId → epoch ms
 const planqSyncedAt = new Map<string, number>();
+
+// ── ChangeRequest helpers ─────────────────────────────────────────────────────
+
+let _crSeq = 0;
+function crId(): string {
+  return `cr_${Date.now()}_${(++_crSeq).toString(36)}`;
+}
+
+/** Send apply_changes to the container and record in pending_dashboard_changes. */
+function sendApplyChanges(containerId: string, changes: ChangeRequest[]): void {
+  if (!changes.length) return;
+  for (const c of changes) insertPendingDashboardChange(containerId, c);
+  const ws = containerWsMap.get(containerId);
+  if (!ws) return; // changes stored; will drain on reconnect
+  try {
+    ws.send(JSON.stringify({ type: 'apply_changes', changes }));
+    markPendingChangesSent(changes.map(c => c.id));
+  } catch {
+    // send failed; changes remain as 'pending' and will be retried on reconnect
+  }
+}
 
 // ── Plans files cache (populated from daemon heartbeats) ───────────────────────
 // containerId → filename → content (most recent content pushed by daemon)
@@ -116,6 +143,8 @@ export function initContainerRoutes(): void {
   const cutoff = Date.now() - 60_000;
   const result = db.prepare('UPDATE containers SET connected = 0 WHERE last_seen < ?').run(cutoff);
   console.log(`[init] marked ${result.changes} stale container(s) offline (last_seen > 60s ago)`);
+  // Periodically clean up old acked change records (daily)
+  setInterval(() => cleanupOldPendingChanges(), 24 * 3600 * 1000);
 }
 
 // ── Dashboard broadcast helpers ───────────────────────────────────────────────
@@ -373,6 +402,23 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       const addr = (ws.data as any)?.addr ?? 'unknown';
       ws.__wsLabel = `container@${addr} ${hbCtx}`;
       console.log(`[ws-identified] ${ws.__wsLabel}`);
+      // Clear the plans-files cache on reconnect so the daemon's fresh full
+      // push (triggered by clearing _plans_file_mtimes in on_open) populates
+      // the cache from scratch rather than being marked ready prematurely.
+      plansFilesCache.delete(containerId);
+      plansFilesCacheReady.delete(containerId);
+      // Drain any pending dashboard changes (both unsent and previously sent but unacked)
+      const pendingChanges = [
+        ...getPendingDashboardChanges(containerId, 'pending'),
+        ...getPendingDashboardChanges(containerId, 'sent'),
+      ];
+      if (pendingChanges.length > 0) {
+        try {
+          ws.send(JSON.stringify({ type: 'apply_changes', changes: pendingChanges }));
+          markPendingChangesSent(pendingChanges.map(c => c.id));
+          console.log(`[ws-identified] ${ws.__wsLabel}: drained ${pendingChanges.length} pending change(s)`);
+        } catch {}
+      }
     }
 
     const existingContainer = getContainer(containerId);
@@ -466,47 +512,12 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
 
     console.log(`[heartbeat] ${hbCtx}: upserted connected=${container.connected} sessions=[${mergedSessionIds.map(s => s.slice(0,8)).join(', ')}] git: staged=${msg.git_staged_count ?? 'n/a'} unstaged=${msg.git_unstaged_count ?? 'n/a'} branch=${msg.git_branch ?? '-'}`);
 
-    // Sync planq tasks using three-way merge.
-    // base = planq_last_synced (last state both sides agreed on)
-    // server = current DB task list
-    // container = daemon's reported planq_order
+    // Sync planq tasks from container — container is the authoritative source.
+    // No writeback: dashboard changes are delivered via apply_changes messages.
     if (msg.planq_order) {
-      const rawBase = getPlanqLastSynced(containerId);
-      const baseItems: PlanqItem[] = rawBase ? parsePlanqOrder(rawBase) : [];
-      const serverItems: PlanqItem[] = getPlanqTasks(containerId).map(t => ({
-        task_type: t.task_type,
-        filename: t.filename,
-        description: t.description,
-        status: t.status as PlanqItem['status'],
-        auto_commit: t.auto_commit,
-        commit_mode: t.commit_mode,
-        plan_disposition: t.plan_disposition,
-        auto_queue_plan: t.auto_queue_plan,
-      }));
       const containerItems: PlanqItem[] = parsePlanqOrder(msg.planq_order);
-
-      const { merged, conflicts, hasChanges } = mergePlanqLists(baseItems, serverItems, containerItems);
-
-      if (conflicts.length > 0) {
-        console.log(`[heartbeat] ${hbCtx}: ${conflicts.length} planq conflict(s) detected`);
-      }
-
-      // Update server DB to reflect merged state
-      syncPlanqTasksFromParsed(containerId, merged);
-
-      // If merged differs from container, push the merged state to the container
-      if (hasChanges) {
-        const mergedSerialized = serializePlanqOrder(getPlanqTasks(containerId));
-        setPlanqLastSynced(containerId, mergedSerialized);
-        console.log(`[heartbeat] ${hbCtx}: pushing merged planq state to daemon (${merged.length} tasks, ${conflicts.length} conflicts)`);
-        writePlanqFile(containerId, container).then(() => {
-          planqSyncedAt.set(containerId, Date.now());
-        }).catch(() => {});
-      } else {
-        // Container state matches merged — record this as the new base
-        const currentSerialized = serializePlanqOrder(getPlanqTasks(containerId));
-        setPlanqLastSynced(containerId, currentSerialized);
-      }
+      syncPlanqTasksFromParsed(containerId, containerItems);
+      setPlanqLastSynced(containerId, msg.planq_order);
     }
 
     // Delete same-container stubs — same physical Docker container absorbed into heartbeat container.
@@ -675,6 +686,17 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       } else {
         pending.reject(new Error(msg.error ?? 'File write failed'));
       }
+    }
+    return;
+  }
+
+  // Daemon acknowledges applied dashboard changes
+  if (msg.type === 'change_ack') {
+    const ids: string[] = Array.isArray(msg.ids) ? msg.ids : [];
+    if (ids.length > 0) {
+      ackPendingDashboardChanges(ids);
+      const cid = ws.__containerId;
+      if (cid) console.log(`[change_ack] ${cid}: acked ${ids.length} change(s)`);
     }
     return;
   }
@@ -1420,8 +1442,15 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       await relayFileWrite(containerId, filename, description).catch(() => {});
     }
 
-    // Write updated planq file through daemon
-    await writePlanqFile(containerId, container).catch(() => {});
+    sendApplyChanges(containerId, [{
+      id: crId(), type: 'add_task', source: 'dashboard', timestamp: Date.now() / 1000,
+      task_key: task.filename ?? task.description,
+      payload: {
+        task_type: task.task_type, filename: task.filename, description: task.description,
+        status: task.status, commit_mode: task.commit_mode,
+        plan_disposition: task.plan_disposition, auto_queue_plan: task.auto_queue_plan,
+      },
+    }]);
 
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
     return json(task, 201);
@@ -1449,7 +1478,19 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!task) return err('Task not found', 404);
     touchPlanqServerModified(containerId);
 
-    await writePlanqFile(containerId, container).catch(() => {});
+    // Build ChangeRequests for fields that the container cares about
+    const task_key = task.filename ?? task.description ?? '';
+    const containerChanges: ChangeRequest[] = [];
+    if (body.status !== undefined)
+      containerChanges.push({ id: crId(), type: 'update_status', source: 'dashboard', timestamp: Date.now() / 1000, task_key, payload: { status: body.status } });
+    if (body.commit_mode !== undefined)
+      containerChanges.push({ id: crId(), type: 'update_content', source: 'dashboard', timestamp: Date.now() / 1000, task_key, payload: { field: 'commit_mode', value: task.commit_mode } });
+    else if (body.auto_commit !== undefined)
+      containerChanges.push({ id: crId(), type: 'update_content', source: 'dashboard', timestamp: Date.now() / 1000, task_key, payload: { field: 'commit_mode', value: task.commit_mode } });
+    if (body.description !== undefined)
+      containerChanges.push({ id: crId(), type: 'update_content', source: 'dashboard', timestamp: Date.now() / 1000, task_key, payload: { field: 'description', value: body.description } });
+    sendApplyChanges(containerId, containerChanges);
+
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
     return json(task);
   }
@@ -1462,11 +1503,18 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
+    const taskBeforeArchive = getPlanqTasks(containerId).find(t => t.id === taskId);
     const result = archiveTask(taskId);
     if (!result.ok) return err('Task not found', 404);
     touchPlanqServerModified(containerId);
 
-    await writePlanqFile(containerId, container).catch(() => {});
+    if (taskBeforeArchive) {
+      sendApplyChanges(containerId, [{
+        id: crId(), type: 'delete_task', source: 'dashboard', timestamp: Date.now() / 1000,
+        task_key: taskBeforeArchive.filename ?? taskBeforeArchive.description,
+        payload: {},
+      }]);
+    }
     if (containerWsMap.has(containerId)) {
       await relayFileWrite(containerId, 'archive/planq-history.txt', result.historyContent).catch(() => {});
     }
@@ -1482,11 +1530,18 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
+    const taskBeforeDelete = (db.prepare('SELECT * FROM planq_tasks WHERE id = ?').get(taskId) as any);
     const deleted = deletePlanqTask(taskId);
     if (!deleted) return err('Task not found', 404);
     touchPlanqServerModified(containerId);
 
-    await writePlanqFile(containerId, container).catch(() => {});
+    if (taskBeforeDelete) {
+      sendApplyChanges(containerId, [{
+        id: crId(), type: 'delete_task', source: 'dashboard', timestamp: Date.now() / 1000,
+        task_key: taskBeforeDelete.filename ?? taskBeforeDelete.description,
+        payload: {},
+      }]);
+    }
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
     return json({ ok: true });
   }
@@ -1502,8 +1557,13 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     reorderPlanqTasks(body);
     touchPlanqServerModified(containerId);
 
-    await writePlanqFile(containerId, container).catch(() => {});
-    broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
+    const tasksAfterReorder = getPlanqTasks(containerId);
+    const newOrder = tasksAfterReorder.map(t => t.filename ?? t.description ?? '').filter(Boolean);
+    sendApplyChanges(containerId, [{
+      id: crId(), type: 'reorder', source: 'dashboard', timestamp: Date.now() / 1000,
+      task_key: null, payload: { order: newOrder },
+    }]);
+    broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: tasksAfterReorder } });
     return json({ ok: true });
   }
 
@@ -1513,10 +1573,20 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const container = getContainer(containerId);
     if (!container) return err('Container not found', 404);
 
+    // Collect done tasks before archiving so we can build delete ChangeRequests
+    const doneTasks = getPlanqTasks(containerId).filter(t => t.status === 'done');
     const { count, historyContent } = archiveDoneTasks(containerId);
     touchPlanqServerModified(containerId);
 
-    await writePlanqFile(containerId, container).catch(() => {});
+    if (doneTasks.length > 0) {
+      const deleteChanges: ChangeRequest[] = doneTasks.map(t => ({
+        id: crId(), type: 'delete_task' as const, source: 'dashboard' as const,
+        timestamp: Date.now() / 1000,
+        task_key: t.filename ?? t.description,
+        payload: {},
+      }));
+      sendApplyChanges(containerId, deleteChanges);
+    }
     if (count > 0 && containerWsMap.has(containerId)) {
       await relayFileWrite(containerId, 'archive/planq-history.txt', historyContent).catch(() => {});
     }

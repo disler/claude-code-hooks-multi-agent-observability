@@ -820,6 +820,10 @@ def _run_connection():
         connected.set()
         log.info('Connected to server %s', SERVER_URL)
         _write_status('connected', SERVER_URL)
+        # Force a full plans-files push on (re)connect so a restarted server
+        # always gets the complete file list rather than only changed files.
+        with _plans_file_mtimes_lock:
+            _plans_file_mtimes.clear()
         # Send initial heartbeat
         _send_heartbeat(ws)
 
@@ -850,6 +854,9 @@ def _run_connection():
                     _submodule_known_hashes[repo] = hashes
         elif mtype == 'request_heartbeat':
             threading.Thread(target=_send_heartbeat, args=(ws,), daemon=True).start()
+        elif mtype == 'apply_changes':
+            changes = msg.get('changes', [])
+            threading.Thread(target=_apply_changes, args=(ws, changes), daemon=True).start()
 
     def on_error(ws, error):
         log.error('WebSocket error: %s', error)
@@ -895,6 +902,245 @@ def _run_connection():
             last_beat = time.time()
 
     ws_app.close()
+
+# ── Dashboard change application ─────────────────────────────────────────────
+
+_planq_file_lock = threading.Lock()
+
+_STATUS_PREFIX_MAP = {
+    'done': '# done: ',
+    'underway': '# underway: ',
+    'auto-queue': '# auto-queue: ',
+    'awaiting-commit': '# awaiting-commit: ',
+    'awaiting-plan': '# awaiting-plan: ',
+    'deferred': '# deferred: ',
+    'pending': '',
+}
+_STATUS_PREFIXES = tuple(v for v in _STATUS_PREFIX_MAP.values() if v)
+
+
+def _strip_status_prefix(line: str) -> str:
+    """Remove leading status comment prefix from a planq-order line."""
+    s = line.strip()
+    for pfx in _STATUS_PREFIXES:
+        if s.startswith(pfx):
+            return s[len(pfx):]
+    return s
+
+
+def _task_key_from_line(line: str) -> str | None:
+    """Extract the canonical task key (filename or description) from a planq-order line."""
+    raw = _strip_status_prefix(line)
+    if raw.startswith('#') or not raw:
+        return None
+    colon = raw.find(':')
+    if colon < 0:
+        return None
+    task_type = raw[:colon].strip()
+    value = raw[colon + 1:].strip()
+    valid_types = {
+        'task', 'plan', 'make-plan', 'investigate', 'manual-test',
+        'manual-commit', 'manual-task', 'unnamed-task', 'auto-test', 'auto-commit',
+    }
+    if task_type not in valid_types:
+        return None
+    # Strip flags in the same order as parsePlanqOrder on the server
+    for flag in (' +auto-queue-plan', ' +add-after', ' +add-end',
+                 ' +auto-commit', ' +stage-commit', ' +manual-commit'):
+        if value.endswith(flag):
+            value = value[:-len(flag)]
+    return value.strip() or None
+
+
+def _planq_file_path() -> 'Path':
+    return WORKSPACE_ROOT / 'plans' / 'planq-order.txt'
+
+
+def _read_planq_lines() -> list[str]:
+    p = _planq_file_path()
+    if not p.exists():
+        return []
+    return p.read_text(errors='replace').splitlines(keepends=True)
+
+
+def _write_planq_lines(lines: list[str]) -> None:
+    p = _planq_file_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    text = ''.join(lines)
+    if text and not text.endswith('\n'):
+        text += '\n'
+    tmp = p.with_suffix('.tmp')
+    tmp.write_text(text)
+    tmp.rename(p)
+
+
+def _apply_update_status(task_key: str, new_status: str) -> None:
+    prefix = _STATUS_PREFIX_MAP.get(new_status, '')
+    with _planq_file_lock:
+        lines = _read_planq_lines()
+        new_lines = []
+        for line in lines:
+            if _task_key_from_line(line) == task_key:
+                raw = _strip_status_prefix(line).rstrip('\n')
+                new_lines.append(prefix + raw + '\n')
+            else:
+                new_lines.append(line)
+        _write_planq_lines(new_lines)
+
+
+def _apply_update_commit_mode(task_key: str, new_mode: str) -> None:
+    flag_map = {'auto': ' +auto-commit', 'stage': ' +stage-commit', 'manual': ' +manual-commit', 'none': ''}
+    with _planq_file_lock:
+        lines = _read_planq_lines()
+        new_lines = []
+        for line in lines:
+            if _task_key_from_line(line) == task_key:
+                stripped = line.strip()
+                status_prefix = ''
+                for pfx in _STATUS_PREFIXES:
+                    if stripped.startswith(pfx):
+                        status_prefix = pfx
+                        stripped = stripped[len(pfx):]
+                        break
+                # Strip existing commit mode flags
+                for flag in (' +auto-commit', ' +stage-commit', ' +manual-commit'):
+                    stripped = stripped.replace(flag, '')
+                stripped = stripped.rstrip()
+                new_flag = flag_map.get(new_mode, '')
+                new_lines.append(status_prefix + stripped + new_flag + '\n')
+            else:
+                new_lines.append(line)
+        _write_planq_lines(new_lines)
+
+
+def _apply_update_description(task_key: str, new_desc: str) -> None:
+    """For description-only tasks (unnamed-task, etc.), update the value part."""
+    with _planq_file_lock:
+        lines = _read_planq_lines()
+        new_lines = []
+        for line in lines:
+            if _task_key_from_line(line) == task_key:
+                stripped = line.strip()
+                status_prefix = ''
+                for pfx in _STATUS_PREFIXES:
+                    if stripped.startswith(pfx):
+                        status_prefix = pfx
+                        stripped = stripped[len(pfx):]
+                        break
+                colon = stripped.find(':')
+                if colon >= 0:
+                    task_type = stripped[:colon + 1]
+                    rest = stripped[colon + 1:].strip()
+                    # Preserve flags after the description
+                    flags = ''
+                    for flag in (' +auto-commit', ' +stage-commit', ' +manual-commit'):
+                        if flag in rest:
+                            flags += flag
+                    new_lines.append(status_prefix + task_type + ' ' + new_desc + flags + '\n')
+                else:
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+        _write_planq_lines(new_lines)
+
+
+def _apply_delete_task(task_key: str) -> None:
+    with _planq_file_lock:
+        lines = _read_planq_lines()
+        new_lines = [line for line in lines if _task_key_from_line(line) != task_key]
+        _write_planq_lines(new_lines)
+
+
+def _apply_reorder(order: list) -> None:
+    with _planq_file_lock:
+        lines = _read_planq_lines()
+        key_to_line: dict = {}
+        for line in lines:
+            key = _task_key_from_line(line)
+            if key:
+                key_to_line[key] = line
+        new_lines = []
+        seen = set()
+        for key in order:
+            if key in key_to_line and key not in seen:
+                new_lines.append(key_to_line[key])
+                seen.add(key)
+        # Append any tasks not covered by the order (defensive)
+        for key, line in key_to_line.items():
+            if key not in seen:
+                new_lines.append(line)
+        _write_planq_lines(new_lines)
+
+
+def _apply_add_task(payload: dict) -> None:
+    task_type = payload.get('task_type', '')
+    filename = payload.get('filename')
+    description = payload.get('description')
+    status = payload.get('status', 'pending')
+    commit_mode = payload.get('commit_mode', 'none')
+    plan_disposition = payload.get('plan_disposition', 'manual')
+    auto_queue_plan = payload.get('auto_queue_plan', False)
+
+    value = filename if filename else (description or '')
+    if task_type == 'make-plan':
+        if plan_disposition == 'add-after':
+            value += ' +add-after'
+        elif plan_disposition == 'add-end':
+            value += ' +add-end'
+        if auto_queue_plan:
+            value += ' +auto-queue-plan'
+    if commit_mode == 'auto':
+        value += ' +auto-commit'
+    elif commit_mode == 'stage':
+        value += ' +stage-commit'
+    elif commit_mode == 'manual':
+        value += ' +manual-commit'
+
+    prefix = _STATUS_PREFIX_MAP.get(status, '')
+    line = prefix + task_type + ': ' + value + '\n'
+
+    with _planq_file_lock:
+        lines = _read_planq_lines()
+        lines.append(line)
+        _write_planq_lines(lines)
+
+
+def _apply_changes(ws, changes: list) -> None:
+    """Apply a list of ChangeRequests from the server to planq-order.txt."""
+    ack_ids = []
+    for change in changes:
+        ctype = change.get('type')
+        task_key = change.get('task_key')
+        payload = change.get('payload', {})
+        cid = change.get('id', '')
+        try:
+            if ctype == 'add_task':
+                _apply_add_task(payload)
+            elif ctype == 'update_status' and task_key:
+                _apply_update_status(task_key, payload.get('status', 'pending'))
+            elif ctype == 'update_content' and task_key:
+                field = payload.get('field')
+                value = payload.get('value', '')
+                if field == 'commit_mode':
+                    _apply_update_commit_mode(task_key, value)
+                elif field == 'description':
+                    _apply_update_description(task_key, value)
+            elif ctype == 'delete_task' and task_key:
+                _apply_delete_task(task_key)
+            elif ctype == 'reorder':
+                _apply_reorder(payload.get('order', []))
+            ack_ids.append(cid)
+        except Exception as e:
+            log.error('Failed to apply change %s (%s): %s', cid, ctype, e)
+    if ack_ids:
+        try:
+            ws.send(json.dumps({'type': 'change_ack', 'ids': ack_ids}))
+        except Exception:
+            pass
+    if ack_ids:
+        # Trigger an immediate heartbeat so the server sees the updated state
+        _immediate_heartbeat.set()
+
 
 def _plans_files_snapshot() -> tuple[dict, list]:
     """Scan plans/ and return (changed_files, deleted_files).
