@@ -1274,12 +1274,32 @@ cmd_mark() {
             esac
         done
     fi
+    # Parse task flags (needed for make-plan add-after/add-end logic below)
+    local task_type task_value task_auto_commit task_stage_commit task_manual_commit task_add_after task_add_end task_auto_queue_plan
+    _parse_task "$task_line"
+
     case "$state" in
         done)
+            # Read the raw file line to detect if already done (avoid duplicate plan insertion)
+            local raw_line
+            raw_line="$(sed -n "${line_num}p" "$PLANQ_FILE" 2>/dev/null || echo "")"
             _mark_done "$line_num" "$task_line"
             echo "Marked as done."
             if [ -n "$mark_result" ]; then
                 _write_test_result "$task_line" "$mark_result" "$mark_notes"
+            fi
+            # For make-plan with +add-after or +add-end, insert the plan task
+            if [ "$task_type" = "make-plan" ] && { [ -n "$task_add_after" ] || [ -n "$task_add_end" ]; } && [[ "$raw_line" != "# done:"* ]]; then
+                local target_plan="${task_value/#make-plan-/plan-}"
+                local new_plan_task="plan: ${target_plan}"
+                [ -n "$task_auto_queue_plan" ] && new_plan_task="# auto-queue: plan: ${target_plan}"
+                if [ -n "$task_add_after" ]; then
+                    _insert_after_line "$line_num" "$new_plan_task"
+                    echo "make-plan: Added 'plan: ${target_plan}' after current position."
+                else
+                    printf '\n%s\n' "$new_plan_task" >> "$PLANQ_FILE"
+                    echo "make-plan: Added 'plan: ${target_plan}' at end of queue."
+                fi
             fi
             _auto_set_review_ready
             ;;
