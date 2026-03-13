@@ -94,18 +94,6 @@ WORKSPACE_HOST_PATH = os.environ.get('WORKSPACE_HOST_PATH', str(WORKSPACE_ROOT))
 MACHINE_HOSTNAME = _get_machine_hostname()
 CONTAINER_HOSTNAME = os.environ.get('HOSTNAME', '')
 HEARTBEAT_INTERVAL = int(os.environ.get('OBSERVABILITY_HEARTBEAT_INTERVAL', '15'))
-_auto_fetch_env = os.environ.get('AUTO_FETCH_ENABLED')
-if _auto_fetch_env is not None:
-    AUTO_FETCH_ENABLED = _auto_fetch_env.lower() == 'true'
-else:
-    # Default to true when the project has opted into inter-host git remotes
-    _mode_file = WORKSPACE_ROOT / '.devcontainer' / 'git-interhost-remotes-mode'
-    try:
-        AUTO_FETCH_ENABLED = bool(_mode_file.read_text().strip())
-    except OSError:
-        AUTO_FETCH_ENABLED = False
-AUTO_FETCH_INTERVAL = int(os.environ.get('AUTO_FETCH_INTERVAL', '60'))
-AUTO_FETCH_MODE = os.environ.get('AUTO_FETCH_MODE', 'ssh')
 
 def _read_version_stamp(category: str) -> str | None:
     """Read a version stamp from .devcontainer/versions/<category>."""
@@ -512,89 +500,12 @@ def _git_log_incremental() -> list:
     return commits
 
 
-def _interhost_remote_mode() -> str | None:
-    """Return mode from .devcontainer/git-interhost-remotes-mode if present, else None."""
-    mode_file = WORKSPACE_ROOT / '.devcontainer' / 'git-interhost-remotes-mode'
-    try:
-        if mode_file.exists():
-            return mode_file.read_text().strip() or None
-    except OSError:
-        pass
-    return None
-
-
 def _http_base_url() -> str:
     """Derive the HTTP base URL from the WebSocket SERVER_URL."""
     from urllib.parse import urlparse
     url = SERVER_URL.replace('wss://', 'https://').replace('ws://', 'http://')
     parsed = urlparse(url)
     return f'{parsed.scheme}://{parsed.netloc}'
-
-
-# Timestamp of last auto-fetch (epoch seconds); protected by lock
-_last_auto_fetch_time = 0.0
-_last_auto_fetch_lock = threading.Lock()
-
-
-def _get_hostname_aliases() -> dict:
-    """Fetch hostname -> SSH alias mapping from the observability server.
-
-    The server reads ~/.local/devcontainer-sandbox/hostname-aliases.json from the
-    host filesystem.  The daemon uses this to map raw machine_hostnames (as stored
-    in the DB) to the SSH-reachable names that git remotes are configured with.
-    """
-    try:
-        import urllib.request
-        req = urllib.request.urlopen(
-            f'{_http_base_url()}/dashboard/hostname-aliases', timeout=5
-        )
-        return json.loads(req.read().decode())
-    except Exception:
-        return {}
-
-
-def _do_auto_fetch():
-    """Poll the server for branch updates and fetch from any host with new commits."""
-    global _last_auto_fetch_time
-    mode = _interhost_remote_mode() or AUTO_FETCH_MODE
-    with _last_auto_fetch_lock:
-        since_ts = _last_auto_fetch_time
-        _last_auto_fetch_time = time.time()
-
-    try:
-        import urllib.request
-        url = f'{_http_base_url()}/dashboard/git-updates/{SOURCE_REPO}'
-        req = urllib.request.urlopen(url, timeout=5)
-        updates = json.loads(req.read().decode())
-    except Exception as e:
-        log.debug('Auto-fetch poll failed: %s', e)
-        return
-
-    # Load hostname aliases so we use the SSH-reachable name (git remote name)
-    # rather than the raw machine_hostname recorded in the DB.
-    aliases = _get_hostname_aliases()
-
-    did_fetch = False
-    fetched_origin = False
-    for item in updates:
-        host = item.get('host', '')
-        last_commit_at = item.get('lastCommitAt', 0) / 1000.0
-        if host == MACHINE_HOSTNAME:
-            continue
-        if last_commit_at > since_ts:
-            remote_name = aliases.get(host, host)
-            log.info('Auto-fetch: new commits from %s (remote=%s, mode=%s)', host, remote_name, mode)
-            if mode == 'github':
-                if not fetched_origin:
-                    _run(['git', 'fetch', '--no-auto-gc', 'origin'], cwd=str(WORKSPACE_ROOT))
-                    fetched_origin = True
-                    did_fetch = True
-            else:
-                _run(['git', 'fetch', '--no-auto-gc', remote_name], cwd=str(WORKSPACE_ROOT))
-                did_fetch = True
-
-    if did_fetch:
-        _immediate_heartbeat.set()
 
 
 def _compute_container_id(source_repo: str, git_worktree: str) -> str:
@@ -1098,14 +1009,10 @@ def _run_connection():
 
     # Heartbeat loop
     last_beat = time.time()
-    last_auto_fetch = 0.0
     _prev_running_ids: set = set()
     while not stop_event.is_set():
         time.sleep(1)
         now = time.time()
-        if AUTO_FETCH_ENABLED and now - last_auto_fetch >= AUTO_FETCH_INTERVAL:
-            last_auto_fetch = now
-            threading.Thread(target=_do_auto_fetch, daemon=True).start()
         if _immediate_heartbeat.is_set() or now - last_beat >= HEARTBEAT_INTERVAL:
             _immediate_heartbeat.clear()
             _send_heartbeat(ws_app)
