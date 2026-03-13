@@ -511,7 +511,9 @@ async function addTask(taskType: string, filename: string | null, description: s
       const subFile = sub.filename.trim() || null
       const subDesc = sub.description.trim() || null
       if (!subFile && !subDesc) continue
-      await apiAdd(props.containerId, sub.type, subFile, subDesc, !!subFile, 'none', undefined, undefined, created.id, sub.linkType)
+      // A file-based type with no filename becomes an unnamed-task (avoids description-as-filename confusion)
+      const subType = !subFile && sub.type === 'task' ? 'unnamed-task' : sub.type
+      await apiAdd(props.containerId, subType, subFile, subDesc, !!subFile, 'none', undefined, undefined, created.id, sub.linkType)
     }
   }
   emit('tasks-changed')

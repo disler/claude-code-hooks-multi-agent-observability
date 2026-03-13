@@ -1571,19 +1571,21 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       },
     }]);
 
-    // If this is a subtask, link it to the parent and write the link line to the parent file
-    if (parent_task_id && linkType && task.filename) {
+    // If this is a subtask, link it to the parent (always), and write the link line to the parent file (only for file-based tasks)
+    if (parent_task_id && linkType) {
       updatePlanqTask(task.id, { parent_task_id, link_type: linkType });
-      const parentTask = getPlanqTasks(containerId).find(t => t.id === parent_task_id);
-      if (parentTask?.filename && containerWsMap.has(containerId)) {
-        const cache = plansFilesCache.get(containerId);
-        const parentContent = cache?.get(parentTask.filename) ?? '';
-        const linkLine = `${linkType}: ${task.filename}`;
-        if (!parentContent.includes(linkLine)) {
-          const trimmed = parentContent.trimEnd();
-          const newParentContent = trimmed + (trimmed ? '\n' : '') + `${linkLine}\n`;
-          if (cache) cache.set(parentTask.filename, newParentContent);
-          relayFileWrite(containerId, parentTask.filename, newParentContent).catch(() => {});
+      if (task.filename) {
+        const parentTask = getPlanqTasks(containerId).find(t => t.id === parent_task_id);
+        if (parentTask?.filename && containerWsMap.has(containerId)) {
+          const cache = plansFilesCache.get(containerId);
+          const parentContent = cache?.get(parentTask.filename) ?? '';
+          const linkLine = `${linkType}: ${task.filename}`;
+          if (!parentContent.includes(linkLine)) {
+            const trimmed = parentContent.trimEnd();
+            const newParentContent = trimmed + (trimmed ? '\n' : '') + `${linkLine}\n`;
+            if (cache) cache.set(parentTask.filename, newParentContent);
+            relayFileWrite(containerId, parentTask.filename, newParentContent).catch(() => {});
+          }
         }
       }
     }
