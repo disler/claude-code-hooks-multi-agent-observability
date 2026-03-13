@@ -2,7 +2,7 @@
   <div class="mt-2">
     <!-- Header -->
     <button
-      @click="open = !open"
+      @click="toggleOpen()"
       class="flex items-center gap-2 text-xs text-slate-400 hover:text-slate-200 font-semibold w-full text-left py-1"
     >
       <span>{{ open ? '▾' : '▸' }}</span>
@@ -197,6 +197,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
+import { usePlanqPanelState } from '../composables/usePanelState'
 import PlanqTaskRow from './PlanqTaskRow.vue'
 import AddTaskDialog from './AddTaskDialog.vue'
 import PlanqFileEditor from './PlanqFileEditor.vue'
@@ -215,7 +216,7 @@ const emit = defineEmits<{
 
 const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder, fetchArchive: apiFetchArchive, archiveTask: apiArchiveTask, archiveDone: apiArchiveDone, respondToAutoTest: apiRespondAutoTest } = usePlanq()
 
-const open = ref(true)
+const { open, toggle: toggleOpen } = usePlanqPanelState(props.containerId)
 const showAddDialog = ref(false)
 const editingFile = ref<PlanqTask | null>(null)
 const dragFrom = ref<number | null>(null)

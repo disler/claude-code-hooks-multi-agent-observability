@@ -26,36 +26,29 @@ function handleMessage(msg: DashboardMessage) {
     // via container_removed messages; an absence from 'initial' alone is not
     // authoritative enough to destroy component state such as open dialogs or
     // in-progress task edits.
-    const updated = new Map(containers.value)
-    for (const c of msg.data) updated.set(c.id, c)
-    containers.value = updated
+    //
+    // Mutate in-place so Vue never destroys and recreates component instances —
+    // this preserves ephemeral UI state (open dialogs, filter selections, etc.).
+    for (const c of msg.data) containers.value.set(c.id, c)
   } else if (msg.type === 'container_update') {
-    const updated = new Map(containers.value)
-    updated.set(msg.data.id, msg.data)
-    containers.value = updated
+    containers.value.set(msg.data.id, msg.data)
   } else if (msg.type === 'container_removed') {
-    const updated = new Map(containers.value)
-    updated.delete(msg.data.id)
-    containers.value = updated
+    containers.value.delete(msg.data.id)
   } else if (msg.type === 'planq_update') {
-    const updated = new Map(containers.value)
-    const c = updated.get(msg.data.container_id)
-    if (c) updated.set(c.id, { ...c, planq_tasks: msg.data.tasks })
-    containers.value = updated
+    const c = containers.value.get(msg.data.container_id)
+    if (c) containers.value.set(c.id, { ...c, planq_tasks: msg.data.tasks })
   } else if (msg.type === 'agent_update') {
     // Update session status within matching containers
-    const updated = new Map(containers.value)
-    for (const [id, c] of updated) {
+    for (const [id, c] of containers.value) {
       if (c.source_repo === msg.data.source_repo && c.active_session_ids.includes(msg.data.session_id)) {
         const sessions = c.sessions.map(s =>
           s.session_id === msg.data.session_id
             ? { ...s, status: msg.data.status as any, last_prompt: msg.data.last_prompt, last_response_summary: msg.data.last_response_summary }
             : s
         )
-        updated.set(id, { ...c, sessions })
+        containers.value.set(id, { ...c, sessions })
       }
     }
-    containers.value = updated
   }
 }
 
