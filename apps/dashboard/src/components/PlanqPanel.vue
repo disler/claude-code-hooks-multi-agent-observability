@@ -273,6 +273,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
+import { useContainers } from '../composables/useContainers'
 import { usePlanqPanelState } from '../composables/usePanelState'
 import PlanqTaskRow from './PlanqTaskRow.vue'
 import AddTaskDialog from './AddTaskDialog.vue'
@@ -292,6 +293,7 @@ const emit = defineEmits<{
 }>()
 
 const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder, fetchArchive: apiFetchArchive, archiveTask: apiArchiveTask, archiveDone: apiArchiveDone, respondToAutoTest: apiRespondAutoTest } = usePlanq()
+const { updatePlanqTaskOptimistic } = useContainers()
 
 const { open, toggle: toggleOpen } = usePlanqPanelState(props.containerId)
 const showAddDialog = ref(false)
@@ -517,6 +519,7 @@ async function addTask(taskType: string, filename: string | null, description: s
 
 async function setStatus(task: PlanqTask, status: 'pending' | 'done' | 'underway' | 'auto-queue' | 'awaiting-commit' | 'awaiting-plan' | 'deferred') {
   console.log(`[planq] set status ${task.status}→${status} task=${task.filename ?? task.description} container=${cid()}`)
+  updatePlanqTaskOptimistic(props.containerId, task.id, { status })
   await apiUpdate(props.containerId, task.id, { status })
   emit('tasks-changed')
 }
@@ -551,6 +554,7 @@ async function archiveDone() {
 }
 
 async function setReviewStatus(task: PlanqTask, status: ReviewStatus) {
+  updatePlanqTaskOptimistic(props.containerId, task.id, { review_status: status })
   await apiUpdate(props.containerId, task.id, { review_status: status })
   emit('tasks-changed')
 }

@@ -79,6 +79,13 @@ const summary = computed(() => {
 
 fetchInitial()
 
+function updatePlanqTaskOptimistic(containerId: string, taskId: number, updates: Record<string, unknown>) {
+  const c = containers.value.get(containerId)
+  if (!c) return
+  const tasks = c.planq_tasks?.map(t => t.id === taskId ? { ...t, ...updates } : t) ?? []
+  containers.value.set(c.id, { ...c, planq_tasks: tasks })
+}
+
 export function useContainers() {
-  return { containers, byHost, summary, handleMessage }
+  return { containers, byHost, summary, handleMessage, updatePlanqTaskOptimistic }
 }

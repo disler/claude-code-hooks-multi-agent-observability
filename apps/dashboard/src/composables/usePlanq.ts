@@ -39,8 +39,7 @@ export function usePlanq() {
         body: JSON.stringify(updates),
       })
       if (!res.ok) return null
-      const data = await res.json()
-      return data.task ?? null
+      return await res.json() as PlanqTask
     } catch {
       return null
     }
