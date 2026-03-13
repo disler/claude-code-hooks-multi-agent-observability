@@ -1646,9 +1646,21 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     for (const c of repoContainers) {
       const existing = hostMap.get(c.machine_hostname);
       if (!existing || c.last_seen > existing.lastSeen) {
+        // Canonicalise the workspace path: if the daemon reported a worktree
+        // directory (basename ≠ source_repo), replace the basename with
+        // source_repo so git-hosts.conf points at the main checkout.
+        let workspacePath = c.workspace_host_path ?? null;
+        if (workspacePath) {
+          const sep = workspacePath.includes('\\') ? '\\' : '/';
+          const parts = workspacePath.split(sep);
+          if (parts[parts.length - 1] !== repo) {
+            parts[parts.length - 1] = repo;
+            workspacePath = parts.join(sep);
+          }
+        }
         hostMap.set(c.machine_hostname, {
           hostname: c.machine_hostname,
-          workspacePath: c.workspace_host_path ?? null,
+          workspacePath,
           lastSeen: c.last_seen,
         });
       }
