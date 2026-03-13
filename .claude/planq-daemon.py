@@ -92,7 +92,16 @@ WORKSPACE_HOST_PATH = os.environ.get('WORKSPACE_HOST_PATH', str(WORKSPACE_ROOT))
 MACHINE_HOSTNAME = _get_machine_hostname()
 CONTAINER_HOSTNAME = os.environ.get('HOSTNAME', '')
 HEARTBEAT_INTERVAL = int(os.environ.get('OBSERVABILITY_HEARTBEAT_INTERVAL', '15'))
-AUTO_FETCH_ENABLED = os.environ.get('AUTO_FETCH_ENABLED', 'false').lower() == 'true'
+_auto_fetch_env = os.environ.get('AUTO_FETCH_ENABLED')
+if _auto_fetch_env is not None:
+    AUTO_FETCH_ENABLED = _auto_fetch_env.lower() == 'true'
+else:
+    # Default to true when the project has opted into inter-host git remotes
+    _mode_file = WORKSPACE_ROOT / '.devcontainer' / 'git-interhost-remotes-mode'
+    try:
+        AUTO_FETCH_ENABLED = bool(_mode_file.read_text().strip())
+    except OSError:
+        AUTO_FETCH_ENABLED = False
 AUTO_FETCH_INTERVAL = int(os.environ.get('AUTO_FETCH_INTERVAL', '60'))
 AUTO_FETCH_MODE = os.environ.get('AUTO_FETCH_MODE', 'ssh')
 
