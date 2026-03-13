@@ -271,6 +271,59 @@
         </div>
       </div>
 
+      <!-- Subtasks (only when not already adding a subtask and task is file-based) -->
+      <div v-if="!props.parentTask && isFileBasedTask" class="flex flex-col gap-1.5">
+        <div class="flex items-center justify-between">
+          <label class="text-xs text-slate-400">Subtasks</label>
+          <button
+            type="button"
+            @click="addSubtask"
+            class="text-xs text-slate-500 hover:text-slate-300 px-1"
+          >+ add</button>
+        </div>
+        <div v-if="pendingSubtasks.length === 0" class="text-xs text-slate-600 italic">None — use + add to attach follow-up or fix tasks</div>
+        <div
+          v-for="(sub, i) in pendingSubtasks"
+          :key="i"
+          class="flex items-center gap-1.5 bg-slate-900/40 border border-slate-700/50 rounded px-2 py-1"
+        >
+          <select
+            v-model="sub.linkType"
+            class="text-xs bg-slate-700 border border-slate-600 rounded px-1 py-0.5 shrink-0"
+          >
+            <option value="follow-up">↳ follow-up</option>
+            <option value="fix-required">🔧 fix-required</option>
+          </select>
+          <select
+            v-model="sub.type"
+            class="text-xs bg-slate-700 border border-slate-600 rounded px-1 py-0.5 shrink-0"
+          >
+            <option value="task">task</option>
+            <option value="investigate">investigate</option>
+            <option value="manual-test">manual-test</option>
+            <option value="manual-task">manual-task</option>
+          </select>
+          <input
+            v-if="isSubtaskFileBased(sub.type)"
+            v-model="sub.filename"
+            type="text"
+            class="text-xs bg-slate-700 border border-slate-600 rounded px-1.5 py-0.5 font-mono w-32 shrink-0 focus:outline-none focus:border-slate-400"
+            :placeholder="subtaskFilenamePlaceholder(sub.type)"
+          />
+          <input
+            v-model="sub.description"
+            type="text"
+            class="flex-1 text-xs bg-slate-700 border border-slate-600 rounded px-1.5 py-0.5 focus:outline-none focus:border-slate-400 min-w-0"
+            placeholder="description"
+          />
+          <button
+            type="button"
+            @click="pendingSubtasks.splice(i, 1)"
+            class="text-xs text-slate-600 hover:text-red-400 shrink-0 px-0.5"
+          >✕</button>
+        </div>
+      </div>
+
       <div class="flex justify-end gap-2">
         <button
           @click="emit('close')"
@@ -295,9 +348,16 @@ import type { PlanqTask } from '../types'
 
 const props = defineProps<{ containerId: string; allTasks?: PlanqTask[]; parentTask?: PlanqTask }>()
 
+export interface SubtaskEntry {
+  linkType: 'follow-up' | 'fix-required'
+  type: string
+  filename: string
+  description: string
+}
+
 const emit = defineEmits<{
   close: []
-  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, commitMode: 'none' | 'auto' | 'stage' | 'manual' | undefined, planDisposition?: 'manual' | 'add-after' | 'add-end', autoQueuePlan?: boolean, parentTaskId?: number, linkType?: 'follow-up' | 'fix-required']
+  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, commitMode: 'none' | 'auto' | 'stage' | 'manual' | undefined, planDisposition?: 'manual' | 'add-after' | 'add-end', autoQueuePlan?: boolean, parentTaskId?: number, linkType?: 'follow-up' | 'fix-required', subtasks?: SubtaskEntry[]]
 }>()
 
 const { readFile, listPlansFiles } = usePlanq()
@@ -313,6 +373,25 @@ const commitMode = ref<'none' | 'auto' | 'stage' | 'manual'>('none')
 const planDisposition = ref<'manual' | 'add-after' | 'add-end'>('manual')
 const autoQueuePlan = ref(false)
 const linkType = ref<'follow-up' | 'fix-required'>('follow-up')
+
+const pendingSubtasks = ref<SubtaskEntry[]>([])
+
+const isFileBasedTask = computed(() =>
+  ['task', 'plan', 'make-plan', 'investigate'].includes(taskType.value)
+)
+
+function isSubtaskFileBased(type: string): boolean {
+  return ['task', 'investigate'].includes(type)
+}
+
+function subtaskFilenamePlaceholder(type: string): string {
+  if (type === 'investigate') return 'investigate-*.md'
+  return 'task-*.md'
+}
+
+function addSubtask() {
+  pendingSubtasks.value.push({ linkType: 'follow-up', type: 'task', filename: '', description: '' })
+}
 
 const commitModeOptions = [
   { value: 'none' as const, label: 'Nothing', activeClass: 'border-slate-500 bg-slate-600 text-slate-200' },
@@ -493,25 +572,26 @@ function submit() {
   const cm = commitMode.value
   const parentTaskId = props.parentTask?.id
   const lt = props.parentTask ? linkType.value : undefined
+  const subs = pendingSubtasks.value.length > 0 ? [...pendingSubtasks.value] : undefined
 
   if (taskType.value === 'task') {
     if (taskFilename.value) {
       const createFile = !isExistingTaskFile.value
-      emit('add', 'task', taskFilename.value, description.value.trim(), createFile, cm, undefined, undefined, parentTaskId, lt)
+      emit('add', 'task', taskFilename.value, description.value.trim(), createFile, cm, undefined, undefined, parentTaskId, lt, subs)
     } else {
       const unnamedDesc = description.value.trim().split('\n').map(l => l.trim()).filter(Boolean).join('. ')
-      emit('add', 'unnamed-task', null, unnamedDesc, false, cm, undefined, undefined, parentTaskId, lt)
+      emit('add', 'unnamed-task', null, unnamedDesc, false, cm, undefined, undefined, parentTaskId, lt, subs)
     }
   } else if (taskType.value === 'plan') {
-    emit('add', 'plan', planFilename.value, null, false, cm, undefined, undefined, parentTaskId, lt)
+    emit('add', 'plan', planFilename.value, null, false, cm, undefined, undefined, parentTaskId, lt, subs)
   } else if (taskType.value === 'make-plan') {
-    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, undefined, planDisposition.value, planDisposition.value !== 'manual' ? autoQueuePlan.value : undefined, parentTaskId, lt)
+    emit('add', 'make-plan', makePlanFilename.value, description.value.trim(), false, undefined, planDisposition.value, planDisposition.value !== 'manual' ? autoQueuePlan.value : undefined, parentTaskId, lt, subs)
   } else if (taskType.value === 'investigate') {
-    emit('add', 'investigate', investigateFilename.value, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt)
+    emit('add', 'investigate', investigateFilename.value, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt, subs)
   } else if (taskType.value === 'auto-test') {
-    emit('add', 'auto-test', null, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt)
+    emit('add', 'auto-test', null, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt, subs)
   } else {
-    emit('add', taskType.value, null, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt)
+    emit('add', taskType.value, null, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt, subs)
   }
   emit('close')
 }
