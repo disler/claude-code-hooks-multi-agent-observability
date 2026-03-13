@@ -103,7 +103,7 @@
     <!-- Body -->
     <main v-if="!showReviewBoard" class="px-4 py-4 max-w-7xl mx-auto">
       <SystemVersionPanel
-        v-if="showVersionPanel"
+        v-show="showVersionPanel"
         :repo-filter="repoFilter"
         :host-filter="hostFilter"
         :connection-filter="connectionFilter"
