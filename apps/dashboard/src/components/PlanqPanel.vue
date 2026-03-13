@@ -57,7 +57,7 @@
         </div>
       </div>
 
-      <!-- Status + type filters (same wrapping row) -->
+      <!-- Status / review / type filters (single wrapping row) -->
       <div class="flex items-center gap-1 mb-1 flex-wrap">
         <span class="text-xs text-slate-600 shrink-0">status:</span>
         <button
@@ -82,6 +82,31 @@
           class="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-600"
           title="Clear work status filter"
         >✕</button>
+        <template v-if="reviewFilterVisible">
+          <span class="text-slate-700 select-none shrink-0">|</span>
+          <span class="text-xs text-slate-600 shrink-0">review:</span>
+          <button
+            v-for="f in reviewFilters"
+            :key="f.status"
+            @click.exact="toggleReviewFilterExclusive(f.status)"
+            @click.ctrl.exact="toggleReviewFilter(f.status)"
+            @click.meta.exact="toggleReviewFilter(f.status)"
+            :title="`${f.label} (${f.count}) — click to filter, Ctrl/Cmd+click to multi-select`"
+            class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-all"
+            :class="activeReviewFilters.size === 0 || activeReviewFilters.has(f.status)
+              ? [f.activeClass, 'opacity-100']
+              : 'bg-slate-800 text-slate-600 opacity-50'"
+          >
+            <span>{{ f.icon }}</span>
+            <span>{{ f.count }}</span>
+          </button>
+          <button
+            v-if="activeReviewFilters.size > 0"
+            @click="activeReviewFilters.clear()"
+            class="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-600"
+            title="Clear review status filter"
+          >✕</button>
+        </template>
         <template v-if="typeFilters.some(f => f.count > 0)">
           <span class="text-slate-700 select-none shrink-0">|</span>
           <span class="text-xs text-slate-600 shrink-0">type:</span>
@@ -108,31 +133,6 @@
             title="Clear type filter"
           >✕</button>
         </template>
-      </div>
-
-      <!-- Review status filters (only shown when any task has a review status set) -->
-      <div v-if="reviewFilterVisible" class="flex items-center gap-1 mb-2 flex-wrap">
-        <button
-          v-for="f in reviewFilters"
-          :key="f.status"
-          @click.exact="toggleReviewFilterExclusive(f.status)"
-          @click.ctrl.exact="toggleReviewFilter(f.status)"
-          @click.meta.exact="toggleReviewFilter(f.status)"
-          :title="`${f.label} (${f.count}) — click to filter, Ctrl/Cmd+click to multi-select`"
-          class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-all"
-          :class="activeReviewFilters.size === 0 || activeReviewFilters.has(f.status)
-            ? [f.activeClass, 'opacity-100']
-            : 'bg-slate-800 text-slate-600 opacity-50'"
-        >
-          <span>{{ f.icon }}</span>
-          <span>{{ f.count }}</span>
-        </button>
-        <button
-          v-if="activeReviewFilters.size > 0"
-          @click="activeReviewFilters.clear()"
-          class="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-600"
-          title="Clear review status filter"
-        >✕</button>
       </div>
 
       <!-- Task list -->
