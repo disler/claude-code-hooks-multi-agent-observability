@@ -1743,13 +1743,15 @@ usage_create() {
     echo "    planq create -t make-plan -f make-plan-001.md 'Design a caching layer for the API'"
 }
 usage_mark()   {
-    echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q|awaiting-commit|ac> <N|filename|text>"
+    echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q|awaiting-commit|ac|awaiting-plan|ap|deferred|df> <N|filename|text>"
     echo "       planq mark:<state> <N|filename|text>"
     echo "  Mark a task with a status."
     echo "  Identify the task by number, by its filename (for task/plan/make-plan), or by its exact description text (for unnamed-task etc.)."
-    echo "  inactive/i restores a done/underway/auto-queue/awaiting-commit task to pending."
-    echo "  awaiting-commit/ac marks a task as waiting for user to commit staged changes."
-    echo "  queue/q marks a task for automatic execution by 'planq auto'."
+    echo "  inactive/i    restores a done/underway/auto-queue/awaiting-commit task to pending."
+    echo "  awaiting-commit/ac  marks a task as waiting for user to commit staged changes."
+    echo "  awaiting-plan/ap    marks a make-plan task as waiting for plan review."
+    echo "  queue/q       marks a task for automatic execution by 'planq auto'."
+    echo "  deferred/df   moves a task to the bottom of the list (skip for now)."
 }
 usage_auto()   {
     echo "Usage: planq auto"
@@ -1778,7 +1780,7 @@ usage() {
     echo "  run     / r [N] [--dry-run|-n]                 Run next pending task, or task #N"
     echo "  auto    / A                                    Run auto-queued tasks continuously"
     echo "  create  / c [-t <type>] [-f <file>] [<desc>]   Add a task (default type: unnamed-task)"
-    echo "  mark    / m <done|underway|inactive|queue|awaiting-commit> <N|…>  Mark a task (also: mark:<state> / m:<state>)"
+    echo "  mark    / m <done|underway|inactive|queue|ac|ap|deferred> <N|…>  Mark a task (also: mark:<state> / m:<state>)"
     echo "  delete  / x <N>                                Delete task #N"
     echo "  archive / a [N|…] [--unarchive|-U <N|…>]      Archive done tasks; -a flag on list/show for archive"
     echo "  daemon  / d [start|stop|restart|status]        Manage the planq WebSocket daemon"
