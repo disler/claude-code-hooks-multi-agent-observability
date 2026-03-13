@@ -68,20 +68,37 @@
       <template v-else-if="taskType === 'plan'">
         <div class="flex flex-col gap-1">
           <label class="text-xs text-slate-400">Filename</label>
-          <div class="flex items-center gap-1">
+          <div class="flex items-center gap-1 relative">
             <span class="text-xs text-slate-500 font-mono shrink-0">plan-</span>
-            <input
-              v-model="planSlug"
-              list="plan-slugs"
-              type="text"
-              class="flex-1 text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400"
-              placeholder="001"
-              @input="onPlanSlugInput"
-            />
+            <div class="relative flex-1">
+              <input
+                v-model="planSlug"
+                type="text"
+                class="w-full text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400"
+                placeholder="001"
+                autocomplete="off"
+                @input="onPlanSlugInput"
+                @focus="showPlanDropdown = true"
+                @blur="onPlanInputBlur"
+              />
+              <div
+                v-if="showPlanDropdown && filteredPlanItems.length"
+                class="absolute z-50 left-0 right-0 top-full mt-0.5 bg-slate-800 border border-slate-600 rounded shadow-xl max-h-56 overflow-y-auto"
+              >
+                <button
+                  v-for="item in filteredPlanItems"
+                  :key="item.slug"
+                  type="button"
+                  class="w-full text-left px-2 py-1.5 flex items-center gap-2 hover:bg-slate-700 transition-colors"
+                  @mousedown.prevent="selectPlanSlug(item.slug)"
+                >
+                  <span class="font-mono text-xs text-slate-200 flex-1">{{ item.slug }}</span>
+                  <span v-if="item.makePlanStatus" class="text-xs shrink-0" :class="makePlanStatusClass(item.makePlanStatus)">{{ makePlanStatusLabel(item.makePlanStatus) }}</span>
+                  <span v-else class="text-xs text-slate-500 shrink-0">plan</span>
+                </button>
+              </div>
+            </div>
             <span class="text-xs text-slate-500 font-mono shrink-0">.md</span>
-            <datalist id="plan-slugs">
-              <option v-for="s in planSlugs" :key="s" :value="s" />
-            </datalist>
           </div>
         </div>
         <div v-if="planSlug" class="flex flex-col gap-1">
@@ -252,8 +269,9 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
 import { useConfirmKey } from '../composables/useConfirmKey'
 import MarkdownContent from './MarkdownContent.vue'
+import type { PlanqTask } from '../types'
 
-const props = defineProps<{ containerId: string }>()
+const props = defineProps<{ containerId: string; allTasks?: PlanqTask[] }>()
 
 const emit = defineEmits<{
   close: []
@@ -301,6 +319,76 @@ const planSlugs = computed(() =>
     .filter(f => f.startsWith('plan-') && f.endsWith('.md'))
     .map(f => f.slice('plan-'.length, -'.md'.length))
 )
+
+// Plan combobox
+const showPlanDropdown = ref(false)
+
+interface PlanItem { slug: string; makePlanStatus: PlanqTask['status'] | null; makePlanPosition: number }
+
+const sortedPlanItems = computed((): PlanItem[] => {
+  const allTasks = props.allTasks ?? []
+  // Build a map: plan slug → corresponding make-plan task (if exists in queue)
+  const makePlanMap = new Map<string, PlanqTask>()
+  for (const t of allTasks) {
+    if (t.task_type === 'make-plan' && t.filename) {
+      const derived = t.filename.replace(/^make-plan-/, 'plan-').replace(/\.md$/, '')
+      // slug without prefix
+      const slug = derived.replace(/^plan-/, '')
+      if (!makePlanMap.has(slug)) makePlanMap.set(slug, t)
+    }
+  }
+  // Separate slugs: those with a make-plan task, and others
+  const withMakePlan: PlanItem[] = []
+  const standalone: PlanItem[] = []
+  for (const slug of planSlugs.value) {
+    const mp = makePlanMap.get(slug)
+    if (mp) {
+      withMakePlan.push({ slug, makePlanStatus: mp.status, makePlanPosition: mp.position })
+    } else {
+      standalone.push({ slug, makePlanStatus: null, makePlanPosition: Infinity })
+    }
+  }
+  withMakePlan.sort((a, b) => a.makePlanPosition - b.makePlanPosition)
+  standalone.sort((a, b) => a.slug.localeCompare(b.slug))
+  return [...withMakePlan, ...standalone]
+})
+
+const filteredPlanItems = computed((): PlanItem[] => {
+  const q = planSlug.value.toLowerCase()
+  if (!q) return sortedPlanItems.value
+  return sortedPlanItems.value.filter(i => i.slug.toLowerCase().includes(q))
+})
+
+function selectPlanSlug(slug: string) {
+  planSlug.value = slug
+  showPlanDropdown.value = false
+  onPlanSlugInput()
+}
+
+function onPlanInputBlur() {
+  // Small delay so mousedown on dropdown item fires first
+  setTimeout(() => { showPlanDropdown.value = false }, 120)
+}
+
+function makePlanStatusLabel(status: PlanqTask['status']): string {
+  switch (status) {
+    case 'done': return 'done'
+    case 'underway': return 'running'
+    case 'auto-queue': return '⏱'
+    case 'awaiting-plan': return 'awaiting'
+    default: return status
+  }
+}
+
+function makePlanStatusClass(status: PlanqTask['status']): string {
+  switch (status) {
+    case 'done': return 'text-green-400'
+    case 'underway': return 'text-blue-400'
+    case 'pending': return 'text-slate-400'
+    case 'auto-queue': return 'text-amber-400'
+    default: return 'text-slate-500'
+  }
+}
 
 const taskFilename = computed(() => taskSlug.value ? `task-${taskSlug.value}.md` : null)
 const planFilename = computed(() => planSlug.value ? `plan-${planSlug.value}.md` : null)
