@@ -29,7 +29,11 @@
                 <td class="live-cell">
                   <span :class="c.connected ? 'live-dot live' : 'live-dot offline'" :title="c.connected ? 'Live' : 'Offline'" />
                 </td>
-                <td class="host-cell">{{ c.machine_hostname }}</td>
+                <td
+                  class="host-cell"
+                  :class="isHostStale(c.machine_hostname) ? 'host-stale' : ''"
+                  :title="isHostStale(c.machine_hostname) ? 'Host devcontainer is outdated — update the devcontainer on this host first, then rebuild containers' : undefined"
+                >{{ c.machine_hostname }}</td>
                 <td class="path" :title="c.workspace_host_path ?? c.id">{{ displayPath(c.workspace_host_path ?? c.id) }}</td>
                 <td>
                   <span
@@ -40,16 +44,16 @@
                 </td>
                 <td>
                   <span
-                    :class="stampClass(c.versions?.planq_shell)"
-                    :title="stampTooltip(c.versions?.planq_shell)"
-                    @click.stop="showTooltip($event, stampTooltip(c.versions?.planq_shell))"
+                    :class="stampClass(c.versions?.planq_shell, serverStamps.planq_shell)"
+                    :title="stampTooltip(c.versions?.planq_shell, serverStamps.planq_shell)"
+                    @click.stop="showTooltip($event, stampTooltip(c.versions?.planq_shell, serverStamps.planq_shell))"
                   >{{ stampSymbol(c.versions?.planq_shell) }}</span>
                 </td>
                 <td>
                   <span
-                    :class="stampClass(c.versions?.devcontainer)"
-                    :title="stampTooltip(c.versions?.devcontainer)"
-                    @click.stop="showTooltip($event, stampTooltip(c.versions?.devcontainer))"
+                    :class="stampClass(c.versions?.devcontainer, serverStamps.devcontainer)"
+                    :title="stampTooltip(c.versions?.devcontainer, serverStamps.devcontainer)"
+                    @click.stop="showTooltip($event, stampTooltip(c.versions?.devcontainer, serverStamps.devcontainer))"
                   >{{ stampSymbol(c.versions?.devcontainer) }}</span>
                 </td>
               </tr>
@@ -128,11 +132,18 @@ interface HostReport {
   last_reported_at: number | null;
 }
 
+interface ServerStamps {
+  devcontainer: string | null;
+  planq_daemon: string | null;
+  planq_shell: string | null;
+}
+
 const collapsed = ref(true);
 const loading = ref(false);
 const error = ref('');
 const containerVersions = ref<ContainerVersion[]>([]);
 const hostReports = ref<HostReport[]>([]);
+const serverStamps = ref<ServerStamps>({ devcontainer: null, planq_daemon: null, planq_shell: null });
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 const tooltip = ref({ visible: false, text: '', x: 0, y: 0 });
@@ -153,6 +164,7 @@ async function refresh() {
     const data = await res.json();
     containerVersions.value = data.containers ?? [];
     hostReports.value = data.host_source_reports ?? [];
+    serverStamps.value = data.server_stamps ?? { devcontainer: null, planq_daemon: null, planq_shell: null };
   } catch (e: any) {
     error.value = e.message;
   } finally {
@@ -165,14 +177,36 @@ function stampSymbol(stamp: string | null | undefined): string {
   return '\u2713';
 }
 
-function stampClass(stamp: string | null | undefined): string {
+// Returns true if the container stamp is present but its hash differs from the server reference stamp.
+function isStale(stamp: string | null | undefined, serverStamp: string | null | undefined): boolean {
+  if (!stamp || stamp === '(no stamp)') return false;
+  if (!serverStamp) return false;
+  const containerHash = stampHash(stamp);
+  const serverHash = stampHash(serverStamp);
+  return !!containerHash && !!serverHash && containerHash !== serverHash;
+}
+
+function stampClass(stamp: string | null | undefined, serverStamp?: string | null): string {
   if (!stamp || stamp === '(no stamp)') return 'stamp stamp-missing';
+  if (isStale(stamp, serverStamp)) return 'stamp stamp-stale';
   return 'stamp stamp-ok';
 }
 
-function stampTooltip(stamp: string | null | undefined): string {
+function stampTooltip(stamp: string | null | undefined, serverStamp?: string | null): string {
   if (!stamp || stamp === '(no stamp)') return 'Unknown status — no version stamp found';
   const [hash, ts, component] = stamp.split(' ');
+  if (isStale(stamp, serverStamp)) {
+    const serverHash = stampHash(serverStamp);
+    const lines = [
+      'Outdated — host devcontainer needs updating',
+      'Update the devcontainer on the host first, then rebuild the container.',
+    ];
+    if (component) lines.push(`component: ${component}`);
+    if (hash) lines.push(`installed: ${hash}`);
+    if (serverHash) lines.push(`current:   ${serverHash}`);
+    if (ts) lines.push(`stamped: ${ts}`);
+    return lines.join('\n');
+  }
   const lines = ['This version is up to date'];
   if (component) lines.push(`component: ${component}`);
   if (hash) lines.push(`hash: ${hash}`);
@@ -196,6 +230,7 @@ function daemonStampClass(versions: Record<string, string | null> | null | undef
   if (!fileStamp || fileStamp === '(no stamp)') return 'stamp stamp-missing';
   const fileHash = stampHash(fileStamp);
   if (runningHash && fileHash && runningHash !== fileHash) return 'stamp stamp-restart';
+  if (isStale(fileStamp, serverStamps.value.planq_daemon)) return 'stamp stamp-stale';
   return 'stamp stamp-ok';
 }
 
@@ -212,7 +247,32 @@ function daemonStampTooltip(versions: Record<string, string | null> | null | und
       `stamped: ${ts ?? '?'}`,
     ].join('\n');
   }
+  if (isStale(fileStamp, serverStamps.value.planq_daemon)) {
+    const serverHash = stampHash(serverStamps.value.planq_daemon);
+    return [
+      'Outdated — host devcontainer needs updating',
+      'Update the devcontainer on the host first, then rebuild the container.',
+      `installed: ${fileHash}`,
+      `current:   ${serverHash ?? '?'}`,
+      `stamped: ${ts ?? '?'}`,
+    ].join('\n');
+  }
   return ['Daemon up to date', `hash: ${fileHash}`, `stamped: ${ts ?? '?'}`].join('\n');
+}
+
+// Returns true if any stamp on this container is stale vs the server reference.
+function isContainerStale(c: ContainerVersion): boolean {
+  if (!c.versions) return false;
+  return (
+    isStale(c.versions.devcontainer, serverStamps.value.devcontainer) ||
+    isStale(c.versions.planq_daemon, serverStamps.value.planq_daemon) ||
+    isStale(c.versions.planq_shell, serverStamps.value.planq_shell)
+  );
+}
+
+// Returns true if any container on the given hostname is stale.
+function isHostStale(hostname: string): boolean {
+  return containerVersions.value.some(c => c.machine_hostname === hostname && isContainerStale(c));
 }
 
 function showTooltip(event: MouseEvent, text: string) {
@@ -290,6 +350,8 @@ onUnmounted(() => {
 .stamp-ok { background: #1a3a1a; color: #6f6; }
 .stamp-missing { background: #3a1a1a; color: #f66; }
 .stamp-restart { background: #3a2a00; color: #fa0; }
+.stamp-stale { background: #3a3000; color: #fa0; }
+.host-stale { color: #fa0; cursor: help; }
 .stamp-hash { font-family: monospace; }
 .actions { margin-top: 8px; }
 .btn-refresh { background: #252545; border: 1px solid #444; color: #ccc; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 0.85em; }
