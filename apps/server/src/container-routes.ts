@@ -1615,11 +1615,15 @@ interface MergeConflict {
 }
 
 /**
- * Three-way merge of planq task lists.
- * base: last state that was successfully synced to both sides
- * server: current server DB state
- * container: current container state (from daemon heartbeat)
- * Returns: { merged: PlanqItem[], conflicts: MergeConflict[], hasChanges: boolean }
+ * Merge planq task lists from server DB and container daemon heartbeat.
+ * base: last state that was successfully synced to both sides (for status tracking)
+ * server: current server DB state — AUTHORITATIVE for ordering
+ * container: current container state (from daemon heartbeat) — contributes status changes + new tasks
+ *
+ * Ordering is always determined by the server. The container can only:
+ *   - Change task statuses (picked up via three-way merge against base)
+ *   - Add new tasks (container-only tasks are appended after server tasks)
+ *
  * hasChanges is true if the merged result differs from the container state (need to push to container)
  */
 function mergePlanqLists(
@@ -1635,24 +1639,13 @@ function mergePlanqLists(
   for (const t of server) { const k = taskKey(t); if (k) serverMap.set(k, t); }
   for (const t of container) { const k = taskKey(t); if (k) containerMap.set(k, t); }
 
-  const allKeys = new Set([...baseMap.keys(), ...serverMap.keys(), ...containerMap.keys()]);
   const result: PlanqItem[] = [];
   const conflicts: MergeConflict[] = [];
 
-  // Detect ordering changes relative to base (only for keys present on both sides)
-  const commonKeys = new Set([...serverMap.keys()].filter(k => containerMap.has(k)));
-  const baseKeysCommon = base.map(taskKey).filter(k => k && commonKeys.has(k));
-  const serverKeysCommon = server.map(taskKey).filter(k => k && commonKeys.has(k));
-  const containerKeysCommon = container.map(taskKey).filter(k => k && commonKeys.has(k));
-  const serverReordered = serverKeysCommon.join('\0') !== baseKeysCommon.join('\0');
-  const containerReordered = containerKeysCommon.join('\0') !== baseKeysCommon.join('\0');
-  // If only the server changed ordering (e.g. drag-and-drop), use server ordering so it isn't reverted by a stale heartbeat
-  const useServerOrder = serverReordered && !containerReordered;
-
-  // Use server or container ordering depending on who changed it
-  const primaryOrderKeys = useServerOrder
-    ? server.map(taskKey).filter(k => k) as string[]
-    : container.map(taskKey).filter(k => k) as string[];
+  // Server ordering is authoritative — process tasks in server order
+  const serverKeysInOrder = server.map(taskKey).filter(k => k) as string[];
+  // Container order is only used to pick up new tasks added by the container
+  const containerKeysInOrder = container.map(taskKey).filter(k => k) as string[];
   const processedKeys = new Set<string>();
 
   function mergeOne(key: string): PlanqItem | null {
@@ -1660,7 +1653,7 @@ function mergePlanqLists(
     const serverTask = serverMap.get(key);
     const containerTask = containerMap.get(key);
 
-    // Not in server at all: keep container's version (container added it, or server removed it — keep container's)
+    // Not in server: container-only task (container added it) — keep as-is
     if (!serverTask) {
       return containerTask ?? null;
     }
@@ -1668,94 +1661,82 @@ function mergePlanqLists(
     // In server but not in container
     if (!containerTask) {
       if (!baseTask) {
-        // New in server, not in container → add to container
+        // New in server, not yet received by container → include (container will get it on push)
         return serverTask;
       }
       // Was in base, container removed it → respect container removal
       return null;
     }
 
-    // In both server and container
-    if (!baseTask) {
-      // New in both — conflict, keep container's version
-      conflicts.push({ key, type: 'new-in-both', server: serverTask, container: containerTask });
-      return containerTask;
-    }
+    // In both server and container — apply three-way status merge
+    const baseTask_ = baseTask ?? serverTask; // fallback: treat server as base if no base known
+    const serverStatusChanged = serverTask.status !== baseTask_.status;
+    const containerStatusChanged = containerTask.status !== baseTask_.status;
+    const serverTextChanged = serverTask.description !== baseTask_.description;
+    const containerTextChanged = containerTask.description !== baseTask_.description;
+    const serverCommitModeChanged = serverTask.commit_mode !== baseTask_.commit_mode;
+    const containerCommitModeChanged = containerTask.commit_mode !== baseTask_.commit_mode;
 
-    // Three-way merge
-    const serverStatusChanged = serverTask.status !== baseTask.status;
-    const containerStatusChanged = containerTask.status !== baseTask.status;
-    const serverTextChanged = serverTask.description !== baseTask.description;
-    const containerTextChanged = containerTask.description !== baseTask.description;
-    const serverCommitModeChanged = serverTask.commit_mode !== baseTask.commit_mode;
-    const containerCommitModeChanged = containerTask.commit_mode !== baseTask.commit_mode;
+    let mergedStatus = serverTask.status; // server is default
+    let mergedDescription = serverTask.description;
+    let mergedCommitMode = serverTask.commit_mode;
 
-    let mergedStatus = containerTask.status;
-    let mergedDescription = containerTask.description;
-    let mergedCommitMode = containerTask.commit_mode;
-
-    // Status merge
+    // Status: container changes propagate up; server changes propagate down
     if (serverStatusChanged && containerStatusChanged && serverTask.status !== containerTask.status) {
-      // Both changed status to different values
+      // Both changed to different values — pick the more advanced one
       const containerLevel = statusLevel(containerTask.status);
       const serverLevel = statusLevel(serverTask.status);
       if (containerLevel >= statusLevel('done') && serverLevel < statusLevel('done')) {
-        // Container is done, server tries to re-activate → container wins (no re-activation)
-        mergedStatus = containerTask.status;
-      } else if (serverLevel > containerLevel) {
-        // Server is more advanced → server wins
-        mergedStatus = serverTask.status;
+        mergedStatus = containerTask.status; // Container done → don't downgrade
       } else if (containerLevel > serverLevel) {
-        // Container is more advanced → container wins
-        mergedStatus = containerTask.status;
+        mergedStatus = containerTask.status; // Container further along
+      } else if (serverLevel > containerLevel) {
+        mergedStatus = serverTask.status; // Server further along
       } else {
-        // Same level, different statuses → conflict, container wins
         conflicts.push({ key, type: 'status-conflict', base: baseTask, server: serverTask, container: containerTask });
-        mergedStatus = containerTask.status;
+        mergedStatus = serverTask.status; // Same level — server wins
       }
-    } else if (serverStatusChanged && !containerStatusChanged) {
-      // Only server changed status, but check: if container is done, don't downgrade
-      if (statusLevel(containerTask.status) >= statusLevel('done') && statusLevel(serverTask.status) < statusLevel('done')) {
-        mergedStatus = containerTask.status; // Keep container done
-      } else {
-        mergedStatus = serverTask.status; // Apply server change
-      }
-    } else if (containerStatusChanged) {
-      mergedStatus = containerTask.status; // Keep container change
+    } else if (containerStatusChanged && !serverStatusChanged) {
+      // Only container changed status → apply it (container ran/completed the task)
+      mergedStatus = containerTask.status;
     }
+    // If only server changed (or neither changed), server's status is already the default
 
-    // Text merge
-    if (serverTextChanged && containerTextChanged && serverTask.description !== containerTask.description) {
-      // Both changed text differently — conflict: add duplicate with conflict suffix
-      conflicts.push({ key, type: 'text-changed', base: baseTask, server: serverTask, container: containerTask });
-      mergedDescription = containerTask.description; // Keep container's text
+    // Text: container change wins (user may have edited locally); server change wins if container unchanged
+    if (containerTextChanged) {
+      mergedDescription = containerTask.description;
     } else if (serverTextChanged && !containerTextChanged) {
-      mergedDescription = serverTask.description; // Apply server text change
+      if (!baseTask) {
+        // new-in-both with different text — keep both (conflict)
+        conflicts.push({ key, type: 'new-in-both', server: serverTask, container: containerTask });
+      }
+      mergedDescription = serverTask.description;
     }
 
-    // Commit mode merge (server wins if container unchanged)
-    if (serverCommitModeChanged && !containerCommitModeChanged) {
-      mergedCommitMode = serverTask.commit_mode;
+    // Commit mode: server wins (set via dashboard)
+    if (!containerCommitModeChanged) {
+      mergedCommitMode = serverTask.commit_mode; // already the default
+    } else if (!serverCommitModeChanged && containerCommitModeChanged) {
+      mergedCommitMode = containerTask.commit_mode; // container changed it, server didn't
     }
 
     return {
-      ...containerTask,
+      ...serverTask,
       status: mergedStatus,
       description: mergedDescription,
       commit_mode: mergedCommitMode,
     };
   }
 
-  // Process in primary order first (server order if server reordered and container didn't, else container order)
-  for (const key of primaryOrderKeys) {
-    if (processedKeys.has(key)) continue;
+  // Pass 1: server order (authoritative)
+  for (const key of serverKeysInOrder) {
     processedKeys.add(key);
     const merged = mergeOne(key);
     if (merged) result.push(merged);
   }
 
-  // Append server-only new tasks (not in container at all)
-  for (const key of allKeys) {
+  // Pass 2: container-only new tasks (not yet known to server) — append after server tasks
+  for (const key of containerKeysInOrder) {
     if (processedKeys.has(key)) continue;
     processedKeys.add(key);
     const merged = mergeOne(key);
