@@ -181,6 +181,23 @@
             <!-- Subject (always available without API call) -->
             <div v-if="selectedCommit?.subject" class="text-slate-200 font-semibold">{{ selectedCommit.subject }}</div>
 
+            <!-- Parent commits -->
+            <div v-if="selectedCommitParents.length" class="space-y-1 border-t border-slate-700/60 pt-2">
+              <div class="text-slate-500 text-xs uppercase tracking-wide">{{ selectedCommitParents.length > 1 ? 'Parents' : 'Parent' }}</div>
+              <div
+                v-for="p in selectedCommitParents"
+                :key="p.hash"
+                class="flex items-baseline gap-1.5 min-w-0"
+              >
+                <button
+                  @click="selectHash(p.hash)"
+                  class="font-mono text-yellow-500 hover:text-yellow-300 shrink-0 text-xs"
+                  :title="p.hash"
+                >{{ p.hash.slice(0, 8) }}</button>
+                <span class="text-slate-400 truncate text-xs">{{ p.subject }}</span>
+              </div>
+            </div>
+
             <!-- Full message + diffstat (fetched) -->
             <div v-if="loadingDetail" class="text-slate-500 italic">Loading…</div>
             <template v-else>
@@ -362,6 +379,16 @@ const selectedCommit = computed(() =>
 const selectedCommitDate = computed(() => {
   const ts = selectedCommit.value?.author_date
   return ts ? new Date(ts * 1000).toLocaleString() : ''
+})
+
+const selectedCommitParents = computed(() => {
+  const commit = selectedCommit.value
+  if (!commit || !commit.parents.length) return []
+  const commitMap = new Map((gitData.value?.commits ?? []).map((c: any) => [c.hash, c]))
+  return commit.parents.map((hash: string) => {
+    const parent = commitMap.get(hash)
+    return { hash, subject: parent?.subject ?? hash.slice(0, 8) }
+  })
 })
 
 interface RefBadge { text: string; cls: string }
