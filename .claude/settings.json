@@ -15,10 +15,6 @@
           },
           {
             "type": "command",
-            "command": "uv run --no-project --python python3 $CLAUDE_PROJECT_DIR/.claude/hooks/protect_submodules.py --all"
-          },
-          {
-            "type": "command",
             "command": "uv run --no-project --python python3 $CLAUDE_PROJECT_DIR/.claude/hooks/send_event.py --source-app __SOURCE_APP__ --event-type PreToolUse --server-url http://172.30.0.1:4000/events"
           }
         ]
