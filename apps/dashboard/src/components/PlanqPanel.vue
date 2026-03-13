@@ -136,7 +136,7 @@
 
       <!-- Task list -->
       <div v-if="filteredTasks.length > 0">
-        <template v-for="(task, idx) in filteredTasks" :key="task.id">
+        <template v-for="task in filteredTasks" :key="task.id">
           <PlanqTaskRow
             :task="task"
             :position="tasks.indexOf(task) + 1"
