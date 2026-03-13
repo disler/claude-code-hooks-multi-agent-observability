@@ -54,8 +54,9 @@
         <span v-else-if="task.plan_disposition === 'add-end'" class="shrink-0 text-cyan-400" :title="task.auto_queue_plan ? 'Plan will be added to end of queue (auto-queued)' : 'Plan will be added to end of queue'">📋↓{{ task.auto_queue_plan ? '⏱' : '' }}</span>
       </template>
       <!-- Review status badge — always visible for done tasks, hover-only otherwise -->
-      <div class="relative shrink-0">
+      <div class="shrink-0">
         <button
+          ref="reviewBtnRef"
           @click="toggleReviewDropdown"
           class="text-xs px-0.5 leading-none"
           :class="reviewStatus !== 'none'
@@ -65,9 +66,11 @@
               : 'text-slate-700 hover:text-slate-500 opacity-0 group-hover:opacity-100'"
           :title="reviewStatus !== 'none' ? `Review: ${reviewDef.label} — click to change` : 'Set review status'"
         >{{ reviewDef.icon }}</button>
+        <Teleport to="body">
         <div
           v-if="showReviewDropdown"
-          class="absolute left-0 top-full mt-0.5 z-50 bg-slate-800 border border-slate-600 rounded shadow-lg py-0.5 min-w-max"
+          :style="reviewDropdownStyle"
+          class="fixed z-[9999] bg-slate-800 border border-slate-600 rounded shadow-lg py-0.5 min-w-max"
           @click.stop
         >
           <button
@@ -81,6 +84,7 @@
             <span>{{ opt.label }}</span>
           </button>
         </div>
+        </Teleport>
       </div>
     </div>
     <input
@@ -385,9 +389,18 @@ const REVIEW_STATUS_DEFS: Array<{ status: ReviewStatus; icon: string; label: str
 const reviewStatus = computed(() => props.task.review_status ?? 'none')
 const reviewDef = computed(() => REVIEW_STATUS_DEFS.find(d => d.status === reviewStatus.value) ?? REVIEW_STATUS_DEFS[0])
 const showReviewDropdown = ref(false)
+const reviewBtnRef = ref<HTMLButtonElement | null>(null)
+const reviewDropdownStyle = ref<Record<string, string>>({})
 
 function toggleReviewDropdown(e: Event) {
   e.stopPropagation()
+  if (!showReviewDropdown.value && reviewBtnRef.value) {
+    const rect = reviewBtnRef.value.getBoundingClientRect()
+    reviewDropdownStyle.value = {
+      top: `${rect.bottom + 2}px`,
+      left: `${rect.left}px`,
+    }
+  }
   showReviewDropdown.value = !showReviewDropdown.value
 }
 
@@ -401,8 +414,14 @@ function closeReviewDropdown() {
   showReviewDropdown.value = false
 }
 
-onMounted(() => document.addEventListener('click', closeReviewDropdown))
-onBeforeUnmount(() => document.removeEventListener('click', closeReviewDropdown))
+onMounted(() => {
+  document.addEventListener('click', closeReviewDropdown)
+  document.addEventListener('scroll', closeReviewDropdown, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeReviewDropdown)
+  document.removeEventListener('scroll', closeReviewDropdown, true)
+})
 
 // ── Description popup ─────────────────────────────────────────────────────────
 
