@@ -188,6 +188,13 @@
     v-if="isOpen(task.id)"
     class="mx-2 mb-1 rounded border border-slate-700 bg-slate-900 p-2"
   >
+    <div class="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5 pb-1 border-b border-slate-700/60">
+      <span v-if="containerInfo?.machine_hostname" class="font-mono">{{ containerInfo.machine_hostname }}</span>
+      <span v-if="containerInfo?.machine_hostname && containerInfo?.container_hostname" class="text-slate-700">·</span>
+      <span v-if="containerInfo?.container_hostname" class="font-mono">{{ containerInfo.container_hostname }}</span>
+      <span v-if="containerInfo" class="text-slate-700">·</span>
+      <span class="font-mono text-slate-400">{{ task.task_type }}{{ task.filename ? ': ' + task.filename : '' }}</span>
+    </div>
     <div v-if="loadingDesc" class="text-xs text-slate-500">Loading…</div>
     <MarkdownContent v-else-if="getCached(task.id)" :content="getCached(task.id)!" />
     <div v-else class="text-xs text-slate-500 italic">No description available.</div>
@@ -198,6 +205,13 @@
     v-if="isFeedbackOpen(task.id) && task.task_type === 'investigate' && derivedFeedbackFilename !== null"
     class="mx-2 mb-1 rounded border border-indigo-800/50 bg-indigo-950/30 p-2"
   >
+    <div class="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5 pb-1 border-b border-indigo-800/40">
+      <span v-if="containerInfo?.machine_hostname" class="font-mono">{{ containerInfo.machine_hostname }}</span>
+      <span v-if="containerInfo?.machine_hostname && containerInfo?.container_hostname" class="text-slate-700">·</span>
+      <span v-if="containerInfo?.container_hostname" class="font-mono">{{ containerInfo.container_hostname }}</span>
+      <span v-if="containerInfo" class="text-slate-700">·</span>
+      <span class="font-mono text-slate-400">{{ task.task_type }}: {{ task.filename }} (feedback)</span>
+    </div>
     <div v-if="loadingFeedback" class="text-xs text-slate-500">Loading…</div>
     <MarkdownContent v-else-if="getFeedbackCached(task.id)" :content="getFeedbackCached(task.id)!" />
     <div v-else class="text-xs text-slate-500 italic">No feedback file found yet (plans/{{ derivedFeedbackFilename }}).</div>
@@ -209,6 +223,7 @@
 import { ref, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
 import { useExpandedTasks } from '../composables/useExpandedTasks'
+import { useContainers } from '../composables/useContainers'
 import type { PlanqTask, ReviewStatus } from '../types'
 import MarkdownContent from './MarkdownContent.vue'
 
@@ -236,6 +251,8 @@ const emit = defineEmits<{
 
 const { readFile } = usePlanq()
 const { isOpen, toggle, getCached, setCached, isFeedbackOpen, toggleFeedback, getFeedbackCached, setFeedbackCached } = useExpandedTasks()
+const { containers } = useContainers()
+const containerInfo = computed(() => containers.value.get(props.containerId))
 
 const editingDesc = ref(false)
 const editDesc = ref('')

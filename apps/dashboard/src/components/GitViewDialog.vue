@@ -241,7 +241,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useGitView } from '../composables/useGitView'
 import { containerDirLabel, formatRef } from '../composables/useGitGraph'
 import { useHostnameAliases } from '../composables/useHostnameAliases'
@@ -587,4 +587,9 @@ watch(() => props.gitRefreshSignal, (newVal, oldVal) => {
   }
 })
 
+function onKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>

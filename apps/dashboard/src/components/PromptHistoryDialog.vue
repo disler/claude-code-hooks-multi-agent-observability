@@ -170,7 +170,7 @@ const props = defineProps<{
   initialSessionId: string;
 }>();
 
-defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: [] }>();
 
 const { alias } = useHostnameAliases();
 
@@ -401,6 +401,7 @@ async function copyText(text: string) {
 }
 
 function onGlobalKey(e: KeyboardEvent) {
+  if (e.key === "Escape") { emit("close"); return; }
   if (e.key === "ArrowUp") prevPrompt();
   if (e.key === "ArrowDown") nextPrompt();
 }

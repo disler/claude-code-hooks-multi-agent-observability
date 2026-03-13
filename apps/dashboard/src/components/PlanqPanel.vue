@@ -66,7 +66,8 @@
           @click.exact="toggleFilterExclusive(f.status)"
           @click.ctrl.exact="toggleFilter(f.status)"
           @click.meta.exact="toggleFilter(f.status)"
-          :title="`${f.label} (${f.count}) — click to filter, Ctrl/Cmd+click to multi-select`"
+          @click.alt.exact="toggleFilterInverted(f.status)"
+          :title="`${f.label} (${f.count}) — click to filter, Ctrl/Cmd+click to multi-select, Alt+click to invert`"
           class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-all"
           :class="activeFilters.size === 0 || activeFilters.has(f.status)
             ? [f.activeClass, 'opacity-100']
@@ -90,7 +91,8 @@
             @click.exact="toggleTypeFilterExclusive(f.type)"
             @click.ctrl.exact="toggleTypeFilter(f.type)"
             @click.meta.exact="toggleTypeFilter(f.type)"
-            :title="`${f.label} (${f.count}) — click to filter, Ctrl/Cmd+click to multi-select`"
+            @click.alt.exact="toggleTypeFilterInverted(f.type)"
+            :title="`${f.label} (${f.count}) — click to filter, Ctrl/Cmd+click to multi-select, Alt+click to invert`"
             class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-all"
             :class="activeTypeFilters.size === 0 || activeTypeFilters.has(f.type)
               ? [f.activeClass, 'opacity-100']
@@ -334,6 +336,15 @@ function toggleFilterExclusive(status: string) {
   }
 }
 
+function toggleFilterInverted(status: string) {
+  if (activeFilters.has(status)) {
+    activeFilters.delete(status)
+  } else {
+    activeFilters.clear()
+    for (const f of STATUS_FILTER_DEFS) { if (f.status !== status) activeFilters.add(f.status) }
+  }
+}
+
 // Review status filters
 const activeReviewFilters = reactive(new Set<string>())
 
@@ -450,6 +461,15 @@ function toggleTypeFilterExclusive(type: string) {
   } else {
     activeTypeFilters.clear()
     activeTypeFilters.add(type)
+  }
+}
+
+function toggleTypeFilterInverted(type: string) {
+  if (activeTypeFilters.has(type)) {
+    activeTypeFilters.delete(type)
+  } else {
+    activeTypeFilters.clear()
+    for (const f of TYPE_FILTER_DEFS) { if (f.type !== type) activeTypeFilters.add(f.type) }
   }
 }
 

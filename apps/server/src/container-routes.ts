@@ -1711,6 +1711,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
   if (pathname === '/dashboard/system-versions' && method === 'GET') {
     const containers = getAllContainers().map(c => ({
       id: c.id,
+      source_repo: c.source_repo,
       machine_hostname: c.machine_hostname,
       workspace_host_path: c.workspace_host_path,
       connected: c.connected,

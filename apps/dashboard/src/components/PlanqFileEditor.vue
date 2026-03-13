@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="emit('close')" @keydown="onConfirmKey($event, save)">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="closeIfUnchanged" @keydown.escape.stop="closeIfUnchanged" @keydown="onConfirmKey($event, save)">
     <div class="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-5 w-2/3 max-w-3xl flex flex-col gap-4 max-h-[80vh]">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-semibold text-slate-200 font-mono">{{ filename }}</h3>
@@ -47,9 +47,17 @@ const emit = defineEmits<{
 const { readFile, writeFile } = usePlanq()
 const { onConfirmKey } = useConfirmKey()
 const content = ref('')
+const originalContent = ref('')
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
+
+function closeIfUnchanged() {
+  if (content.value !== originalContent.value) {
+    if (!confirm('You have unsaved changes. Close without saving?')) return
+  }
+  emit('close')
+}
 
 onMounted(async () => {
   const result = await readFile(props.containerId, props.filename)
@@ -58,6 +66,7 @@ onMounted(async () => {
     error.value = 'Failed to load file (container may be offline)'
   } else {
     content.value = result
+    originalContent.value = result
   }
 })
 

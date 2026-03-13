@@ -1,16 +1,18 @@
 <template>
   <div class="system-version-panel">
-    <div class="panel-header" @click="collapsed = !collapsed">
-      <span class="panel-title">
-        <span class="icon">&#9881;</span> System Versions
-        <span v-if="hasUpdates" class="badge-warn">&#9888; updates available</span>
-      </span>
-      <span class="collapse-icon">{{ collapsed ? '&#9654;' : '&#9660;' }}</span>
-    </div>
-    <div v-if="!collapsed" class="panel-body">
+    <div class="panel-body">
       <div v-if="loading" class="loading">Loading...</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <template v-else>
+        <!-- Filter toggle -->
+        <div class="filter-row">
+          <button
+            class="btn-toggle"
+            :class="showAll ? 'btn-toggle-active' : ''"
+            @click="showAll = !showAll"
+          >{{ showAll ? 'show all' : 'filtered' }}</button>
+        </div>
+
         <div class="section">
           <div class="section-title">Worktrees</div>
           <table class="version-table">
@@ -25,7 +27,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="c in containerVersions" :key="c.id">
+              <tr v-for="c in displayedVersions" :key="c.id">
                 <td class="live-cell">
                   <span :class="c.connected ? 'live-dot live' : 'live-dot offline'" :title="c.connected ? 'Live' : 'Offline'" />
                 </td>
@@ -108,11 +110,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { API_BASE } from '../config';
+
+const props = defineProps<{
+  repoFilter: string;
+  hostFilter: string;
+  connectionFilter: string;
+}>();
+
+const emit = defineEmits<{
+  (e: 'has-updates', value: boolean): void;
+}>();
 
 interface ContainerVersion {
   id: string;
+  source_repo: string;
   machine_hostname: string;
   workspace_host_path: string | null;
   connected: boolean;
@@ -138,7 +151,7 @@ interface ServerStamps {
   planq_shell: string | null;
 }
 
-const collapsed = ref(true);
+const showAll = ref(false);
 const loading = ref(false);
 const error = ref('');
 const containerVersions = ref<ContainerVersion[]>([]);
@@ -149,11 +162,22 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null;
 const tooltip = ref({ visible: false, text: '', x: 0, y: 0 });
 
 const hasUpdates = computed(() => {
-  return containerVersions.value.some(c => {
-    if (!c.versions) return false;
-    return Object.values(c.versions).some(v => v && !v.startsWith('unknown'));
+  return containerVersions.value.some(c => isContainerStale(c));
+});
+
+// Versions filtered by top-row filters when showAll is false
+const displayedVersions = computed(() => {
+  if (showAll.value) return containerVersions.value;
+  return containerVersions.value.filter(c => {
+    if (props.repoFilter && c.source_repo !== props.repoFilter) return false;
+    if (props.hostFilter && c.machine_hostname !== props.hostFilter) return false;
+    if (props.connectionFilter === 'online' && !c.connected) return false;
+    if (props.connectionFilter === 'offline' && c.connected) return false;
+    return true;
   });
 });
+
+watch(hasUpdates, v => emit('has-updates', v), { immediate: true });
 
 async function refresh() {
   loading.value = true;
@@ -321,18 +345,23 @@ onUnmounted(() => {
   margin: 8px 0;
   background: #1a1a2e;
 }
-.panel-header {
+.filter-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  cursor: pointer;
-  user-select: none;
+  gap: 8px;
+  padding: 6px 12px 2px;
 }
-.panel-header:hover { background: #252545; }
-.panel-title { font-weight: 600; font-size: 0.9em; }
-.badge-warn { margin-left: 8px; color: #f0a500; font-size: 0.8em; }
-.collapse-icon { color: #888; font-size: 0.8em; }
+.btn-toggle {
+  font-size: 0.75em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid #444;
+  background: #252545;
+  color: #aaa;
+  cursor: pointer;
+}
+.btn-toggle:hover { background: #333365; }
+.btn-toggle-active { color: #fff; border-color: #668; background: #2a2a55; }
 .panel-body { padding: 8px 12px; }
 .section { margin-bottom: 16px; }
 .section-title { font-size: 0.8em; text-transform: uppercase; color: #888; margin-bottom: 6px; }

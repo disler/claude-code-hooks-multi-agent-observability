@@ -42,6 +42,17 @@
             <span :class="connected ? 'text-green-400' : 'text-red-400'">{{ connected ? 'Live' : 'Disconnected' }}</span>
           </div>
 
+          <!-- System versions gear -->
+          <button
+            class="text-xs border rounded px-2 py-1 transition-colors flex items-center gap-1"
+            :class="showVersionPanel ? 'text-blue-300 border-blue-500 bg-blue-900/30' : 'text-slate-400 hover:text-slate-200 border-slate-600 hover:border-slate-400'"
+            @click="showVersionPanel = !showVersionPanel"
+            title="System versions"
+          >
+            <span>&#9881;</span>
+            <span v-if="versionsHaveUpdates" class="text-amber-400" title="Updates available">&#9888;</span>
+          </button>
+
           <!-- Review Board toggle -->
           <button
             class="text-xs border rounded px-2 py-1 transition-colors"
@@ -91,7 +102,13 @@
 
     <!-- Body -->
     <main v-if="!showReviewBoard" class="px-4 py-4 max-w-7xl mx-auto">
-      <SystemVersionPanel />
+      <SystemVersionPanel
+        v-if="showVersionPanel"
+        :repo-filter="repoFilter"
+        :host-filter="hostFilter"
+        :connection-filter="connectionFilter"
+        @has-updates="versionsHaveUpdates = $event"
+      />
 
       <div v-if="filteredHosts.size === 0" class="text-slate-500 text-sm italic mt-8 text-center">
         No containers connected yet. Start a devcontainer with planq-daemon.py configured.
@@ -126,6 +143,8 @@ import ReviewBoard from './components/ReviewBoard.vue'
 const { byHost, summary, handleMessage, containers } = useContainers()
 const { load: loadAliases } = useHostnameAliases()
 const showReviewBoard = ref(getParam('review') === '1')
+const showVersionPanel = ref(false)
+const versionsHaveUpdates = ref(false)
 const gitRepo = ref<string | null>(null)
 const gitFocusHash = ref<string | null>(null)
 const historyContainerId = ref<string | null>(null)
