@@ -59,6 +59,7 @@
 
       <!-- Status filters -->
       <div class="flex items-center gap-1 mb-1 flex-wrap">
+        <span class="text-xs text-slate-600 shrink-0">status:</span>
         <button
           v-for="f in statusFilters"
           :key="f.status"
@@ -79,6 +80,32 @@
           @click="activeFilters.clear()"
           class="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-600"
           title="Clear work status filter"
+        >✕</button>
+      </div>
+
+      <!-- Type filters -->
+      <div v-if="typeFilters.some(f => f.count > 0)" class="flex items-center gap-1 mb-1 flex-wrap">
+        <span class="text-xs text-slate-600 shrink-0">type:</span>
+        <button
+          v-for="f in typeFilters.filter(f => f.count > 0)"
+          :key="f.type"
+          @click.exact="toggleTypeFilterExclusive(f.type)"
+          @click.ctrl.exact="toggleTypeFilter(f.type)"
+          @click.meta.exact="toggleTypeFilter(f.type)"
+          :title="`${f.label} (${f.count}) — click to filter, Ctrl/Cmd+click to multi-select`"
+          class="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-all"
+          :class="activeTypeFilters.size === 0 || activeTypeFilters.has(f.type)
+            ? [f.activeClass, 'opacity-100']
+            : 'bg-slate-800 text-slate-600 opacity-50'"
+        >
+          <span>{{ f.icon }}</span>
+          <span>{{ f.count }}</span>
+        </button>
+        <button
+          v-if="activeTypeFilters.size > 0"
+          @click="activeTypeFilters.clear()"
+          class="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-600"
+          title="Clear type filter"
         >✕</button>
       </div>
 
@@ -279,6 +306,7 @@ const sortedTasks = computed(() => {
 const filteredTasks = computed(() => {
   let list = sortedTasks.value
   if (activeFilters.size > 0) list = list.filter(t => activeFilters.has(t.status))
+  if (activeTypeFilters.size > 0) list = list.filter(t => activeTypeFilters.has(t.task_type))
   if (activeReviewFilters.size > 0) list = list.filter(t => activeReviewFilters.has(t.review_status ?? 'none'))
   return list
 })
@@ -322,6 +350,42 @@ const statusFilters = computed(() =>
   STATUS_FILTER_DEFS.map(f => ({
     ...f,
     count: props.tasks.filter(t => t.status === f.status).length,
+  }))
+)
+
+const TYPE_FILTER_DEFS = [
+  { type: 'task',          icon: '📝', label: 'Task',          activeClass: 'bg-blue-900/60 text-blue-300' },
+  { type: 'plan',          icon: '📜', label: 'Plan',          activeClass: 'bg-purple-900/60 text-purple-300' },
+  { type: 'make-plan',     icon: '🗂️', label: 'Make-plan',     activeClass: 'bg-teal-900/60 text-teal-300' },
+  { type: 'investigate',   icon: '🔍', label: 'Investigate',   activeClass: 'bg-indigo-900/60 text-indigo-300' },
+  { type: 'auto-test',     icon: '🧪', label: 'Auto-test',     activeClass: 'bg-yellow-900/60 text-yellow-300' },
+  { type: 'auto-commit',   icon: '⚙️', label: 'Auto-commit',   activeClass: 'bg-green-900/60 text-green-300' },
+  { type: 'manual-test',   icon: '🔬', label: 'Manual-test',   activeClass: 'bg-yellow-900/40 text-yellow-400' },
+  { type: 'manual-commit', icon: '✍️', label: 'Manual-commit', activeClass: 'bg-orange-900/60 text-orange-300' },
+  { type: 'manual-task',   icon: '👤', label: 'Manual-task',   activeClass: 'bg-slate-700 text-slate-300' },
+  { type: 'unnamed-task',  icon: '💬', label: 'Unnamed-task',  activeClass: 'bg-blue-900/40 text-blue-400' },
+]
+
+const activeTypeFilters = reactive(new Set<string>())
+
+function toggleTypeFilter(type: string) {
+  if (activeTypeFilters.has(type)) activeTypeFilters.delete(type)
+  else activeTypeFilters.add(type)
+}
+
+function toggleTypeFilterExclusive(type: string) {
+  if (activeTypeFilters.size === 1 && activeTypeFilters.has(type)) {
+    activeTypeFilters.clear()
+  } else {
+    activeTypeFilters.clear()
+    activeTypeFilters.add(type)
+  }
+}
+
+const typeFilters = computed(() =>
+  TYPE_FILTER_DEFS.map(f => ({
+    ...f,
+    count: props.tasks.filter(t => t.task_type === f.type).length,
   }))
 )
 
