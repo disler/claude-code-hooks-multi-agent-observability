@@ -1850,6 +1850,8 @@ usage() {
     echo "  archive / a [N|…] [--unarchive|-U <N|…>]      Archive done tasks; -a flag on list/show for archive"
     echo "  daemon  / d [start|stop|restart|status]        Manage the planq WebSocket daemon"
     echo "  logs    / L [-c] [-f] [-n <N>]                Show daemon log (default: tail)"
+    echo "  review  <state|notes <text>|status>            Set/show worktree-level review state"
+    echo "  set-review <N|file> <status>                   Set task-level review status (none|ready|testing|passed|has-issues|fix-scheduled|follow-up|revert-scheduled|ready-for-merge|merged|cancelled|retry-later)"
     echo "  shell   / sh                                   Interactive planq REPL"
     echo ""
     echo "Task types:"
