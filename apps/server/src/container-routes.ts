@@ -214,9 +214,8 @@ async function handleSessionLogPush(ws: any, msg: any): Promise<void> {
   }
 
   try {
+    console.log(`[session_log_push] ${sessionId.slice(0, 8)}: received lines ${lineOffset}–${lineOffset + lineCount - 1}${isComplete ? ' (complete)' : ''}`);
     await writeSessionLogFile(sessionId, containerId, container.source_repo, lineOffset, lineCount, content, isComplete);
-    // (verbose; uncomment to trace chunk receipt)
-    // console.log(`[session_log_push] ${sessionId}: wrote lines ${lineOffset}–${lineOffset + lineCount - 1}${isComplete ? ' (complete)' : ''}`);
   } catch (e) {
     console.error(`[session_log_push] Error writing ${sessionId}:`, e);
   }
@@ -367,7 +366,7 @@ function ensureContainerFromEvent(sourceApp: string, sessionId: string, dc?: Dev
     const machineMatches = machineHostname !== 'unknown' && row.machine_hostname === machineHostname;
 
     if (containerMatches || machineMatches || !hasExplicitHost) {
-      console.log(`[ensureContainer] ${evCtx}: correctly claimed by id=${row.id} host=${row.machine_hostname} container=${row.container_hostname}`);
+      // correctly claimed — no log needed
       return;
     }
 
@@ -767,7 +766,7 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
         }
       }
     } else if (mergedSessionIds.length === 0) {
-      console.log(`[heartbeat] ${hbCtx}: daemon reported 0 sessions, skipping unknown-stub cleanup`);
+      // 0 sessions — skip unknown-stub cleanup
     }
 
     // Upsert incremental git commits sent by daemon
@@ -865,8 +864,14 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
     if (slPending) {
       clearTimeout(slPending.timer);
       pendingSessionLogRequests.delete(msg.request_id);
-      if (msg.ok === false) slPending.reject(new Error(msg.error || 'Session log read failed'));
-      else slPending.resolve(msg);
+      if (msg.ok === false) {
+        console.log(`[session_log_read] relay response error for req=${msg.request_id}: ${msg.error}`);
+        slPending.reject(new Error(msg.error || 'Session log read failed'));
+      } else {
+        const lineCount = (msg.content ?? '').split('\n').filter(Boolean).length;
+        console.log(`[session_log_read] relay response for req=${msg.request_id}: ${lineCount} lines`);
+        slPending.resolve(msg);
+      }
       return;
     }
     const pending = pendingFileRequests.get(msg.request_id);
@@ -1115,6 +1120,7 @@ async function relaySessionLogChunk(
       reject(new Error('Session log read timeout'));
     }, 20_000);
     pendingSessionLogRequests.set(requestId, { resolve, reject, timer });
+    console.log(`[session_log_read] relaying req=${requestId} session=${sessionId.slice(0, 8)} offset=${lineOffset} limit=${clampedLimit}`);
     ws.send(JSON.stringify({ type: 'session_log_read', request_id: requestId, session_id: sessionId, line_offset: lineOffset, limit: clampedLimit }));
   });
 
