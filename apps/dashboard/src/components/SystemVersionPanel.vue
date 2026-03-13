@@ -114,8 +114,12 @@
         v-if="tooltip.visible"
         class="stamp-popup"
         :style="{ top: tooltip.y + 'px', left: tooltip.x + 'px' }"
-        @click.stop="tooltip.visible = false"
-      >{{ tooltip.text }}</div>
+        @click.stop
+      >
+        <button class="popup-close-btn" @click.stop="tooltip.visible = false">✕</button>
+        <button class="popup-copy-btn" @click.stop="copyPopup">⎘</button>
+        <pre class="popup-content">{{ tooltip.text }}</pre>
+      </div>
     </Teleport>
   </div>
 </template>
@@ -339,6 +343,10 @@ function showTooltip(event: MouseEvent, text: string) {
   };
 }
 
+async function copyPopup() {
+  try { await navigator.clipboard.writeText(tooltip.value.text); } catch {}
+}
+
 // Compute the longest common path prefix for worktrees on each host.
 const hostPathPrefixes = computed(() => {
   const byHost = new Map<string, string[]>();
@@ -474,11 +482,30 @@ onUnmounted(() => {
   border: 1px solid #555;
   border-radius: 4px;
   padding: 6px 10px;
+  padding-top: 24px;
   font-size: 0.8em;
   color: #ccc;
-  white-space: pre;
-  pointer-events: none;
-  max-width: 320px;
+  max-width: 360px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.5);
 }
+.popup-content {
+  margin: 0;
+  white-space: pre;
+  user-select: text;
+  cursor: text;
+}
+.popup-close-btn, .popup-copy-btn {
+  position: absolute;
+  top: 4px;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 0.9em;
+  padding: 0 4px;
+  line-height: 1;
+}
+.popup-close-btn { right: 4px; }
+.popup-copy-btn  { right: 24px; }
+.popup-close-btn:hover, .popup-copy-btn:hover { color: #fff; }
 </style>
