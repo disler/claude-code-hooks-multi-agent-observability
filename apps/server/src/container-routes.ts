@@ -2047,12 +2047,21 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       versions: c.versions,
     }));
     const host_source_reports = getAllHostSourceReports();
-    // Read this server's own devcontainer stamps as the reference baseline
+    // Read the canonical reference stamp for the given component.
+    // Priority:
+    //   1. ~/.local/devcontainer-sandbox/versions/<name>  — written by apply-daemon/apply-shell
+    //      on the host each time components are updated across projects.  Always reflects the
+    //      most recently applied version, regardless of whether the sandbox repo itself is a
+    //      registered project.
+    //   2. /workspace/.devcontainer/versions/<name>       — the server container's own stamp
+    //   3. Relative to server source (devcontainer-sandbox repo's .devcontainer/versions/)
     async function readServerStamp(name: string): Promise<string | null> {
+      const homeDir = process.env.HOME || '';
       const candidates = [
+        homeDir ? homeDir + '/.local/devcontainer-sandbox/versions/' + name : '',
         '/workspace/.devcontainer/versions/' + name,
         new URL('../../../../.devcontainer/versions/' + name, import.meta.url).pathname,
-      ];
+      ].filter(Boolean);
       for (const p of candidates) {
         try { return (await Bun.file(p).text()).trim(); } catch {}
       }
