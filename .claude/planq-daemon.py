@@ -644,7 +644,7 @@ def _handle_file_read(ws, msg: dict):
     target = WORKSPACE_ROOT / 'plans' / filename
     try:
         content = target.read_text() if target.exists() else ''
-        _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': True, 'filename': filename, 'content': content})
+        _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': True, 'filename': filename, 'content': content}, _PRIO_RELAY)
     except OSError as e:
         _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': str(e), 'content': ''})
 
@@ -681,7 +681,6 @@ def _handle_session_log_read(ws, msg: dict):
             total_lines = len(lines)
             chunk = lines[line_offset:line_offset + limit]
             log.info('[session_log_read] sending %d lines (total=%d) for session=%s', len(chunk), total_lines, session_id[:8])
-            # Use PRIO_CONTROL: server has a live HTTP request waiting on this response
             _ws_send(ws, {
                 'type': 'file_read_response',
                 'request_id': request_id,
@@ -690,7 +689,7 @@ def _handle_session_log_read(ws, msg: dict):
                 'line_offset': line_offset,
                 'line_count': len(chunk),
                 'total_lines': total_lines,
-            })
+            }, _PRIO_RELAY)
         else:
             log.info('[session_log_read] session not found: %s', session_id[:8])
             _ws_send(ws, {'type': 'file_read_response', 'request_id': request_id, 'ok': False, 'error': 'session log not found', 'content': ''})
@@ -841,8 +840,9 @@ def _handle_file_write_new(ws, msg: dict):
 
 # ── Outbound send queue ───────────────────────────────────────────────────────
 # Priority constants: lower value = higher priority.
-_PRIO_CONTROL = 0  # heartbeats, acks, small responses — must not be delayed
-_PRIO_DATA    = 1  # file reads, session log pushes — potentially large
+_PRIO_CONTROL = 0  # heartbeats, acks — must not be delayed
+_PRIO_RELAY   = 1  # relay responses (file/session_log reads) — server has live request waiting
+_PRIO_DATA    = 2  # background pushes (session log chunks) — potentially large
 
 # Per-connection enqueue function; replaced at on_open, cleared at on_close.
 # Signature: _ws_enqueue(serialized: str, priority: int) -> None
