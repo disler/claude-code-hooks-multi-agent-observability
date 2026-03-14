@@ -43,6 +43,10 @@ export function useExpandedTasks() {
     cachedContent.set(key, content)
   }
 
+  function clearCached(key: string): void {
+    cachedContent.delete(key)
+  }
+
   function isFeedbackOpen(key: string): boolean {
     return openFeedbackKeys.value.has(key)
   }
@@ -62,5 +66,5 @@ export function useExpandedTasks() {
     cachedFeedback.set(key, content)
   }
 
-  return { isOpen, toggle, close, getCached, setCached, isFeedbackOpen, toggleFeedback, getFeedbackCached, setFeedbackCached }
+  return { isOpen, toggle, close, getCached, setCached, clearCached, isFeedbackOpen, toggleFeedback, getFeedbackCached, setFeedbackCached }
 }

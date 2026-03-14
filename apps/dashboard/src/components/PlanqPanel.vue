@@ -258,7 +258,7 @@
       :container-id="containerId"
       :filename="editingFile.filename!"
       @close="editingFile = null"
-      @saved="editingFile = null"
+      @saved="clearCached(editingFile!.filename!); editingFile = null"
     />
     <PlanqFileEditor
       v-if="archiveViewingFile"
@@ -275,6 +275,7 @@ import { ref, computed, reactive } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
 import { useContainers } from '../composables/useContainers'
 import { usePlanqPanelState } from '../composables/usePanelState'
+import { useExpandedTasks } from '../composables/useExpandedTasks'
 import PlanqTaskRow from './PlanqTaskRow.vue'
 import AddTaskDialog from './AddTaskDialog.vue'
 import PlanqFileEditor from './PlanqFileEditor.vue'
@@ -294,6 +295,7 @@ const emit = defineEmits<{
 
 const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder, fetchArchive: apiFetchArchive, archiveTask: apiArchiveTask, archiveDone: apiArchiveDone, respondToAutoTest: apiRespondAutoTest } = usePlanq()
 const { updatePlanqTaskOptimistic } = useContainers()
+const { clearCached } = useExpandedTasks()
 
 const { open, toggle: toggleOpen } = usePlanqPanelState(props.containerId)
 const showAddDialog = ref(false)
