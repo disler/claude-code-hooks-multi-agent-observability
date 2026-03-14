@@ -816,6 +816,8 @@ cmd_run() {
             printf "  Task: %s\n" "$task_value"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo ""
+            _mark_underway "$line_num" "$task_line"
+            _notify_daemon
             read -r -p "Press Enter when done (or Ctrl+C to abort): "
             _mark_done "$line_num" "$task_line"
             echo "Marked as done."
@@ -1470,7 +1472,22 @@ _run_task_inline() {
             printf "  Task: %s\n" "$task_value"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo ""
-            read -r -p "Press Enter when done (or Ctrl+C to abort): "
+            echo "  Mark done in the dashboard, or run: planq mark done <task>"
+            echo "  To cancel: planq mark inactive <task>"
+            # Poll until the task is no longer underway (done or marked inactive from dashboard)
+            while true; do
+                sleep 3
+                local ml_line
+                ml_line="$(awk -v n="$line_num" 'NR == n { print; exit }' "$PLANQ_FILE" 2>/dev/null || true)"
+                ml_line="${ml_line#"${ml_line%%[![:space:]]*}"}"
+                [[ "$ml_line" == "# underway: "* ]] || break
+            done
+            # If already marked done/inactive via dashboard, skip _mark_done below
+            if [[ "$ml_line" != "# underway: "* ]]; then
+                _auto_set_review_ready
+                _notify_daemon
+                return 0
+            fi
             ;;
         *)
             echo "Error: Unknown task type '$task_type' in: $task_line" >&2
