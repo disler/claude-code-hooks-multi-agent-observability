@@ -43,7 +43,6 @@ import {
   getSessionLogsByContainer,
   listSessionLogsOlderThan,
   deleteSessionLogs,
-  resolveTaskLinks,
   type ChangeRequest,
   type ContainerRow,
   type PlanqTaskRow,
@@ -721,9 +720,6 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       // Re-apply unacked dashboard changes so they survive the heartbeat wipe.
       reapplyPendingChangesToProjection(containerId);
       setPlanqLastSynced(containerId, msg.planq_order);
-      // Re-resolve parent task links after every sync (syncPlanqTasksFromParsed wipes them)
-      const cache = plansFilesCache.get(containerId);
-      if (cache) resolveTaskLinks(containerId, cache);
     }
 
     // Delete same-container stubs — same physical Docker container absorbed into heartbeat container.
@@ -813,8 +809,6 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
         for (const filename of msg.plans_files_deleted as string[]) cache.delete(filename);
       }
       plansFilesCacheReady.add(containerId);
-      // Re-resolve task links whenever plan files change (follow-up:/fix-required: lines may differ)
-      resolveTaskLinks(containerId, cache);
     }
 
     // Broadcast to dashboard clients only when something changed
@@ -1763,8 +1757,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const { task_type, description, create_file, auto_commit, commit_mode, plan_disposition, auto_queue_plan, parent_task_id, link_type: rawLinkType } = body;
-    const linkType: 'follow-up' | 'fix-required' | undefined = ['follow-up', 'fix-required'].includes(rawLinkType) ? rawLinkType : undefined;
+    const { task_type, description, create_file, auto_commit, commit_mode, plan_disposition, auto_queue_plan, parent_task_id } = body;
     let { filename } = body;
     if (!task_type) return err('task_type required');
 
@@ -1788,6 +1781,16 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       await relayFileWrite(containerId, filename, description).catch(() => {});
     }
 
+    // Resolve parent task key for subtask insertion (used by daemon to place it after the parent)
+    let parentTaskKey: string | undefined;
+    if (parent_task_id) {
+      const parentTask = getPlanqTasks(containerId).find(t => t.id === parent_task_id);
+      if (parentTask) {
+        updatePlanqTask(task.id, { parent_task_id, link_type: 'follow-up' });
+        parentTaskKey = parentTask.filename ?? parentTask.description ?? undefined;
+      }
+    }
+
     sendApplyChanges(containerId, [{
       id: crId(), type: 'add_task', source: 'dashboard', timestamp: Date.now() / 1000,
       task_key: task.filename ?? task.description,
@@ -1795,27 +1798,9 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
         task_type: task.task_type, filename: task.filename, description: task.description,
         status: task.status, commit_mode: task.commit_mode,
         plan_disposition: task.plan_disposition, auto_queue_plan: task.auto_queue_plan,
+        parent_task_key: parentTaskKey,
       },
     }]);
-
-    // If this is a subtask, link it to the parent (always), and write the link line to the parent file (only for file-based tasks)
-    if (parent_task_id && linkType) {
-      updatePlanqTask(task.id, { parent_task_id, link_type: linkType });
-      if (task.filename) {
-        const parentTask = getPlanqTasks(containerId).find(t => t.id === parent_task_id);
-        if (parentTask?.filename && containerWsMap.has(containerId)) {
-          const cache = plansFilesCache.get(containerId);
-          const parentContent = cache?.get(parentTask.filename) ?? '';
-          const linkLine = `${linkType}: ${task.filename}`;
-          if (!parentContent.includes(linkLine)) {
-            const trimmed = parentContent.trimEnd();
-            const newParentContent = trimmed + (trimmed ? '\n' : '') + `${linkLine}\n`;
-            if (cache) cache.set(parentTask.filename, newParentContent);
-            relayFileWrite(containerId, parentTask.filename, newParentContent).catch(() => {});
-          }
-        }
-      }
-    }
 
     broadcastDashboard({ type: 'planq_update', data: { container_id: containerId, tasks: getPlanqTasks(containerId) } });
     return json(task, 201);

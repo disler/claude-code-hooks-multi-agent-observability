@@ -1069,11 +1069,25 @@ def _strip_status_prefix(line: str) -> str:
     return s
 
 
+import re as _re
+
+def _strip_depth_prefix(s: str) -> tuple[int, str]:
+    """Strip the optional depth prefix '(  )*- ' from a string (after status prefix removed).
+    Returns (depth, rest) where depth >= 1 if a prefix was found, else 0."""
+    m = _re.match(r'^((?:  )*)- (.*)', s)
+    if m:
+        depth = len(m.group(1)) // 2 + 1
+        return depth, m.group(2)
+    return 0, s
+
+
 def _task_key_from_line(line: str) -> str | None:
     """Extract the canonical task key (filename or description) from a planq-order line."""
-    raw = _strip_status_prefix(line)
-    if raw.startswith('#') or not raw:
+    after_status = _strip_status_prefix(line)
+    if after_status.startswith('#') or not after_status:
         return None
+    # Strip depth prefix (e.g. "- " or "  - ") before parsing task type
+    _depth, raw = _strip_depth_prefix(after_status)
     colon = raw.find(':')
     if colon < 0:
         return None
@@ -1221,6 +1235,7 @@ def _apply_add_task(payload: dict) -> None:
     commit_mode = payload.get('commit_mode', 'none')
     plan_disposition = payload.get('plan_disposition', 'manual')
     auto_queue_plan = payload.get('auto_queue_plan', False)
+    parent_task_key = payload.get('parent_task_key')
 
     value = filename if filename else (description or '')
     if task_type == 'make-plan':
@@ -1237,11 +1252,45 @@ def _apply_add_task(payload: dict) -> None:
     elif commit_mode == 'manual':
         value += ' +manual-commit'
 
-    prefix = _STATUS_PREFIX_MAP.get(status, '')
-    line = prefix + task_type + ': ' + value + '\n'
+    status_prefix = _STATUS_PREFIX_MAP.get(status, '')
 
     with _planq_file_lock:
         lines = _read_planq_lines()
+
+        if parent_task_key:
+            # Find the parent line and determine its depth
+            parent_idx = None
+            parent_depth = 0
+            for i, raw_line in enumerate(lines):
+                if _task_key_from_line(raw_line) == parent_task_key:
+                    parent_idx = i
+                    after_status = _strip_status_prefix(raw_line)
+                    parent_depth, _ = _strip_depth_prefix(after_status)
+                    break
+
+            if parent_idx is not None:
+                child_depth = parent_depth + 1
+                depth_prefix = '  ' * (child_depth - 1) + '- '
+                line = status_prefix + depth_prefix + task_type + ': ' + value + '\n'
+
+                # Find insertion point: after last descendant of parent's subtree
+                insert_after = parent_idx
+                for j in range(parent_idx + 1, len(lines)):
+                    raw = lines[j]
+                    if not raw.strip():
+                        continue
+                    after_st = _strip_status_prefix(raw)
+                    d, _ = _strip_depth_prefix(after_st)
+                    if d <= parent_depth:
+                        break
+                    insert_after = j
+
+                lines.insert(insert_after + 1, line)
+                _write_planq_lines(lines)
+                return
+
+        # No parent or parent not found: append at end
+        line = status_prefix + task_type + ': ' + value + '\n'
         lines.append(line)
         _write_planq_lines(lines)
 

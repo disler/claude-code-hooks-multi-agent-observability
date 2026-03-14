@@ -11,6 +11,16 @@
   "dependencies": {
     "vue": "^3.5.17"
   },
+  "optionalDependencies": {
+    "@rollup/rollup-darwin-arm64": "~4.59.0",
+    "@rollup/rollup-darwin-x64": "~4.59.0",
+    "@rollup/rollup-linux-arm64-gnu": "~4.59.0",
+    "@rollup/rollup-linux-arm64-musl": "~4.59.0",
+    "@rollup/rollup-linux-x64-gnu": "~4.59.0",
+    "@rollup/rollup-linux-x64-musl": "~4.59.0",
+    "@rollup/rollup-win32-x64-msvc": "~4.59.0",
+    "@rollup/rollup-win32-arm64-msvc": "~4.59.0"
+  },
   "devDependencies": {
     "@types/node": "^22.11.2",
     "@vitejs/plugin-vue": "^6.0.0",

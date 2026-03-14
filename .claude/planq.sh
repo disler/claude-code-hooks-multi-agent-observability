@@ -412,6 +412,12 @@ _parse_task() {
     # Args: task_line → sets task_type, task_value, task_auto_commit, task_stage_commit, task_manual_commit,
     #       task_add_after, task_add_end, task_auto_queue_plan in caller scope
     local line="$1"
+    # Strip depth prefix "- " (possibly preceded by spaces) before parsing
+    local _leading_sp="${line%%[! ]*}"
+    local _after_sp="${line#"$_leading_sp"}"
+    if [[ "$_after_sp" == "- "* ]]; then
+        line="${_after_sp#"- "}"
+    fi
     task_type="${line%%:*}"
     task_value="${line#*: }"
     task_auto_commit=""
@@ -1179,7 +1185,7 @@ cmd_create() {
     mkdir -p "$PLANS_DIR"
 
     if [ -n "$parent" ]; then
-        # Subtask: insert after the parent task line
+        # Subtask: insert with depth prefix after parent's last descendant
         local parent_info parent_line_num parent_task_line
         parent_info="$(_find_task_by_identifier "$parent")" || true
         if [ -z "$parent_info" ]; then
@@ -1188,33 +1194,48 @@ cmd_create() {
         parent_line_num="${parent_info%%	*}"
         parent_task_line="${parent_info#*	}"
 
+        # Detect parent depth from raw line in file (leading "  " pairs before "- ")
+        local parent_raw_line parent_depth=0
+        parent_raw_line=$(sed -n "${parent_line_num}p" "$PLANQ_FILE")
+        local parent_spaces="${parent_raw_line%%[! ]*}"
+        local parent_after="${parent_raw_line#"$parent_spaces"}"
+        if [[ "$parent_after" == "- "* ]]; then
+            parent_depth=$(( ${#parent_spaces} / 2 + 1 ))
+        fi
+
+        # Build depth prefix for child: (parent_depth)*"  " + "- "
+        local child_depth=$(( parent_depth + 1 ))
+        local depth_prefix
+        depth_prefix=$(printf '%*s' $(( (child_depth - 1) * 2 )) '')
+        depth_prefix="${depth_prefix}- "
+
+        local indented_task_line="${depth_prefix}${task_line}"
+
+        # Find insertion point: after last line in parent's subtree (depth > parent_depth)
+        local insert_after="$parent_line_num"
+        local n=0
+        while IFS= read -r line; do
+            n=$(( n + 1 ))
+            [ "$n" -le "$parent_line_num" ] && continue
+            [ -z "$line" ] && continue
+            local line_spaces="${line%%[! ]*}"
+            local line_after="${line#"$line_spaces"}"
+            local line_depth=0
+            if [[ "$line_after" == "- "* ]]; then
+                line_depth=$(( ${#line_spaces} / 2 + 1 ))
+            fi
+            [ "$line_depth" -le "$parent_depth" ] && break
+            insert_after="$n"
+        done < "$PLANQ_FILE"
+
         local tmp
         tmp="$(mktemp)"
-        awk -v n="$parent_line_num" -v newline="$task_line" \
+        awk -v n="$insert_after" -v newline="$indented_task_line" \
             'NR == n { print; print newline; next } { print }' \
             "$PLANQ_FILE" > "$tmp"
         mv "$tmp" "$PLANQ_FILE"
 
-        # Add link line to parent's plan file (if parent is file-based and this task has a filename)
-        if [ -n "$filename" ]; then
-            local parent_file_part
-            parent_file_part="${parent_task_line#*: }"
-            parent_file_part="${parent_file_part%% +*}"
-            case "$parent_task_line" in
-                task:\ *|plan:\ *|make-plan:\ *|investigate:\ *)
-                    local parent_file="$PLANS_DIR/${parent_file_part}"
-                    if [ -f "$parent_file" ]; then
-                        local link_line="${link_type}: ${filename}"
-                        if ! grep -qF "$link_line" "$parent_file" 2>/dev/null; then
-                            printf '%s\n' "$link_line" >> "$parent_file"
-                            echo "Added link to: plans/${parent_file_part}"
-                        fi
-                    fi
-                    ;;
-            esac
-        fi
-
-        echo "Created subtask (${link_type} → ${parent_task_line%% +*}): $task_line"
+        echo "Created subtask (depth ${child_depth} under ${parent_task_line%% +*}): $task_line"
     else
         printf '%s\n' "$task_line" >> "$PLANQ_FILE"
         echo "Created: $task_line"

@@ -66,6 +66,7 @@ export interface PlanqItem {
   commit_mode: 'none' | 'auto' | 'stage' | 'manual';
   plan_disposition?: 'manual' | 'add-after' | 'add-end';
   auto_queue_plan?: boolean;
+  depth?: number;  // 0 = top-level, 1 = direct subtask, etc.
 }
 
 export function initContainerDatabase(): void {
@@ -463,6 +464,16 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
       continue; // regular comment
     }
 
+    // Detect depth prefix: optional leading "  " pairs followed by "- "
+    // Format: <status_prefix> <depth_prefix> <task_content>
+    // e.g. "# done: - task: foo.md" or "  - unnamed-task: desc"
+    let depth = 0;
+    const depthMatch = activeLine.match(/^((?:  )*)- (.*)/);
+    if (depthMatch) {
+      depth = depthMatch[1]!.length / 2 + 1;
+      activeLine = depthMatch[2]!;
+    }
+
     const colonIdx = activeLine.indexOf(':');
     if (colonIdx < 0) continue;
 
@@ -502,9 +513,9 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
     }
 
     if (taskType === 'task' || taskType === 'plan' || taskType === 'make-plan') {
-      items.push({ task_type: taskType, filename: value, description: null, status, auto_commit, commit_mode, plan_disposition, auto_queue_plan });
+      items.push({ task_type: taskType, filename: value, description: null, status, auto_commit, commit_mode, plan_disposition, auto_queue_plan, depth });
     } else {
-      items.push({ task_type: taskType, filename: null, description: value, status, auto_commit, commit_mode });
+      items.push({ task_type: taskType, filename: null, description: value, status, auto_commit, commit_mode, depth });
     }
   }
   return items;
@@ -512,6 +523,17 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
 
 export function serializePlanqOrder(tasks: PlanqTaskRow[]): string {
   const sorted = [...tasks].sort((a, b) => a.position - b.position);
+  const taskById = new Map<number, PlanqTaskRow>();
+  for (const t of sorted) taskById.set(t.id, t);
+
+  function getDepth(task: PlanqTaskRow, visited = new Set<number>()): number {
+    if (!task.parent_task_id || visited.has(task.id)) return 0;
+    visited.add(task.id);
+    const parent = taskById.get(task.parent_task_id);
+    if (!parent) return 1;
+    return 1 + getDepth(parent, visited);
+  }
+
   const lines: string[] = [];
   for (const t of sorted) {
     let value = t.filename ? `${t.task_type}: ${t.filename}` : `${t.task_type}: ${t.description || ''}`;
@@ -530,6 +552,10 @@ export function serializePlanqOrder(tasks: PlanqTaskRow[]): string {
     else if (t.status === 'awaiting-commit') value = `# awaiting-commit: ${value}`;
     else if (t.status === 'awaiting-plan') value = `# awaiting-plan: ${value}`;
     else if (t.status === 'deferred') value = `# deferred: ${value}`;
+    const depth = getDepth(t);
+    if (depth > 0) {
+      value = '  '.repeat(depth - 1) + '- ' + value;
+    }
     lines.push(value);
   }
   return lines.join('\n') + '\n';
@@ -599,6 +625,40 @@ export function syncPlanqTasksFromParsed(containerId: string, items: PlanqItem[]
     if (!seenIds.has(t.id)) {
       db.prepare('DELETE FROM planq_tasks WHERE id = ?').run(t.id);
     }
+  }
+
+  // Second pass: resolve parent relationships from depth info in the parsed items.
+  // Any item with depth > 0 gets parent_task_id set to the nearest ancestor at depth-1.
+  const allTasks = getPlanqTasks(containerId);
+  const taskByKey = new Map<string, PlanqTaskRow>();
+  for (const t of allTasks) {
+    const k = t.filename ?? t.description ?? '';
+    if (k) taskByKey.set(k, t);
+  }
+
+  // Clear all parent links for this container before re-applying from depth
+  db.prepare('UPDATE planq_tasks SET parent_task_id = NULL, link_type = NULL WHERE container_id = ?').run(containerId);
+
+  // Stack tracks (depth, id) to find the nearest ancestor
+  const stack: Array<{ depth: number; id: number }> = [];
+  for (const item of items) {
+    const depth = item.depth ?? 0;
+    const key = item.filename ?? item.description ?? '';
+    const task = key ? taskByKey.get(key) : undefined;
+    if (!task) continue;
+
+    // Pop stack entries at the same or greater depth — they can't be parents of this item
+    while (stack.length > 0 && stack[stack.length - 1]!.depth >= depth) {
+      stack.pop();
+    }
+
+    if (depth > 0 && stack.length > 0) {
+      const parent = stack[stack.length - 1]!;
+      db.prepare('UPDATE planq_tasks SET parent_task_id = ?, link_type = ? WHERE id = ?')
+        .run(parent.id, 'follow-up', task.id);
+    }
+
+    stack.push({ depth, id: task.id });
   }
 }
 
