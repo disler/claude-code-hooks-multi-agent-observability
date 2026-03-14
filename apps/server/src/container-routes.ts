@@ -186,6 +186,52 @@ async function writeSessionLogFile(
   });
 }
 
+/**
+ * Scan JSONL session log content for references to planq task filenames or descriptions.
+ * Returns task IDs that are mentioned in the content.
+ */
+function findTaskRefsInSessionContent(content: string, containerId: string): number[] {
+  const tasks = getPlanqTasks(containerId);
+  if (tasks.length === 0) return [];
+
+  // Extract all text from JSONL lines (user messages, assistant text, tool inputs)
+  const textParts: string[] = [];
+  for (const raw of content.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    try {
+      const obj = JSON.parse(line);
+      const msg = obj.message;
+      if (!msg) continue;
+      const extractContent = (c: any) => {
+        if (typeof c === 'string') { textParts.push(c); return; }
+        if (!Array.isArray(c)) return;
+        for (const part of c) {
+          if (part.type === 'text' && part.text) textParts.push(part.text);
+          else if (part.type === 'tool_use' && part.input) {
+            // tool input values (e.g. Bash command, file path)
+            for (const v of Object.values(part.input as Record<string, any>)) {
+              if (typeof v === 'string') textParts.push(v);
+            }
+          }
+        }
+      };
+      extractContent(msg.content);
+    } catch {}
+  }
+
+  if (textParts.length === 0) return [];
+  const combined = textParts.join('\n');
+
+  // Match tasks whose filename or description appears in the combined text
+  const matched: number[] = [];
+  for (const task of tasks) {
+    const needle = task.filename ?? task.description;
+    if (needle && combined.includes(needle)) matched.push(task.id);
+  }
+  return matched;
+}
+
 /** Handle session_log_push from daemon. */
 async function handleSessionLogPush(ws: any, msg: any): Promise<void> {
   const containerId: string = ws.__containerId;
@@ -222,6 +268,14 @@ async function handleSessionLogPush(ws: any, msg: any): Promise<void> {
     await writeSessionLogFile(sessionId, containerId, container.source_repo, lineOffset, lineCount, content, isComplete);
   } catch (e) {
     console.error(`[session_log_push] Error writing ${sessionId}:`, e);
+  }
+
+  // Link any tasks mentioned in this content chunk to the session
+  if (content) {
+    const linkNow = Math.floor(Date.now() / 1000);
+    for (const taskId of findTaskRefsInSessionContent(content, containerId)) {
+      addTaskSessionLink(taskId, sessionId, linkNow);
+    }
   }
 }
 
@@ -610,13 +664,12 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
           console.log(`[ws-identified] ${ws.__wsLabel}: drained ${pendingChanges.length} pending change(s)`);
         } catch {}
       }
-      // Send session_log_ack so daemon only pushes sessions with new lines
+      // Always send session_log_ack so daemon knows what we have and pushes the rest.
+      // An empty map tells the daemon "I have nothing — push all active sessions."
       const cachedSessions = getSessionLogsByContainer(containerId);
-      if (cachedSessions.length > 0) {
-        const ackMap: Record<string, number> = {};
-        for (const s of cachedSessions) ackMap[s.session_id] = s.total_lines;
-        try { ws.send(JSON.stringify({ type: 'session_log_ack', sessions: ackMap })); } catch {}
-      }
+      const ackMap: Record<string, number> = {};
+      for (const s of cachedSessions) ackMap[s.session_id] = s.total_lines;
+      try { ws.send(JSON.stringify({ type: 'session_log_ack', sessions: ackMap })); } catch {}
     }
 
     const existingContainer = getContainer(containerId);

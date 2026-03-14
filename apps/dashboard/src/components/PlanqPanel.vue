@@ -424,9 +424,6 @@ function filteredChildren(parentId: number): PlanqTask[] {
   return children.filter(c => taskMatchesFilters(c) || anyDescendantMatchesFilters(c.id))
 }
 
-// Keep for backward compat (used in counts/stats below)
-const filteredTasks = computed(() => filteredTasksWithMeta.value.map(m => m.task))
-
 const REVIEW_STATUS_DEFS: Array<{ status: string; icon: string; label: string; activeClass: string }> = [
   { status: 'ready',          icon: '🔵', label: 'Ready',          activeClass: 'bg-blue-900/60 text-blue-300' },
   { status: 'testing',        icon: '🧪', label: 'Testing',        activeClass: 'bg-yellow-900/60 text-yellow-300' },
