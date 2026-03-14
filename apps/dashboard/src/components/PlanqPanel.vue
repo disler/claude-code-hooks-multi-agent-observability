@@ -136,13 +136,14 @@
       </div>
 
       <!-- Task list -->
-      <div v-if="filteredTasks.length > 0">
-        <template v-for="task in filteredTasks" :key="task.id">
+      <div v-if="filteredTasksWithMeta.length > 0">
+        <template v-for="{ task, dimmed } in filteredTasksWithMeta" :key="task.id">
           <PlanqTaskRow
             :task="task"
             :position="tasks.indexOf(task) + 1"
             :container-id="containerId"
             :all-tasks="tasks"
+            :dimmed="dimmed"
             @edit-file="editingFile = task"
             @set-status="(t, s) => setStatus(t, s)"
             @delete="deleteTask(task.id)"
@@ -156,8 +157,8 @@
             @drop="dropOn(task.id)"
             @open-session="sid => emit('open-history', sid)"
           />
-          <!-- Subtasks (children of this task) -->
-          <template v-for="(child, childIdx) in taskChildren.get(task.id) ?? []" :key="child.id">
+          <!-- Subtasks (children of this task), filtered when filters active -->
+          <template v-for="(child, childIdx) in filteredChildren(task.id)" :key="child.id">
             <PlanqTaskRow
               :task="child"
               :position="`${tasks.indexOf(task) + 1}.${childIdx + 1}`"
@@ -180,7 +181,7 @@
           </template>
         </template>
       </div>
-      <div v-else-if="tasks.length > 0 && filteredTasks.length === 0" class="text-xs text-slate-500 italic py-1">No tasks match filter.</div>
+      <div v-else-if="tasks.length > 0 && filteredTasksWithMeta.length === 0" class="text-xs text-slate-500 italic py-1">No tasks match filter.</div>
       <div v-else class="text-xs text-slate-500 italic py-1">No tasks queued.</div>
 
       <!-- Add buttons -->
@@ -387,13 +388,44 @@ const sortedTasks = computed(() => {
   return [...nonDeferred, ...deferred]
 })
 
-const filteredTasks = computed(() => {
-  let list = sortedTasks.value
-  if (activeFilters.size > 0) list = list.filter(t => activeFilters.has(t.status))
-  if (activeTypeFilters.size > 0) list = list.filter(t => activeTypeFilters.has(t.task_type))
-  if (activeReviewFilters.size > 0) list = list.filter(t => activeReviewFilters.has(t.review_status ?? 'none'))
-  return list
+const hasActiveFilters = computed(() =>
+  activeFilters.size > 0 || activeTypeFilters.size > 0 || activeReviewFilters.size > 0
+)
+
+function taskMatchesFilters(t: PlanqTask): boolean {
+  if (activeFilters.size > 0 && !activeFilters.has(t.status)) return false
+  if (activeTypeFilters.size > 0 && !activeTypeFilters.has(t.task_type)) return false
+  if (activeReviewFilters.size > 0 && !activeReviewFilters.has(t.review_status ?? 'none')) return false
+  return true
+}
+
+function anyDescendantMatchesFilters(taskId: number): boolean {
+  const children = taskChildren.value.get(taskId) ?? []
+  return children.some(c => taskMatchesFilters(c) || anyDescendantMatchesFilters(c.id))
+}
+
+// Returns top-level tasks that should be visible, with a flag indicating whether
+// the task is shown only because a descendant matches (in which case it is dimmed).
+const filteredTasksWithMeta = computed((): { task: PlanqTask; dimmed: boolean }[] => {
+  if (!hasActiveFilters.value) return sortedTasks.value.map(t => ({ task: t, dimmed: false }))
+  const result: { task: PlanqTask; dimmed: boolean }[] = []
+  for (const t of sortedTasks.value) {
+    const direct = taskMatchesFilters(t)
+    const childMatch = anyDescendantMatchesFilters(t.id)
+    if (direct || childMatch) result.push({ task: t, dimmed: !direct && childMatch })
+  }
+  return result
 })
+
+// When filters are active, only show subtasks that match or have matching descendants.
+function filteredChildren(parentId: number): PlanqTask[] {
+  const children = taskChildren.value.get(parentId) ?? []
+  if (!hasActiveFilters.value) return children
+  return children.filter(c => taskMatchesFilters(c) || anyDescendantMatchesFilters(c.id))
+}
+
+// Keep for backward compat (used in counts/stats below)
+const filteredTasks = computed(() => filteredTasksWithMeta.value.map(m => m.task))
 
 const REVIEW_STATUS_DEFS: Array<{ status: string; icon: string; label: string; activeClass: string }> = [
   { status: 'ready',          icon: '🔵', label: 'Ready',          activeClass: 'bg-blue-900/60 text-blue-300' },

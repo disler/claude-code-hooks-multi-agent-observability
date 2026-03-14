@@ -2,7 +2,7 @@
   <div class="flex flex-col" :class="isChild ? 'pl-5 border-l border-slate-700/60 ml-1' : ''">
   <div
     class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-slate-700/50 group"
-    :class="{ 'opacity-50': task.status === 'done', 'opacity-40 grayscale': task.status === 'deferred', 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue', 'bg-purple-900/20': task.status === 'awaiting-commit', 'bg-teal-900/20': task.status === 'awaiting-plan' }"
+    :class="{ 'opacity-50': task.status === 'done', 'opacity-40 grayscale': task.status === 'deferred' || dimmed, 'bg-yellow-900/20': task.status === 'underway', 'bg-cyan-900/20': task.status === 'auto-queue', 'bg-purple-900/20': task.status === 'awaiting-commit', 'bg-teal-900/20': task.status === 'awaiting-plan' }"
     :draggable="!isChild"
     @dragstart="!isChild && emit('dragstart', task.id)"
     @dragenter.prevent
@@ -260,6 +260,7 @@ const props = defineProps<{
   allTasks?: PlanqTask[]
   isChild?: boolean
   linkType?: 'follow-up' | 'fix-required' | 'check' | 'other' | null
+  dimmed?: boolean
 }>()
 
 const emit = defineEmits<{
