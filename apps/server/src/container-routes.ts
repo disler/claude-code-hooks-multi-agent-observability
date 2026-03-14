@@ -43,6 +43,11 @@ import {
   getSessionLogsByContainer,
   listSessionLogsOlderThan,
   deleteSessionLogs,
+  addTaskSessionLink,
+  addCommitSessionLink,
+  getSessionsForTask,
+  getTasksForSession,
+  getCommitsForSession,
   type ChangeRequest,
   type ContainerRow,
   type PlanqTaskRow,
@@ -720,6 +725,19 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       // Re-apply unacked dashboard changes so they survive the heartbeat wipe.
       reapplyPendingChangesToProjection(containerId);
       setPlanqLastSynced(containerId, msg.planq_order);
+
+      // Record which sessions were running while each underway task was active.
+      const runningSessions: string[] = Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [];
+      if (runningSessions.length > 0) {
+        const linkNow = Math.floor(Date.now() / 1000);
+        for (const t of getPlanqTasks(containerId)) {
+          if (t.status === 'underway') {
+            for (const sid of runningSessions) {
+              addTaskSessionLink(t.id, sid, linkNow);
+            }
+          }
+        }
+      }
     }
 
     // Delete same-container stubs — same physical Docker container absorbed into heartbeat container.
@@ -767,7 +785,8 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
 
     // Upsert incremental git commits sent by daemon
     if (Array.isArray(msg.git_commits) && msg.git_commits.length > 0) {
-      upsertGitCommits(sourceRepo, msg.git_commits);
+      const runningSidsForCommits: string[] = Array.isArray(msg.running_session_ids) ? msg.running_session_ids : [];
+      upsertGitCommits(sourceRepo, msg.git_commits, runningSidsForCommits);
       upsertGitCommitRefs(sourceRepo, container.machine_hostname, msg.git_commits);
       // Record that this host has new commits (for auto-fetch polling)
       if (!branchLastCommit.has(sourceRepo)) branchLastCommit.set(sourceRepo, new Map());
@@ -2089,6 +2108,34 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       console.log(`[restart-planq] send failed for ${containerId}: ${e.message}`);
       return err(e.message || 'Send failed', 503);
     }
+  }
+
+  // GET /planq/:containerId/tasks/:taskId/sessions — sessions associated with a task
+  if (pathname.match(/^\/planq\/[^/]+\/tasks\/\d+\/sessions$/) && method === 'GET') {
+    const parts = pathname.split('/');
+    const taskId = parseInt(parts[4] ?? '', 10);
+    const sessionIds = getSessionsForTask(taskId);
+    return json({ session_ids: sessionIds });
+  }
+
+  // GET /planq/:containerId/sessions/:sessionId/tasks — tasks associated with a session
+  if (pathname.match(/^\/planq\/[^/]+\/sessions\/[^/]+\/tasks$/) && method === 'GET') {
+    const parts = pathname.split('/');
+    const containerId = decodeURIComponent(parts[2] ?? '');
+    const sessionId = decodeURIComponent(parts[4] ?? '');
+    const tasks = getTasksForSession(containerId, sessionId);
+    return json({ tasks });
+  }
+
+  // GET /planq/:containerId/sessions/:sessionId/commits — commits associated with a session
+  if (pathname.match(/^\/planq\/[^/]+\/sessions\/[^/]+\/commits$/) && method === 'GET') {
+    const parts = pathname.split('/');
+    const containerId = decodeURIComponent(parts[2] ?? '');
+    const sessionId = decodeURIComponent(parts[4] ?? '');
+    const container = getContainer(containerId);
+    if (!container) return err('Container not found', 404);
+    const hashes = getCommitsForSession(container.source_repo, sessionId);
+    return json({ hashes });
   }
 
   return null; // not handled

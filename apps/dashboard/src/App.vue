@@ -88,6 +88,7 @@
       :git-refresh-signal="gitRefreshSignal"
       @close="gitRepo = null; gitFocusHash = null"
       @switch-repo="(repo, hash) => { gitRepo = repo; gitFocusHash = hash ?? null }"
+      @open-history="openHistoryBySession"
     />
 
     <!-- Review Board (replaces body when active) -->
@@ -233,5 +234,15 @@ function openGitView(repo: string, hash?: string | null) {
 function openHistory(containerId: string, sessionId: string) {
   historyContainerId.value = containerId
   historySessionId.value = sessionId
+}
+
+function openHistoryBySession(sessionId: string) {
+  // Find which container owns this session (check active_session_ids)
+  for (const c of containers.value.values()) {
+    if (c.active_session_ids.includes(sessionId) || c.sessions.some(s => s.session_id === sessionId)) {
+      openHistory(c.id, sessionId)
+      return
+    }
+  }
 }
 </script>

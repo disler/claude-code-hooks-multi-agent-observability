@@ -144,6 +144,10 @@ _plans_watcher_debounce_lock = threading.Lock()
 _submodule_known_hashes: dict = {}
 _submodule_known_hashes_lock = threading.Lock()
 
+# Last HEAD hash seen per repo, used to annotate new commits with running sessions.
+# { source_repo -> str }  (no lock needed — only written/read from heartbeat thread)
+_last_known_head: dict = {}
+
 def _handle_sigusr1(signum, frame):
     log.debug('Received SIGUSR1 — scheduling immediate heartbeat')
     _immediate_heartbeat.set()
@@ -499,6 +503,32 @@ def _git_log_incremental() -> list:
                 seen.add(tip['hash'])
 
     return commits
+
+
+def _annotate_commits_with_sessions(commits: list, repo_key: str, running_sessions: list) -> list:
+    """Attach session_ids to commits that are new since last heartbeat.
+
+    Commits are in reverse-chronological order (newest first).  We compare the
+    newest commit hash against _last_known_head[repo_key].  Commits that appear
+    before the last-known HEAD are considered new and get the running sessions
+    attached; others (re-fetched tip refreshes) get an empty list.
+    After processing, update _last_known_head to the newest commit hash.
+    """
+    global _last_known_head
+    prev_head = _last_known_head.get(repo_key)
+    result = []
+    for c in commits:
+        annotated = dict(c)
+        # A commit is "new" if we haven't seen it as the HEAD before.
+        # We stop marking new once we hit the previous head.
+        if prev_head is None or c['hash'] != prev_head:
+            annotated['session_ids'] = running_sessions
+        else:
+            annotated['session_ids'] = []
+        result.append(annotated)
+    if commits:
+        _last_known_head[repo_key] = commits[0]['hash']  # newest first
+    return result
 
 
 def _http_base_url() -> str:
@@ -1407,8 +1437,14 @@ def _send_heartbeat(ws_app):
             active_ids.append(sid)
 
     auto_test = _auto_test_pending()
-    git_commits = _git_log_incremental()
-    submodule_commits = _git_log_for_submodules()
+    git_commits = _annotate_commits_with_sessions(
+        _git_log_incremental(), source_repo, running_ids
+    )
+    raw_submodule_commits = _git_log_for_submodules()
+    submodule_commits = {
+        repo: _annotate_commits_with_sessions(commits, repo, running_ids)
+        for repo, commits in raw_submodule_commits.items()
+    }
     review = _review_state()
     plans_files, plans_files_deleted = _plans_files_snapshot()
 

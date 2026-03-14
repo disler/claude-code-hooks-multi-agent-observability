@@ -19,6 +19,12 @@
         <button class="font-mono text-yellow-400 hover:text-yellow-300 cursor-pointer" @click="$emit('switch-to-graph', c.git_commit_hash)">{{ c.git_commit_hash.slice(0, 8) }}</button>
         <span class="text-slate-400 truncate">{{ headCommitSubject(c.git_commit_hash) }}</span>
         <button
+          v-if="headCommitSessions(c.git_commit_hash).length"
+          @click="emit('open-session', headCommitSessions(c.git_commit_hash)[headCommitSessions(c.git_commit_hash).length - 1])"
+          class="text-indigo-400 hover:text-indigo-200 shrink-0 text-xs"
+          :title="`${headCommitSessions(c.git_commit_hash).length} linked session(s)`"
+        >💬</button>
+        <button
           v-if="c.git_commit_hash"
           @click="$emit('select-hash', c.git_commit_hash)"
           class="text-slate-500 hover:text-slate-300 shrink-0"
@@ -85,10 +91,11 @@ const props = defineProps<{
   diffstat: string
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   'select-hash': [hash: string]
   'switch-to-graph': [hash: string]
   'switch-to-graph-sub': [subPath: string, hash: string]
+  'open-session': [sessionId: string]
 }>()
 
 const flashId = ref<string | null>(null)
@@ -112,6 +119,10 @@ const sortedContainers = computed(() => {
 
 function headCommitSubject(hash: string): string {
   return props.commits.find(c => c.hash.startsWith(hash) || hash.startsWith(c.hash))?.subject ?? ''
+}
+
+function headCommitSessions(hash: string): string[] {
+  return props.commits.find(c => c.hash.startsWith(hash) || hash.startsWith(c.hash))?.session_ids ?? []
 }
 
 function scrollToContainer(id: string) {

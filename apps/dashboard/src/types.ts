@@ -39,6 +39,7 @@ export interface PlanqTask {
   review_status: ReviewStatus
   parent_task_id: number | null
   link_type: 'follow-up' | 'fix-required' | 'check' | 'other' | null
+  session_ids: string[]
 }
 
 export interface PlanqItem {
@@ -91,6 +92,7 @@ export interface GitCommit {
   subject: string
   author?: string
   author_date?: number
+  session_ids?: string[]
 }
 
 export interface GitContainer {

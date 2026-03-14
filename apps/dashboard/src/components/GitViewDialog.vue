@@ -124,6 +124,7 @@
               :source-host="browserHost ?? undefined"
               :source-repo="fetchRepo"
               @select-hash="selectHash"
+              @open-session="sid => emit('open-history', sid)"
             />
             <!-- List: outer div scrolls, content has padding -->
             <div v-else class="h-full overflow-auto p-4">
@@ -136,6 +137,7 @@
                 @select-hash="selectHash"
                 @switch-to-graph="handleSwitchToGraph"
                 @switch-to-graph-sub="handleSwitchToGraphSub"
+                @open-session="sid => emit('open-history', sid)"
               />
             </div>
           </template>
@@ -262,6 +264,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   'switch-repo': [repo: string, hash?: string | null]
+  'open-history': [sessionId: string]
 }>()
 
 const { data: gitData, loading, error, fetchGitView, fetchCommitDetail } = useGitView()

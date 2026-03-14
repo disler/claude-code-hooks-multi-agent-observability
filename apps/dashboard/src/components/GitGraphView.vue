@@ -229,6 +229,18 @@ class="cursor-pointer"
             @click.stop="$emit('select-hash', row.commit.hash)"
           >{{ clippedSubject(i) }}</text>
 
+          <!-- Session link badge -->
+          <text
+            v-if="row.commit.session_ids?.length"
+            :x="svgWidth - AUTHOR_W - DATE_W - labelX - 18"
+            y="4"
+            font-size="10"
+            fill="#818cf8"
+            class="cursor-pointer hover:fill-white"
+            :title="`${row.commit.session_ids.length} linked session(s)`"
+            @click.stop="$emit('open-session', row.commit.session_ids[row.commit.session_ids.length - 1])"
+          >💬</text>
+
           <!-- Author column -->
           <text
             v-if="row.commit.author"
@@ -345,6 +357,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'select-hash': [hash: string]
+  'open-session': [sessionId: string]
 }>()
 
 const scrollEl = ref<HTMLElement | null>(null)

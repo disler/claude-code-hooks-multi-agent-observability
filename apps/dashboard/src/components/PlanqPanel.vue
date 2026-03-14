@@ -154,6 +154,7 @@
             @add-subtask="addingSubtaskTo = task"
             @dragstart="dragFrom = task.id"
             @drop="dropOn(task.id)"
+            @open-session="sid => emit('open-history', sid)"
           />
           <!-- Subtasks (children of this task) -->
           <template v-for="(child, childIdx) in taskChildren.get(task.id) ?? []" :key="child.id">
@@ -174,6 +175,7 @@
               @set-review-status="(t, s) => setReviewStatus(t, s)"
               @dragstart="dragFrom = child.id"
               @drop="dropOn(child.id)"
+              @open-session="sid => emit('open-history', sid)"
             />
           </template>
         </template>
@@ -291,6 +293,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'tasks-changed': []
+  'open-history': [sessionId: string]
 }>()
 
 const { addTask: apiAdd, updateTask: apiUpdate, deleteTask: apiDelete, reorderTasks: apiReorder, fetchArchive: apiFetchArchive, archiveTask: apiArchiveTask, archiveDone: apiArchiveDone, respondToAutoTest: apiRespondAutoTest } = usePlanq()

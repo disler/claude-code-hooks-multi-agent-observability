@@ -55,6 +55,14 @@
         <span v-if="task.plan_disposition === 'add-after'" class="shrink-0 text-teal-400" :title="task.auto_queue_plan ? 'Plan will be added after this task (auto-queued)' : 'Plan will be added after this task'">📋⇒{{ task.auto_queue_plan ? '⏱' : '' }}</span>
         <span v-else-if="task.plan_disposition === 'add-end'" class="shrink-0 text-cyan-400" :title="task.auto_queue_plan ? 'Plan will be added to end of queue (auto-queued)' : 'Plan will be added to end of queue'">📋↓{{ task.auto_queue_plan ? '⏱' : '' }}</span>
       </template>
+      <!-- Session link badge — visible when task has associated sessions -->
+      <button
+        v-if="task.session_ids?.length"
+        @click.stop="emit('open-session', task.session_ids[task.session_ids.length - 1])"
+        class="shrink-0 text-xs px-0.5 leading-none text-indigo-400 hover:text-indigo-200"
+        :title="`${task.session_ids.length} linked session${task.session_ids.length === 1 ? '' : 's'} — click to view`"
+      >💬</button>
+
       <!-- Review status badge — always visible for done tasks, hover-only otherwise -->
       <div class="shrink-0">
         <button
@@ -266,6 +274,7 @@ const emit = defineEmits<{
   'archive': [id: number]
   'set-review-status': [task: PlanqTask, status: ReviewStatus]
   'add-subtask': [task: PlanqTask]
+  'open-session': [sessionId: string]
 }>()
 
 const { readFile } = usePlanq()

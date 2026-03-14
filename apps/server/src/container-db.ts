@@ -55,6 +55,7 @@ export interface PlanqTaskRow {
   review_status: string;
   parent_task_id: number | null;
   link_type: 'follow-up' | 'fix-required' | 'check' | 'other' | null;
+  session_ids: string[];
 }
 
 export interface PlanqItem {
@@ -137,10 +138,33 @@ export function initContainerDatabase(): void {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_session_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      planq_task_id INTEGER NOT NULL REFERENCES planq_tasks(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL,
+      underway_at INTEGER NOT NULL,
+      UNIQUE(planq_task_id, session_id)
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS commit_session_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_repo TEXT NOT NULL,
+      commit_hash TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      linked_at INTEGER NOT NULL,
+      UNIQUE(source_repo, commit_hash, session_id)
+    )
+  `);
+
   db.exec('CREATE INDEX IF NOT EXISTS idx_containers_source_repo ON containers(source_repo)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_containers_machine ON containers(machine_hostname)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_planq_container ON planq_tasks(container_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_planq_position ON planq_tasks(container_id, position)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tsl_task ON task_session_links(planq_task_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_csl_commit ON commit_session_links(source_repo, commit_hash)');
 
   // Migrations for columns added after initial schema
   const columns = (db.prepare('PRAGMA table_info(containers)').all() as any[]).map((r: any) => r.name);
@@ -672,14 +696,69 @@ function rowToTask(r: any): PlanqTaskRow {
     review_status: r.review_status ?? 'none',
     parent_task_id: r.parent_task_id ?? null,
     link_type: r.link_type ?? null,
+    session_ids: [],
   };
+}
+
+function attachSessionIds(tasks: PlanqTaskRow[]): PlanqTaskRow[] {
+  if (tasks.length === 0) return tasks;
+  const ids = tasks.map(t => t.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const links = db.prepare(
+    `SELECT planq_task_id, session_id FROM task_session_links WHERE planq_task_id IN (${placeholders}) ORDER BY underway_at`
+  ).all(...ids) as any[];
+  const byTask = new Map<number, string[]>();
+  for (const l of links) {
+    if (!byTask.has(l.planq_task_id)) byTask.set(l.planq_task_id, []);
+    byTask.get(l.planq_task_id)!.push(l.session_id);
+  }
+  for (const t of tasks) {
+    t.session_ids = byTask.get(t.id) ?? [];
+  }
+  return tasks;
 }
 
 export function getPlanqTasks(containerId: string): PlanqTaskRow[] {
   const rows = db.prepare(
     'SELECT * FROM planq_tasks WHERE container_id = ? ORDER BY position'
   ).all(containerId) as any[];
-  return rows.map(rowToTask);
+  return attachSessionIds(rows.map(rowToTask));
+}
+
+export function addTaskSessionLink(taskId: number, sessionId: string, underwayAt: number): void {
+  db.prepare(
+    'INSERT OR IGNORE INTO task_session_links (planq_task_id, session_id, underway_at) VALUES (?, ?, ?)'
+  ).run(taskId, sessionId, underwayAt);
+}
+
+export function addCommitSessionLink(sourceRepo: string, hash: string, sessionId: string, linkedAt: number): void {
+  db.prepare(
+    'INSERT OR IGNORE INTO commit_session_links (source_repo, commit_hash, session_id, linked_at) VALUES (?, ?, ?, ?)'
+  ).run(sourceRepo, hash, sessionId, linkedAt);
+}
+
+export function getSessionsForTask(taskId: number): string[] {
+  return (db.prepare('SELECT session_id FROM task_session_links WHERE planq_task_id = ? ORDER BY underway_at').all(taskId) as any[]).map((r: any) => r.session_id);
+}
+
+export function getSessionsForCommit(sourceRepo: string, hash: string): string[] {
+  return (db.prepare('SELECT session_id FROM commit_session_links WHERE source_repo = ? AND commit_hash = ? ORDER BY linked_at').all(sourceRepo, hash) as any[]).map((r: any) => r.session_id);
+}
+
+export function getTasksForSession(containerId: string, sessionId: string): PlanqTaskRow[] {
+  const rows = db.prepare(
+    `SELECT pt.* FROM planq_tasks pt
+     JOIN task_session_links tsl ON tsl.planq_task_id = pt.id
+     WHERE pt.container_id = ? AND tsl.session_id = ?
+     ORDER BY tsl.underway_at`
+  ).all(containerId, sessionId) as any[];
+  return attachSessionIds(rows.map(rowToTask));
+}
+
+export function getCommitsForSession(sourceRepo: string, sessionId: string): string[] {
+  return (db.prepare(
+    'SELECT commit_hash FROM commit_session_links WHERE source_repo = ? AND session_id = ? ORDER BY linked_at'
+  ).all(sourceRepo, sessionId) as any[]).map((r: any) => r.commit_hash);
 }
 
 export function addPlanqTask(
@@ -829,15 +908,29 @@ export interface StoredGitCommit {
   author_date?: number;
   body?: string;
   diffstat?: string;
+  session_ids?: string[];
 }
 
-export function upsertGitCommits(sourceRepo: string, commits: StoredGitCommit[]): void {
+export function upsertGitCommits(sourceRepo: string, commits: StoredGitCommit[], sessionIds: string[] = []): void {
+  const checkExists = db.prepare('SELECT 1 FROM git_commits WHERE source_repo = ? AND hash = ?');
   const upsert = db.prepare(
     'INSERT INTO git_commits (source_repo, hash, parents, refs, subject, author, author_date, body, diffstat) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source_repo, hash) DO UPDATE SET refs = excluded.refs, subject = excluded.subject, author = COALESCE(excluded.author, author), author_date = COALESCE(excluded.author_date, author_date), body = COALESCE(excluded.body, body), diffstat = COALESCE(excluded.diffstat, diffstat)'
   );
+  const insertLink = db.prepare(
+    'INSERT OR IGNORE INTO commit_session_links (source_repo, commit_hash, session_id, linked_at) VALUES (?, ?, ?, ?)'
+  );
+  const now = Math.floor(Date.now() / 1000);
+  const effectiveSessionIds = sessionIds.length > 0 ? sessionIds : [];
   const tx = db.transaction(() => {
     for (const c of commits) {
+      const isNew = !checkExists.get(sourceRepo, c.hash);
       upsert.run(sourceRepo, c.hash, JSON.stringify(c.parents), JSON.stringify(c.refs), c.subject, c.author ?? null, c.author_date ?? null, c.body ?? null, c.diffstat ?? null);
+      const sids = (c.session_ids && c.session_ids.length > 0) ? c.session_ids : effectiveSessionIds;
+      if (isNew && sids.length > 0) {
+        for (const sid of sids) {
+          insertLink.run(sourceRepo, c.hash, sid, now);
+        }
+      }
     }
   });
   tx();
@@ -847,7 +940,7 @@ export function getGitCommits(sourceRepo: string): StoredGitCommit[] {
   const rows = db.prepare(
     'SELECT hash, parents, refs, subject, author, author_date, body, diffstat FROM git_commits WHERE source_repo = ?'
   ).all(sourceRepo) as any[];
-  return rows.map(r => ({
+  const commits = rows.map(r => ({
     hash: r.hash,
     parents: JSON.parse(r.parents),
     refs: JSON.parse(r.refs),
@@ -856,7 +949,22 @@ export function getGitCommits(sourceRepo: string): StoredGitCommit[] {
     author_date: r.author_date ?? undefined,
     body: r.body ?? undefined,
     diffstat: r.diffstat ?? undefined,
+    session_ids: [] as string[],
   }));
+  if (commits.length > 0) {
+    const links = db.prepare(
+      `SELECT commit_hash, session_id FROM commit_session_links WHERE source_repo = ? ORDER BY linked_at`
+    ).all(sourceRepo) as any[];
+    const byHash = new Map<string, string[]>();
+    for (const l of links) {
+      if (!byHash.has(l.commit_hash)) byHash.set(l.commit_hash, []);
+      byHash.get(l.commit_hash)!.push(l.session_id);
+    }
+    for (const c of commits) {
+      c.session_ids = byHash.get(c.hash) ?? [];
+    }
+  }
+  return commits;
 }
 
 /** Return hashes that are not a parent of any other stored commit — the DAG frontier. */

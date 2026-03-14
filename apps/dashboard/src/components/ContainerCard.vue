@@ -253,6 +253,7 @@
       :connected="container.connected"
       :auto-test-pending="container.auto_test_pending ?? null"
       @tasks-changed="emit('tasks-changed')"
+      @open-history="sid => emit('open-history', container.id, sid)"
     />
   </div>
 </template>
