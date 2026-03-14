@@ -1081,7 +1081,7 @@ def _task_key_from_line(line: str) -> str | None:
     value = raw[colon + 1:].strip()
     valid_types = {
         'task', 'plan', 'make-plan', 'investigate', 'manual-test',
-        'manual-commit', 'manual-task', 'unnamed-task', 'auto-test', 'auto-commit',
+        'manual-commit', 'manual-task', 'unnamed-task', 'auto-test', 'auto-commit', 'agent-test',
     }
     if task_type not in valid_types:
         return None

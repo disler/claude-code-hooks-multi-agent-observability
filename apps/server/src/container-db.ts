@@ -468,7 +468,7 @@ export function parsePlanqOrder(text: string): PlanqItem[] {
 
     const taskType = activeLine.slice(0, colonIdx).trim();
     let value = activeLine.slice(colonIdx + 1).trim();
-    const validTypes = ['task', 'plan', 'make-plan', 'investigate', 'manual-test', 'manual-commit', 'manual-task', 'unnamed-task', 'auto-test', 'auto-commit'];
+    const validTypes = ['task', 'plan', 'make-plan', 'investigate', 'manual-test', 'manual-commit', 'manual-task', 'unnamed-task', 'auto-test', 'auto-commit', 'agent-test'];
     if (!validTypes.includes(taskType)) continue;
 
     // Parse plan disposition flags (for make-plan tasks)

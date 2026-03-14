@@ -22,6 +22,7 @@
           <option value="make-plan">make-plan — generate a plan file from a prompt</option>
           <option value="investigate">investigate — research a question and write findings</option>
           <option value="auto-test">auto-test — run shell command as automated test</option>
+          <option value="agent-test">agent-test — invoke Claude as a testing agent</option>
           <option value="manual-test">manual-test — manual testing step</option>
           <option value="manual-task">manual-task — any manual step</option>
         </select>
@@ -181,6 +182,19 @@
         </div>
       </template>
 
+      <!-- agent-test: description passed to Claude as testing prompt -->
+      <template v-else-if="taskType === 'agent-test'">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-slate-400">Testing prompt <span class="text-slate-500">(passed to Claude as a testing task)</span></label>
+          <textarea
+            v-model="description"
+            rows="4"
+            class="text-sm bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-slate-400 resize"
+            placeholder="Test that the login flow works end-to-end…"
+          />
+        </div>
+      </template>
+
       <!-- auto-commit: optional options -->
       <template v-else-if="taskType === 'auto-commit'">
         <div class="flex flex-col gap-1">
@@ -300,6 +314,8 @@
           >
             <option value="task">task</option>
             <option value="investigate">investigate</option>
+            <option value="auto-test">auto-test</option>
+            <option value="agent-test">agent-test</option>
             <option value="manual-test">manual-test</option>
             <option value="manual-task">manual-task</option>
           </select>
@@ -563,6 +579,7 @@ const isValid = computed(() => {
   }
   if (taskType.value === 'auto-commit') return true  // options are optional
   if (taskType.value === 'auto-test') return description.value.trim().length > 0
+  if (taskType.value === 'agent-test') return description.value.trim().length > 0
   return description.value.trim().length > 0
 })
 
@@ -590,6 +607,8 @@ function submit() {
     emit('add', 'investigate', investigateFilename.value, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt, subs)
   } else if (taskType.value === 'auto-test') {
     emit('add', 'auto-test', null, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt, subs)
+  } else if (taskType.value === 'agent-test') {
+    emit('add', 'agent-test', null, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt, subs)
   } else {
     emit('add', taskType.value, null, description.value.trim(), false, cm, undefined, undefined, parentTaskId, lt, subs)
   }

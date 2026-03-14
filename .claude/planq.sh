@@ -793,6 +793,11 @@ cmd_run() {
             _mark_done "$line_num" "$task_line"
             ;;
 
+        agent-test)
+            claude "$task_value"
+            _mark_done "$line_num" "$task_line"
+            ;;
+
         auto-commit)
             _run_auto_commit "$task_value" || { _mark_inactive "$line_num" "$task_line"; _notify_daemon; return 1; }
             _mark_done "$line_num" "$task_line"
@@ -1154,7 +1159,7 @@ cmd_create() {
             printf '%s\n' "$description" > "$PLANS_DIR/${filename}"
             echo "Wrote prompt to: plans/${filename}"
             ;;
-        unnamed-task|manual-test|manual-commit|manual-task)
+        unnamed-task|manual-test|manual-commit|manual-task|agent-test)
             if [ -z "$description" ]; then
                 echo "Error: description required for task type '$task_type'" >&2; return 1
             fi
@@ -1426,6 +1431,9 @@ _run_task_inline() {
                 _notify_daemon
                 return 1
             fi
+            ;;
+        agent-test)
+            _invoke_claude "$task_value"
             ;;
         auto-commit)
             if ! _run_auto_commit "$task_value"; then
@@ -1846,7 +1854,7 @@ usage_create() {
     echo "  --auto-commit    After task: Claude commits automatically"
     echo "  --stage-commit   After task: Claude stages + drafts message, task pauses for user to commit"
     echo "  --manual-commit  After task: task pauses at awaiting-commit (user stages and commits manually)"
-    echo "  Task types: unnamed-task (default), task, plan, make-plan, manual-test, manual-commit, manual-task"
+    echo "  Task types: unnamed-task (default), task, plan, make-plan, manual-test, manual-commit, manual-task, agent-test"
     echo ""
     echo "  For make-plan, -f specifies the prompt filename (make-plan-*.md); Claude writes plan-*.md:"
     echo "    planq create -t make-plan -f make-plan-001.md 'Design a caching layer for the API'"
@@ -1908,6 +1916,7 @@ usage() {
     echo "  plan                       Ask claude to read and implement plans/<file>"
     echo "  make-plan                  Use a prompt file (make-plan-*.md) to create a plan file (plan-*.md)"
     echo "  manual-(test|commit|task)  Pause for a manual step"
+    echo "  agent-test                 Invoke Claude with description as a testing prompt"
     echo ""
     echo "Task line formats in planq file:"
     echo "  unnamed-task: <text>"
@@ -1915,6 +1924,7 @@ usage() {
     echo "  plan: <file>"
     echo "  make-plan: <make-plan-file>  (prompt in plans/make-plan-*.md; Claude writes plans/plan-*.md)"
     echo "  manual-test: <desc>  (or manual-commit / manual-task)"
+    echo "  agent-test: <desc>"
     echo ""
     echo "Planq file: $PLANQ_FILE"
 }
