@@ -83,11 +83,12 @@ write_planq "$ALPHA_DIR/plans"
 write_session_logs "$ALPHA_DIR/.claude/logs" "container-alpha" "alpha session"
 
 # Create a git worktree of container-alpha for worktree simulation
-ALPHA_WT_DIR="$DATA_DIR/host1/container-alpha.feat"
+# Linked worktrees get a .1, .2, etc. suffix (matching the devcontainer naming convention)
+ALPHA_WT_DIR="$DATA_DIR/host1/container-alpha.1"
 git -C "$ALPHA_DIR" worktree add -q -b "feature/new-thing" "$ALPHA_WT_DIR"
 mkdir -p "$ALPHA_WT_DIR/.devcontainer/versions" "$ALPHA_WT_DIR/plans/archive" "$ALPHA_WT_DIR/.claude/logs"
 echo "test-host1" > "$ALPHA_WT_DIR/.devcontainer/.sandbox-host-machine"
-echo "container-alpha.feat" > "$ALPHA_WT_DIR/.devcontainer/.sandbox-project"
+echo "container-alpha.1" > "$ALPHA_WT_DIR/.devcontainer/.sandbox-project"
 cat > "$ALPHA_WT_DIR/plans/planq-order.txt" << 'PLANQ'
 unnamed-task: implement the new-thing feature on this branch
 PLANQ

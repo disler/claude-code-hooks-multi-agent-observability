@@ -312,12 +312,7 @@
             v-model="sub.type"
             class="text-xs bg-slate-700 border border-slate-600 rounded px-1 py-0.5 shrink-0"
           >
-            <option value="task">task</option>
-            <option value="investigate">investigate</option>
-            <option value="auto-test">auto-test</option>
-            <option value="agent-test">agent-test</option>
-            <option value="manual-test">manual-test</option>
-            <option value="manual-task">manual-task</option>
+            <option v-for="t in SUBTASK_TYPES" :key="t" :value="t">{{ t }}</option>
           </select>
           <input
             v-if="isSubtaskFileBased(sub.type)"
@@ -378,6 +373,8 @@ const emit = defineEmits<{
 
 const { readFile, listPlansFiles } = usePlanq()
 const { onConfirmKey } = useConfirmKey()
+
+const SUBTASK_TYPES = ['task', 'investigate', 'auto-test', 'agent-test', 'manual-test', 'manual-task']
 
 const taskType = ref('task')
 const taskSlug = ref('')

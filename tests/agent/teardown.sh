@@ -27,7 +27,7 @@ _stop_pid() {
 echo "Stopping agent test services..."
 _stop_pid "server"     "$PIDS_DIR/server.pid"
 _stop_pid "daemon-alpha"    "$PIDS_DIR/daemon-alpha.pid"
-_stop_pid "daemon-alpha-wt" "$PIDS_DIR/daemon-alpha-wt.pid"
+_stop_pid "daemon-alpha.1" "$PIDS_DIR/daemon-alpha.1.pid"
 _stop_pid "daemon-beta"     "$PIDS_DIR/daemon-beta.pid"
 
 if [[ "$1" == "--clean" ]]; then

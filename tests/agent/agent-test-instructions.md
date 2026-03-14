@@ -34,7 +34,7 @@ curl -s http://127.0.0.1:4100/planq | head -30
 |---|---|---|
 | Observability server | 4100 (HTTP + WS) | `test-data/logs/server.log` |
 | planq-daemon: container-alpha | — | `test-data/logs/daemon-alpha.log` |
-| planq-daemon: container-alpha.feat | — | `test-data/logs/daemon-alpha-wt.log` |
+| planq-daemon: container-alpha.1 | — | `test-data/logs/daemon-alpha-wt.log` |
 | planq-daemon: container-beta | — | `test-data/logs/daemon-beta.log` |
 
 ## Simulated Topology
@@ -42,7 +42,7 @@ curl -s http://127.0.0.1:4100/planq | head -30
 ```
 test-host1
   └── container-alpha          (main branch, 3 commits)
-  └── container-alpha.feat     (feature/new-thing worktree)
+  └── container-alpha.1     (feature/new-thing worktree)
 test-host2
   └── container-beta           (feature/beta-improvement branch)
 ```
@@ -92,7 +92,7 @@ for c in data.get('containers', []):
 ### 3. Dashboard UI (if Playwright available)
 The dashboard is built separately but can be tested against the test server.
 Point the dashboard at `http://127.0.0.1:4100` and verify:
-- Three containers appear (container-alpha, container-alpha.feat, container-beta)
+- Three containers appear (container-alpha, container-alpha.1, container-beta)
 - Each has the correct hostname (test-host1 or test-host2)
 - Task queues match the planq-order.txt files
 - Git branches/commits are shown correctly

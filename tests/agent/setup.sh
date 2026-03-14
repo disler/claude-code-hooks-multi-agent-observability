@@ -139,8 +139,8 @@ _start_daemon "alpha" \
     "container-alpha" \
     "test-host1"
 
-_start_daemon "alpha-wt" \
-    "$DATA_DIR/host1/container-alpha.feat" \
+_start_daemon "alpha.1" \
+    "$DATA_DIR/host1/container-alpha.1" \
     "container-alpha" \
     "test-host1"
 
@@ -160,7 +160,7 @@ echo "  Data dir:   $DATA_DIR"
 echo ""
 echo "Simulated containers:"
 echo "  container-alpha         host1  $DATA_DIR/host1/container-alpha"
-echo "  container-alpha.feat    host1  $DATA_DIR/host1/container-alpha.feat (worktree)"
+echo "  container-alpha.1    host1  $DATA_DIR/host1/container-alpha.1 (worktree)"
 echo "  container-beta          host2  $DATA_DIR/host2/container-beta"
 echo ""
 echo "To stop: tests/agent/teardown.sh"
