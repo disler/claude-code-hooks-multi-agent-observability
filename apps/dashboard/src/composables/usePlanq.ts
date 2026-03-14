@@ -12,7 +12,7 @@ export function usePlanq() {
     planDisposition?: 'manual' | 'add-after' | 'add-end',
     autoQueuePlan?: boolean,
     parentTaskId?: number,
-    linkType?: 'follow-up' | 'fix-required'
+    linkType?: 'follow-up' | 'fix-required' | 'check' | 'other'
   ): Promise<PlanqTask | null> {
     try {
       const res = await fetch(`${API_BASE}/planq/${encodeURIComponent(containerId)}/tasks`, {

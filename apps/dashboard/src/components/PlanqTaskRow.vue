@@ -12,6 +12,8 @@
     <!-- Drag handle (hidden for child tasks) / link type badge -->
     <span v-if="!isChild" class="text-slate-600 cursor-grab text-xs select-none">⠿</span>
     <span v-else-if="linkType === 'fix-required'" class="text-red-500 text-xs shrink-0" title="fix-required">🔧</span>
+    <span v-else-if="linkType === 'check'" class="text-blue-400 text-xs shrink-0" title="check">✓</span>
+    <span v-else-if="linkType === 'other'" class="text-slate-400 text-xs shrink-0" title="other">·</span>
     <span v-else class="text-purple-400 text-xs shrink-0" title="follow-up">↳</span>
 
     <!-- Position -->
@@ -249,7 +251,7 @@ const props = defineProps<{
   containerId: string
   allTasks?: PlanqTask[]
   isChild?: boolean
-  linkType?: 'follow-up' | 'fix-required' | null
+  linkType?: 'follow-up' | 'fix-required' | 'check' | 'other' | null
 }>()
 
 const emit = defineEmits<{

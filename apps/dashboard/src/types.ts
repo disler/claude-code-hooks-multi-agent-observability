@@ -38,7 +38,7 @@ export interface PlanqTask {
   auto_queue_plan: boolean
   review_status: ReviewStatus
   parent_task_id: number | null
-  link_type: 'follow-up' | 'fix-required' | null
+  link_type: 'follow-up' | 'fix-required' | 'check' | 'other' | null
 }
 
 export interface PlanqItem {

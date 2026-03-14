@@ -1757,7 +1757,8 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (!container) return err('Container not found', 404);
 
     const body = await req.json() as any;
-    const { task_type, description, create_file, auto_commit, commit_mode, plan_disposition, auto_queue_plan, parent_task_id } = body;
+    const { task_type, description, create_file, auto_commit, commit_mode, plan_disposition, auto_queue_plan, parent_task_id, link_type: rawLinkType } = body;
+    const linkType = (['follow-up', 'fix-required', 'check', 'other'].includes(rawLinkType) ? rawLinkType : 'follow-up') as 'follow-up' | 'fix-required' | 'check' | 'other';
     let { filename } = body;
     if (!task_type) return err('task_type required');
 
@@ -1786,7 +1787,7 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     if (parent_task_id) {
       const parentTask = getPlanqTasks(containerId).find(t => t.id === parent_task_id);
       if (parentTask) {
-        updatePlanqTask(task.id, { parent_task_id, link_type: 'follow-up' });
+        updatePlanqTask(task.id, { parent_task_id, link_type: linkType });
         parentTaskKey = parentTask.filename ?? parentTask.description ?? undefined;
       }
     }

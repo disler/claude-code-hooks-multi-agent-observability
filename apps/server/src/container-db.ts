@@ -54,7 +54,7 @@ export interface PlanqTaskRow {
   auto_queue_plan: boolean;
   review_status: string;
   parent_task_id: number | null;
-  link_type: 'follow-up' | 'fix-required' | null;
+  link_type: 'follow-up' | 'fix-required' | 'check' | 'other' | null;
 }
 
 export interface PlanqItem {
@@ -707,7 +707,7 @@ export function addPlanqTask(
 
 export function updatePlanqTask(
   taskId: number,
-  updates: { description?: string; status?: string; auto_commit?: boolean; commit_mode?: 'none' | 'auto' | 'stage' | 'manual'; review_status?: string; parent_task_id?: number | null; link_type?: 'follow-up' | 'fix-required' | null }
+  updates: { description?: string; status?: string; auto_commit?: boolean; commit_mode?: 'none' | 'auto' | 'stage' | 'manual'; review_status?: string; parent_task_id?: number | null; link_type?: 'follow-up' | 'fix-required' | 'check' | 'other' | null }
 ): PlanqTaskRow | null {
   const fields: string[] = [];
   const values: any[] = [];

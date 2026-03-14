@@ -262,6 +262,18 @@
             class="text-xs px-2 py-1 rounded border transition-colors"
             :class="linkType === 'fix-required' ? 'border-orange-600 bg-orange-900/50 text-orange-300' : 'border-slate-600 bg-slate-700 text-slate-400 hover:bg-slate-600'"
           >🔧 fix-required</button>
+          <button
+            type="button"
+            @click="linkType = 'check'"
+            class="text-xs px-2 py-1 rounded border transition-colors"
+            :class="linkType === 'check' ? 'border-blue-600 bg-blue-900/50 text-blue-300' : 'border-slate-600 bg-slate-700 text-slate-400 hover:bg-slate-600'"
+          >✓ check</button>
+          <button
+            type="button"
+            @click="linkType = 'other'"
+            class="text-xs px-2 py-1 rounded border transition-colors"
+            :class="linkType === 'other' ? 'border-slate-500 bg-slate-600 text-slate-200' : 'border-slate-600 bg-slate-700 text-slate-400 hover:bg-slate-600'"
+          >· other</button>
         </div>
       </div>
 
@@ -307,6 +319,8 @@
           >
             <option value="follow-up">↳ follow-up</option>
             <option value="fix-required">🔧 fix-required</option>
+            <option value="check">✓ check</option>
+            <option value="other">· other</option>
           </select>
           <select
             v-model="sub.type"
@@ -360,7 +374,7 @@ import type { PlanqTask } from '../types'
 const props = defineProps<{ containerId: string; allTasks?: PlanqTask[]; parentTask?: PlanqTask }>()
 
 export interface SubtaskEntry {
-  linkType: 'follow-up' | 'fix-required'
+  linkType: 'follow-up' | 'fix-required' | 'check' | 'other'
   type: string
   filename: string
   description: string
@@ -368,7 +382,7 @@ export interface SubtaskEntry {
 
 const emit = defineEmits<{
   close: []
-  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, commitMode: 'none' | 'auto' | 'stage' | 'manual' | undefined, planDisposition?: 'manual' | 'add-after' | 'add-end', autoQueuePlan?: boolean, parentTaskId?: number, linkType?: 'follow-up' | 'fix-required', subtasks?: SubtaskEntry[]]
+  add: [taskType: string, filename: string | null, description: string | null, createFile: boolean, commitMode: 'none' | 'auto' | 'stage' | 'manual' | undefined, planDisposition?: 'manual' | 'add-after' | 'add-end', autoQueuePlan?: boolean, parentTaskId?: number, linkType?: 'follow-up' | 'fix-required' | 'check' | 'other', subtasks?: SubtaskEntry[]]
 }>()
 
 const { readFile, listPlansFiles } = usePlanq()
@@ -385,7 +399,7 @@ const description = ref('')
 const commitMode = ref<'none' | 'auto' | 'stage' | 'manual'>('none')
 const planDisposition = ref<'manual' | 'add-after' | 'add-end'>('manual')
 const autoQueuePlan = ref(false)
-const linkType = ref<'follow-up' | 'fix-required'>('follow-up')
+const linkType = ref<'follow-up' | 'fix-required' | 'check' | 'other'>('follow-up')
 
 const pendingSubtasks = ref<SubtaskEntry[]>([])
 

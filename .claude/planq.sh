@@ -1871,7 +1871,7 @@ usage_create() {
     echo "  -t, --type       Task type (default: unnamed-task)"
     echo "  -f, --file       Filename in plans/ (required for task/plan/make-plan types)"
     echo "  -p, --parent     Parent task number or filename — creates a subtask inserted after the parent"
-    echo "  -l, --link-type  Link type for subtasks: follow-up (default) or fix-required"
+    echo "  -l, --link-type  Link type for subtasks: follow-up (default), fix-required, check, or other"
     echo "  --auto-commit    After task: Claude commits automatically"
     echo "  --stage-commit   After task: Claude stages + drafts message, task pauses for user to commit"
     echo "  --manual-commit  After task: task pauses at awaiting-commit (user stages and commits manually)"
@@ -1883,6 +1883,8 @@ usage_create() {
     echo "  Subtask examples:"
     echo "    planq create -p 3 'Fix the login bug found during review'   # unnamed follow-up subtask after task #3"
     echo "    planq create -p parent.md -l fix-required -t task -f fix-login.md  # file-based fix-required subtask"
+    echo "    planq create -p 3 -l check 'Verify the output format'  # check subtask"
+    echo "    planq create -p 3 -l other 'Related cleanup'  # other relationship"
 }
 usage_mark()   {
     echo "Usage: planq mark <done|d|underway|u|inactive|i|queue|q|awaiting-commit|ac|awaiting-plan|ap|deferred|df> <N|filename|text>"
