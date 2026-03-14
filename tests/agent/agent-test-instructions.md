@@ -20,11 +20,19 @@ cd observability/tests/agent
 ./setup.sh
 
 # 2. Verify the server is responding
-curl -s http://127.0.0.1:4100/planq | head -30
+curl -s http://127.0.0.1:4100/dashboard/containers | python3 -m json.tool | head -30
 
 # 3. Run your tests (see "Test Scenarios" below)
 
 # 4. Stop everything when done
+./teardown.sh
+```
+
+To also start the dashboard dev server (needed for Playwright / manual UI testing):
+
+```bash
+./setup.sh --web        # also starts dashboard on http://127.0.0.1:5174/dashboard/
+node playwright-test.js # run all UI checks
 ./teardown.sh
 ```
 
@@ -55,14 +63,14 @@ Each container has:
 ## API Endpoints (Test Server)
 
 ```
-GET  http://127.0.0.1:4100/planq                        # all containers + tasks
-GET  http://127.0.0.1:4100/planq/:containerId           # single container
-GET  http://127.0.0.1:4100/planq/:containerId/tasks     # task list
-POST http://127.0.0.1:4100/planq/:containerId/tasks     # add a task
-PUT  http://127.0.0.1:4100/planq/:containerId/tasks/:id # update a task
-GET  http://127.0.0.1:4100/git/:containerId             # git info
-WS   ws://127.0.0.1:4100/stream                         # live event stream
-WS   ws://127.0.0.1:4100/container-heartbeat            # planq-daemon connects here
+GET  http://127.0.0.1:4100/dashboard/containers              # all containers + tasks
+GET  http://127.0.0.1:4100/planq/:containerId                # single container planq state
+GET  http://127.0.0.1:4100/planq/:containerId/tasks          # task list
+POST http://127.0.0.1:4100/planq/:containerId/tasks          # add a task
+PUT  http://127.0.0.1:4100/planq/:containerId/tasks/:id      # update a task
+GET  http://127.0.0.1:4100/dashboard/git-view/:repo          # git commits for a repo
+WS   ws://127.0.0.1:4100/dashboard/stream                    # dashboard WebSocket feed
+WS   ws://127.0.0.1:4100/container-heartbeat                 # planq-daemon connects here
 ```
 
 ## Test Scenarios
@@ -70,7 +78,7 @@ WS   ws://127.0.0.1:4100/container-heartbeat            # planq-daemon connects 
 ### 1. Container Discovery
 After setup.sh, daemons send heartbeats every 5 seconds. Verify containers appear:
 ```bash
-curl -s http://127.0.0.1:4100/planq | python3 -m json.tool
+curl -s http://127.0.0.1:4100/dashboard/containers | python3 -m json.tool
 ```
 Expect: three container entries with source_repo, machine_hostname, planq_order, git fields.
 
@@ -79,33 +87,37 @@ Modify a planq-order.txt and verify the server sees the update within ~10 second
 ```bash
 echo "unnamed-task: a new test task" >> test-data/host1/container-alpha/plans/planq-order.txt
 sleep 10
-curl -s http://127.0.0.1:4100/planq | python3 -c "
+curl -s http://127.0.0.1:4100/dashboard/containers | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-for c in data.get('containers', []):
+for c in data:
     if 'alpha' in c.get('id', ''):
         for t in c.get('planq_tasks', []):
             print(t.get('description') or t.get('filename'))
 "
 ```
 
-### 3. Dashboard UI (if Playwright available)
-The dashboard is built separately but can be tested against the test server.
-Point the dashboard at `http://127.0.0.1:4100` and verify:
+### 3. Dashboard UI (Playwright)
+Start the environment with `--web` to also launch the dashboard dev server:
+```bash
+./setup.sh --web
+node playwright-test.js
+./teardown.sh
+```
+The Playwright test verifies:
 - Three containers appear (container-alpha, container-alpha.1, container-beta)
-- Each has the correct hostname (test-host1 or test-host2)
-- Task queues match the planq-order.txt files
-- Git branches/commits are shown correctly
+- Each has the correct hostname (HOST: test-host1, HOST: test-host2)
+- Task queues from planq-order.txt are rendered
+- Review Board and System Versions panels toggle correctly
 
 ### 4. Adding Tasks via API
 ```bash
 # Get the container ID first
-CONTAINER_ID=$(curl -s http://127.0.0.1:4100/planq | python3 -c "
+CONTAINER_ID=$(curl -s http://127.0.0.1:4100/dashboard/containers | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-containers = data.get('containers', [])
-if containers:
-    print(containers[0]['id'])
+if data:
+    print(data[0]['id'])
 " )
 
 # Add a task

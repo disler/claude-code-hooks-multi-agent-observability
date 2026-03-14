@@ -1,5 +1,5 @@
 const host = window.location.hostname
-const port = '4000'
+const port = (import.meta.env.VITE_SERVER_PORT as string | undefined) ?? '4000'
 
 export const API_BASE = `http://${host}:${port}`
 export const WS_BASE = `ws://${host}:${port}`

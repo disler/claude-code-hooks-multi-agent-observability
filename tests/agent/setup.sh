@@ -12,6 +12,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OBS_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SERVER_DIR="$OBS_ROOT/apps/server"
+DASHBOARD_DIR="$OBS_ROOT/apps/dashboard"
 DATA_DIR="$SCRIPT_DIR/test-data"
 PIDS_DIR="$DATA_DIR/pids"
 LOGS_DIR="$DATA_DIR/logs"
@@ -149,6 +150,69 @@ _start_daemon "beta" \
     "container-beta" \
     "test-host2"
 
+# ── Optionally start the dashboard dev server ──────────────────────────────────
+#
+# Pass --dashboard (or --web) to also start the Vite dev server for the dashboard,
+# configured to point at the test server on port 4100.  Useful for Playwright tests
+# and manual UI exploration.
+
+DASHBOARD_PORT=5174
+START_DASHBOARD=0
+for arg in "$@"; do
+    [[ "$arg" == "--dashboard" || "$arg" == "--web" ]] && START_DASHBOARD=1
+done
+
+if [[ "$START_DASHBOARD" == 1 ]]; then
+    DASHBOARD_PID_FILE="$PIDS_DIR/dashboard.pid"
+    if _is_running "$DASHBOARD_PID_FILE"; then
+        ok "Dashboard already running (PID $(cat "$DASHBOARD_PID_FILE"))"
+    else
+        # The repo's node_modules may have been installed on a different platform
+        # (e.g. macOS/x86 host mounting into an arm64 Linux container).  We never
+        # touch the shared node_modules; instead we prepend a container-local path
+        # that holds the platform-native rollup binary pre-installed by the
+        # Dockerfile, so Vite can find it without modifying the workspace.
+        ROLLUP_NATIVE_PATH="/home/node/.local/lib/rollup-native/node_modules"
+        if [[ -d "$ROLLUP_NATIVE_PATH" ]]; then
+            EXTRA_NODE_PATH="$ROLLUP_NATIVE_PATH"
+        else
+            EXTRA_NODE_PATH=""
+        fi
+
+        echo "Starting dashboard dev server on 127.0.0.1:${DASHBOARD_PORT}..."
+        (
+            cd "$DASHBOARD_DIR"
+            exec env \
+                VITE_SERVER_PORT="$TEST_SERVER_PORT" \
+                VITE_HOST=127.0.0.1 \
+                NODE_PATH="${EXTRA_NODE_PATH}${EXTRA_NODE_PATH:+:}${NODE_PATH:-}" \
+                npx vite --port "$DASHBOARD_PORT" \
+                >> "$LOGS_DIR/dashboard.log" 2>&1
+        ) &
+        DASHBOARD_PID=$!
+        echo "$DASHBOARD_PID" > "$DASHBOARD_PID_FILE"
+
+        retries=20
+        while [[ "$retries" -gt 0 ]]; do
+            sleep 0.5
+            if ! kill -0 "$DASHBOARD_PID" 2>/dev/null; then
+                rm -f "$DASHBOARD_PID_FILE"
+                die "Dashboard failed to start — check $LOGS_DIR/dashboard.log"
+            fi
+            if curl -sf "http://127.0.0.1:${DASHBOARD_PORT}/dashboard/" &>/dev/null; then
+                ok "Dashboard started (PID $DASHBOARD_PID, http://127.0.0.1:${DASHBOARD_PORT}/dashboard/)"
+                break
+            fi
+            retries=$((retries - 1))
+        done
+        if [[ "$retries" -eq 0 ]]; then
+            kill "$DASHBOARD_PID" 2>/dev/null
+            rm -f "$DASHBOARD_PID_FILE"
+            die "Dashboard health check timed out — check $LOGS_DIR/dashboard.log"
+        fi
+    fi
+fi
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 
 echo ""
@@ -157,6 +221,9 @@ echo "  Server:     http://${TEST_SERVER_HOST}:${TEST_SERVER_PORT}"
 echo "  Server WS:  $TEST_SERVER_URL"
 echo "  Server log: $LOGS_DIR/server.log"
 echo "  Data dir:   $DATA_DIR"
+if [[ "$START_DASHBOARD" == 1 ]]; then
+echo "  Dashboard:  http://127.0.0.1:${DASHBOARD_PORT}/dashboard/"
+fi
 echo ""
 echo "Simulated containers:"
 echo "  container-alpha         host1  $DATA_DIR/host1/container-alpha"
