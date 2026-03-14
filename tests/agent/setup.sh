@@ -26,7 +26,7 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 ok() { echo "  OK: $*"; }
 
 _find_bun() {
-    for b in "$(command -v bun 2>/dev/null)" "$HOME/.bun/bin/bun"; do
+    for b in "$(command -v bun 2>/dev/null)" "$HOME/.bun/bin/bun" "$HOME/.local/bin/bun"; do
         [[ -x "$b" ]] && echo "$b" && return
     done
     die "bun not found — install bun (https://bun.sh) to run the observability server"

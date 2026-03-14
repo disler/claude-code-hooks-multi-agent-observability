@@ -12,12 +12,21 @@
  *   ./teardown.sh
  */
 
-// Support both global install locations
+// Support multiple install locations (global, npm prefix, npx cache)
+const { readdirSync } = require('fs');
 let chromium;
-for (const loc of [
+const _pwLocations = [
   'playwright',
   '/home/node/.local/lib/node_modules/playwright',
-]) {
+];
+// Also search the npx cache (hashed dirs under ~/.npm/_npx/)
+try {
+  const npxBase = `${process.env.HOME}/.npm/_npx`;
+  for (const hash of readdirSync(npxBase)) {
+    _pwLocations.push(`${npxBase}/${hash}/node_modules/playwright`);
+  }
+} catch (_) {}
+for (const loc of _pwLocations) {
   try { ({ chromium } = require(loc)); break; } catch (_) {}
 }
 if (!chromium) throw new Error('playwright not found — install with: npm install -g playwright');
@@ -27,7 +36,12 @@ const EXPECTED_CONTAINERS = ['container-alpha', 'container-beta'];
 const EXPECTED_HOSTS = ['test-host1', 'test-host2'];
 
 async function run() {
-  const browser = await chromium.launch({ headless: true });
+  // Use system chromium if Playwright's bundled binary isn't available
+  const launchOpts = { headless: true };
+  for (const p of ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome']) {
+    try { require('fs').accessSync(p); launchOpts.executablePath = p; break; } catch (_) {}
+  }
+  const browser = await chromium.launch(launchOpts);
   const page = await browser.newPage();
 
   let passed = 0;

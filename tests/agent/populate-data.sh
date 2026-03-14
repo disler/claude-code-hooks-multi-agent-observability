@@ -45,29 +45,36 @@ make_workspace() {
 # ── Helper: write a planq queue file ─────────────────────────────────────────
 write_planq() {
     local plans_dir="$1"
+    # Include parent/child tasks for subtask filter dimming tests.
+    # Subtasks use "- " prefix (depth 1); nested subtasks use "  - " (depth 2).
     cat > "$plans_dir/planq-order.txt" << 'PLANQ'
 # planq-order.txt — test task queue
 task: task-example.md +auto-commit
+- unnamed-task: subtask of example
+- unnamed-task: another subtask
 # done: unnamed-task: write the initial README
 manual-task: Review the output and approve
+unnamed-task: standalone filter target
 PLANQ
     echo "implement the example feature described in README.md" > "$plans_dir/task-example.md"
 }
 
 # ── Helper: write sample session logs ────────────────────────────────────────
+# Session logs reference task filenames so the server can create task-session links.
 write_session_logs() {
     local logs_dir="$1" source_app="$2" label="$3"
     local session_id="test-session-$(echo "$label" | tr ' ' '-')-0000"
     local ts
     ts=$(date +%s)
 
-    # A minimal JSONL session log (matches what Claude Code writes)
+    # A minimal JSONL session log (matches what Claude Code writes).
+    # The user message references task-example.md so the server will create a
+    # task_session_link between this session and that task.
     cat > "$logs_dir/${session_id}.jsonl" << EOF
-{"type":"summary","message":"Starting $label session","timestamp":$ts}
-{"type":"user","message":"Begin test","timestamp":$ts}
-{"type":"assistant","message":"Hello, I am Claude testing $label","timestamp":$((ts+1))}
-{"type":"user","message":"Run the tests","timestamp":$((ts+2))}
-{"type":"assistant","message":"Running tests now...","timestamp":$((ts+3))}
+{"type":"user","message":{"role":"user","content":"Run /planq run task-example.md"},"timestamp":$ts}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Running task-example.md now"}]},"timestamp":$((ts+1))}
+{"type":"user","message":{"role":"user","content":"Check plans/task-example.md"},"timestamp":$((ts+2))}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"bash .claude/planq.sh run task-example.md"}}]},"timestamp":$((ts+3))}
 EOF
 
     # Write the source_app hook-style event to show up in agent swim lane
