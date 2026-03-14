@@ -228,6 +228,7 @@ function isStale(stamp: string | null | undefined, serverStamp: string | null | 
 function stampClass(stamp: string | null | undefined, serverStamp?: string | null): string {
   if (!stamp || stamp === '(no stamp)') return 'stamp stamp-missing';
   if (isStale(stamp, serverStamp)) return 'stamp stamp-stale';
+  if (!serverStamp) return 'stamp stamp-unknown';  // stamp exists but no reference — can't compare
   return 'stamp stamp-ok';
 }
 
@@ -247,6 +248,13 @@ function stampTooltip(stamp: string | null | undefined, serverStamp?: string | n
     const lines = [`Outdated — ${component ?? 'component'} needs updating`, advice];
     if (hash) lines.push(`installed: ${hash}`);
     if (serverHash) lines.push(`current:   ${serverHash}`);
+    if (ts) lines.push(`stamped: ${ts}`);
+    return lines.join('\n');
+  }
+  if (!serverStamp) {
+    const lines = [`Cannot compare — no server reference for ${component ?? 'this component'}`,
+      'Run apply-devcontainer on this host to establish a reference, then check again.'];
+    if (hash) lines.push(`installed: ${hash}`);
     if (ts) lines.push(`stamped: ${ts}`);
     return lines.join('\n');
   }
@@ -324,11 +332,18 @@ function daemonStampTooltip(versions: Record<string, string | null> | null | und
   return ['Daemon up to date', `hash: ${fileHash}`, `stamped: ${ts ?? '?'}`].join('\n');
 }
 
-// Returns true if any stamp on this container is stale vs the server reference.
+// Returns true if any stamp on this container is stale or unverifiable vs the server reference.
+// "unverifiable" = stamp exists but serverStamp is null (can't confirm it's current).
+function isStampProblem(stamp: string | null | undefined, serverStamp: string | null | undefined): boolean {
+  if (!stamp || stamp === '(no stamp)') return false;
+  if (!serverStamp) return true;  // stamp present but no reference — warn
+  return isStale(stamp, serverStamp);
+}
+
 function isContainerStale(c: ContainerVersion): boolean {
   if (!c.versions) return false;
   return (
-    isStale(c.versions.devcontainer, serverStamps.value.devcontainer) ||
+    isStampProblem(c.versions.devcontainer, serverStamps.value.devcontainer) ||
     isStale(c.versions.planq_daemon, serverStamps.value.planq_daemon) ||
     isStale(c.versions.planq_shell, serverStamps.value.planq_shell)
   );
@@ -476,6 +491,7 @@ onUnmounted(() => {
 .stamp-missing { background: #3a1a1a; color: #f66; }
 .stamp-restart { background: #3a2a00; color: #fa0; }
 .stamp-stale { background: #3a3000; color: #fa0; }
+.stamp-unknown { background: #2a2040; color: #a08; }
 .host-stale { color: #fa0; cursor: help; }
 .stamp-hash { font-family: monospace; }
 .loading, .error { font-size: 0.85em; padding: 4px 0; }
