@@ -42,37 +42,98 @@ HISTORY_FILE="$ARCHIVE_DIR/planq-history.txt"
 
 # ── Parse helpers ─────────────────────────────────────────────────────────────
 
+# Extract the nesting depth from a task content string (after status prefix stripped).
+# Depth-0 tasks start directly with a task type ("task:", "plan:", etc.).
+# Depth-1 subtasks start with "- "; depth-2 with "  - "; etc.
+_content_depth() {
+    local content="$1"
+    local spaces="${content%%[![:space:]]*}"
+    local after="${content#"$spaces"}"
+    if [[ "$after" == "- "* ]]; then
+        printf '%d' $(( ${#spaces} / 2 + 1 ))
+    else
+        printf '%d' 0
+    fi
+}
+
+# Build a dotted number string ("1", "2.1", "3.1.2", …) from the depth_nums array,
+# then update depth_nums for the given depth.
+# Uses the caller's `depth_nums` array (passed by name via nameref or global).
+# Increments depth_nums[depth], zeroes depth_nums[depth+1…].
+_dotted_num_advance() {
+    local depth="$1"
+    depth_nums[$depth]=$(( ${depth_nums[$depth]:-0} + 1 ))
+    local d
+    for (( d = depth + 1; d < 8; d++ )); do depth_nums[$d]=0; done
+    local result="${depth_nums[0]}"
+    for (( d = 1; d <= depth; d++ )); do result="${result}.${depth_nums[$d]}"; done
+    printf '%s' "$result"
+}
+
+# Advance the dotted counter for the given depth (in the global depth_nums array),
+# and set the caller's "dotted" variable to the resulting dotted number string.
+# Must be called without command substitution to avoid subshell issues.
+# Usage: _dotted_num_step <depth>  — result goes into $dotted (caller's scope)
+_dotted_num_step() {
+    local _d="$1" _r _j
+    depth_nums[$_d]=$(( ${depth_nums[$_d]:-0} + 1 ))
+    for (( _j = _d + 1; _j < 8; _j++ )); do depth_nums[$_j]=0; done
+    _r="${depth_nums[0]}"
+    for (( _j = 1; _j <= _d; _j++ )); do _r="${_r}.${depth_nums[$_j]}"; done
+    dotted="$_r"
+}
+
+# Compute depth of a content string and store in $depth (caller's scope).
+# No command substitution — sets $depth directly.
+_content_depth_step() {
+    local _content="$1" _spaces _after
+    _spaces="${_content%%[![:space:]]*}"
+    _after="${_content#"$_spaces"}"
+    if [[ "$_after" == "- "* ]]; then
+        depth=$(( ${#_spaces} / 2 + 1 ))
+    else
+        depth=0
+    fi
+}
+
 _list_tasks() {
     if [ ! -f "$PLANQ_FILE" ]; then
         echo "(no planq file at $PLANQ_FILE)"
         return
     fi
-    local i=0
+    depth_nums=()
     # Pass 1: all non-deferred tasks
     while IFS= read -r line; do
         local trimmed="${line#"${line%%[![:space:]]*}"}"
         [ -z "$trimmed" ] && continue
         [[ "$trimmed" == "# deferred:"* ]] && continue  # skip deferred in pass 1
+        local content depth dotted
         if [[ "$trimmed" == "# done:"* ]]; then
-            i=$((i + 1))
-            printf "  \033[2m✅ %-3d  %s\033[0m\n" "$i" "${trimmed#"# done: "}"
+            content="${trimmed#"# done: "}"
+            _content_depth_step "$content"; _dotted_num_step "$depth"
+            printf "  \033[2m✅ %-5s  %s\033[0m\n" "$dotted" "$content"
         elif [[ "$trimmed" == "# underway:"* ]]; then
-            i=$((i + 1))
-            printf "  \033[33m⏳ %-3d  %s\033[0m\n" "$i" "${trimmed#"# underway: "}"
+            content="${trimmed#"# underway: "}"
+            _content_depth_step "$content"; _dotted_num_step "$depth"
+            printf "  \033[33m⏳ %-5s  %s\033[0m\n" "$dotted" "$content"
         elif [[ "$trimmed" == "# auto-queue:"* ]]; then
-            i=$((i + 1))
-            printf "  \033[36m⏱  %-3d  %s\033[0m\n" "$i" "${trimmed#"# auto-queue: "}"
+            content="${trimmed#"# auto-queue: "}"
+            _content_depth_step "$content"; _dotted_num_step "$depth"
+            printf "  \033[36m⏱  %-5s  %s\033[0m\n" "$dotted" "$content"
         elif [[ "$trimmed" == "# awaiting-commit:"* ]]; then
-            i=$((i + 1))
-            printf "  \033[35m💾 %-3d  %s\033[0m\n" "$i" "${trimmed#"# awaiting-commit: "}"
+            content="${trimmed#"# awaiting-commit: "}"
+            _content_depth_step "$content"; _dotted_num_step "$depth"
+            printf "  \033[35m💾 %-5s  %s\033[0m\n" "$dotted" "$content"
         elif [[ "$trimmed" == "# awaiting-plan:"* ]]; then
-            i=$((i + 1))
-            printf "  \033[36m📋 %-3d  %s\033[0m\n" "$i" "${trimmed#"# awaiting-plan: "}"
+            content="${trimmed#"# awaiting-plan: "}"
+            _content_depth_step "$content"; _dotted_num_step "$depth"
+            printf "  \033[36m📋 %-5s  %s\033[0m\n" "$dotted" "$content"
         elif [[ "$trimmed" == "#"* ]]; then
             continue  # regular comment — skip
         else
-            i=$((i + 1))
-            printf "  ▶  %-3d  %s\n" "$i" "$trimmed"
+            content="$trimmed"
+            _content_depth_step "$content"; _dotted_num_step "$depth"
+            printf "  ▶  %-5s  %s\n" "$dotted" "$content"
         fi
     done < "$PLANQ_FILE"
     # Pass 2: deferred tasks at the bottom (grayed out)
@@ -84,9 +145,55 @@ _list_tasks() {
         if [ "$deferred_count" -eq 0 ]; then
             printf "  \033[2m--- deferred ---\033[0m\n"
         fi
-        i=$((i + 1))
+        local content depth dotted
+        content="${trimmed#"# deferred: "}"
+        _content_depth_step "$content"; _dotted_num_step "$depth"
         deferred_count=$((deferred_count + 1))
-        printf "  \033[2m💤 %-3d  %s\033[0m\n" "$i" "${trimmed#"# deferred: "}"
+        printf "  \033[2m💤 %-5s  %s\033[0m\n" "$dotted" "$content"
+    done < "$PLANQ_FILE"
+}
+
+# Outputs: line_number TAB task_line  for a task identified by dotted number ("5.1", "3.2.1").
+_find_task_by_dotted_number() {
+    local target="$1"
+    [ ! -f "$PLANQ_FILE" ] && return
+    depth_nums=()
+    local n=0
+    # Pass 1: non-deferred tasks
+    while IFS= read -r line; do
+        n=$((n + 1))
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "# deferred:"* ]] && continue
+        [[ "$trimmed" == "#"* && "$trimmed" != "# done:"* && "$trimmed" != "# underway:"* && "$trimmed" != "# auto-queue:"* && "$trimmed" != "# awaiting-commit:"* && "$trimmed" != "# awaiting-plan:"* ]] && continue
+        local content depth dotted
+        if [[ "$trimmed" == "# done: "* ]]; then content="${trimmed#"# done: "}"
+        elif [[ "$trimmed" == "# underway: "* ]]; then content="${trimmed#"# underway: "}"
+        elif [[ "$trimmed" == "# auto-queue: "* ]]; then content="${trimmed#"# auto-queue: "}"
+        elif [[ "$trimmed" == "# awaiting-commit: "* ]]; then content="${trimmed#"# awaiting-commit: "}"
+        elif [[ "$trimmed" == "# awaiting-plan: "* ]]; then content="${trimmed#"# awaiting-plan: "}"
+        else content="$trimmed"
+        fi
+        _content_depth_step "$content"; _dotted_num_step "$depth"
+        if [ "$dotted" = "$target" ]; then
+            printf '%d\t%s\n' "$n" "$content"
+            return
+        fi
+    done < "$PLANQ_FILE"
+    # Pass 2: deferred tasks
+    n=0
+    while IFS= read -r line; do
+        n=$((n + 1))
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == "# deferred:"* ]] || continue
+        local content depth dotted
+        content="${trimmed#"# deferred: "}"
+        _content_depth_step "$content"; _dotted_num_step "$depth"
+        if [ "$dotted" = "$target" ]; then
+            printf '%d\t%s\n' "$n" "$content"
+            return
+        fi
     done < "$PLANQ_FILE"
 }
 
@@ -155,6 +262,10 @@ _find_task_by_identifier() {
     local ident="$1"
     if [[ "$ident" =~ ^[0-9]+$ ]]; then
         _find_task_by_number "$ident"
+        return
+    fi
+    if [[ "$ident" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
+        _find_task_by_dotted_number "$ident"
         return
     fi
     [ ! -f "$PLANQ_FILE" ] && return
@@ -666,7 +777,7 @@ cmd_show() {
 
     local next label
     if [ -n "$task_num" ]; then
-        next="$(_find_task_by_number "$task_num")"
+        next="$(_find_task_by_identifier "$task_num")"
         if [ -z "$next" ]; then
             echo "No task #$task_num in $PLANQ_FILE" >&2; return 1
         fi
@@ -1607,7 +1718,7 @@ cmd_delete() {
         echo "Usage: planq delete <N>" >&2; return 1
     fi
     local next
-    next="$(_find_task_by_number "$task_num")"
+    next="$(_find_task_by_identifier "$task_num")"
     if [ -z "$next" ]; then
         echo "No task #$task_num in $PLANQ_FILE" >&2; return 1
     fi
