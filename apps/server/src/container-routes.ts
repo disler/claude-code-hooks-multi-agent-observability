@@ -40,6 +40,7 @@ import {
   upsertSessionLog,
   getSessionLog,
   touchSessionLogAccessed,
+  markSessionLogIncomplete,
   getSessionLogsByContainer,
   listSessionLogsOlderThan,
   deleteSessionLogs,
@@ -1156,11 +1157,16 @@ async function relaySessionLogChunk(
       if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
       const totalLines = dbRow.total_lines || lines.length;
 
-      if (lineOffset >= totalLines) {
+      if (lineOffset < totalLines) {
+        const chunk = lines.slice(lineOffset, lineOffset + clampedLimit);
+        return { content: chunk.join('\n') + (chunk.length ? '\n' : ''), lineOffset, lineCount: chunk.length, totalLines };
+      }
+      // lineOffset >= totalLines: if the session is marked complete (or container offline),
+      // return empty. Otherwise fall through to relay the daemon for potential new lines.
+      if (dbRow.is_complete || !containerWsMap.has(containerId)) {
         return { content: '', lineOffset, lineCount: 0, totalLines };
       }
-      const chunk = lines.slice(lineOffset, lineOffset + clampedLimit);
-      return { content: chunk.join('\n') + (chunk.length ? '\n' : ''), lineOffset, lineCount: chunk.length, totalLines };
+      // Fall through to daemon relay — session may have new content since last push
     }
   }
 
@@ -1172,7 +1178,11 @@ async function relaySessionLogChunk(
     return { content: chunk.join('\n') + (chunk.length ? '\n' : ''), lineOffset, lineCount: chunk.length, totalLines: cached.totalLines };
   }
   if (cached && cached.totalLines > 0 && lineOffset >= cached.totalLines) {
-    return { content: '', lineOffset, lineCount: 0, totalLines: cached.totalLines };
+    // If container is offline, no new lines are coming — return empty from cache.
+    // If container is online, fall through to daemon relay in case there are new lines.
+    if (!containerWsMap.has(containerId)) {
+      return { content: '', lineOffset, lineCount: 0, totalLines: cached.totalLines };
+    }
   }
 
   // 3. Relay to container daemon
@@ -1794,6 +1804,26 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     } catch (e: any) {
       return err(e.message || 'Session log not found', 503);
     }
+  }
+
+  // POST /dashboard/session-log/:containerId/:sessionId/refresh
+  // Asks the daemon to re-send the session log from line 0 and marks it incomplete in the DB.
+  if (pathname.match(/^\/dashboard\/session-log\/[^/]+\/[^/]+\/refresh$/) && method === 'POST') {
+    const parts = pathname.split('/');
+    const containerId = decodeURIComponent(parts[3]!);
+    const sessionId = decodeURIComponent(parts[4]!);
+    const ws = containerWsMap.get(containerId);
+    if (!ws) return err('Container offline', 503);
+    markSessionLogIncomplete(sessionId);
+    // Invalidate in-memory cache so next fetch goes to daemon
+    const slc = sessionLogCache.get(sessionId);
+    if (slc) slc.totalLines = 0;
+    try {
+      ws.send(JSON.stringify({ type: 'session_log_resend', session_id: sessionId, from_line: 0 }));
+    } catch (e: any) {
+      return err('Failed to send resend request: ' + (e.message || e), 500);
+    }
+    return json({ ok: true });
   }
 
   // GET /dashboard/hostname-aliases

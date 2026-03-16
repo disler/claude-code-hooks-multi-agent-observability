@@ -47,6 +47,13 @@
           </span>
         </div>
         <div class="flex items-center gap-3">
+          <!-- Refresh button -->
+          <button
+            @click="refresh"
+            :disabled="refreshing || !selectedSessionId"
+            class="text-xs px-2 py-0.5 rounded border border-slate-600 text-slate-400 hover:text-slate-200 hover:border-slate-500 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Request fresh session log from daemon"
+          >{{ refreshing ? 'Refreshing…' : 'Refresh' }}</button>
           <!-- Rendered / Raw toggle -->
           <div class="flex items-center gap-1 text-xs">
             <button
@@ -195,6 +202,7 @@ const { alias } = useHostnameAliases();
 const renderMarkdown = ref(true);
 const loading = ref(false);
 const loadingMore = ref(false);
+const refreshing = ref(false);
 const error = ref("");
 const rawLines = ref<any[]>([]);
 const loadedLines = ref(0);
@@ -458,6 +466,26 @@ function handleKey(e: KeyboardEvent) {
   if (e.key === "ArrowDown" || e.key === "PageDown") {
     e.preventDefault();
     nextPrompt();
+  }
+}
+
+async function refresh() {
+  if (!selectedSessionId.value || !activeContainerId.value || refreshing.value) return;
+  refreshing.value = true;
+  error.value = "";
+  try {
+    const res = await fetch(
+      `${API_BASE}/dashboard/session-log/${encodeURIComponent(activeContainerId.value)}/${encodeURIComponent(selectedSessionId.value)}/refresh`,
+      { method: 'POST' }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // Wait briefly for daemon to start sending, then reload
+    await new Promise(r => setTimeout(r, 500));
+    await load();
+  } catch (e: any) {
+    error.value = e?.message ?? 'Refresh failed';
+  } finally {
+    refreshing.value = false;
   }
 }
 

@@ -1209,6 +1209,10 @@ export function touchSessionLogAccessed(sessionId: string): void {
   db.prepare('UPDATE session_logs SET last_accessed = ? WHERE session_id = ?').run(Date.now(), sessionId);
 }
 
+export function markSessionLogIncomplete(sessionId: string): void {
+  db.prepare('UPDATE session_logs SET is_complete = 0 WHERE session_id = ?').run(sessionId);
+}
+
 export function getSessionLogsByContainer(containerId: string): SessionLogRow[] {
   const rows = db.prepare('SELECT * FROM session_logs WHERE container_id = ?').all(containerId) as any[];
   return rows.map(r => ({ ...r, is_complete: Boolean(r.is_complete) }));
