@@ -1838,7 +1838,12 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     // (daemon picks a non-conflicting name and returns the actual filename used).
     if (create_file && filename && description && containerWsMap.has(containerId)) {
       const actualFn = await relayFileWriteNew(containerId, filename, description).catch(() => null);
-      if (actualFn) filename = actualFn;
+      if (actualFn) {
+        filename = actualFn;
+        // Cache immediately so clicking the filename works without waiting for daemon heartbeat
+        if (!plansFilesCache.has(containerId)) plansFilesCache.set(containerId, new Map());
+        plansFilesCache.get(containerId)!.set(actualFn, description);
+      }
     }
 
     const effectiveMode = (['auto', 'stage', 'manual'].includes(commit_mode) ? commit_mode : (auto_commit ? 'auto' : 'none')) as 'none' | 'auto' | 'stage' | 'manual';
@@ -1848,10 +1853,14 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     // For make-plan, write the prompt to the filename directly (filename IS make-plan-*.md)
     if (task_type === 'make-plan' && filename && description) {
       await relayFileWrite(containerId, filename, description).catch(() => {});
+      if (!plansFilesCache.has(containerId)) plansFilesCache.set(containerId, new Map());
+      plansFilesCache.get(containerId)!.set(filename, description);
     }
     // For investigate, write the prompt to the filename directly (filename IS investigate-*.md)
     if (task_type === 'investigate' && filename && description) {
       await relayFileWrite(containerId, filename, description).catch(() => {});
+      if (!plansFilesCache.has(containerId)) plansFilesCache.set(containerId, new Map());
+      plansFilesCache.get(containerId)!.set(filename, description);
     }
 
     // Resolve parent task key for subtask insertion (used by daemon to place it after the parent)
@@ -2100,6 +2109,9 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
     const content = body.content ?? '';
     try {
       await relayFileWrite(containerId, filename, content);
+      // Update cache so subsequent reads reflect the new content immediately
+      if (!plansFilesCache.has(containerId)) plansFilesCache.set(containerId, new Map());
+      plansFilesCache.get(containerId)!.set(filename, content);
       return json({ ok: true });
     } catch (e: any) {
       return err(e.message || 'File write failed', 503);
