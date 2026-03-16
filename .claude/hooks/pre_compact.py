@@ -56,19 +56,14 @@ def log_pre_compact(input_data, custom_instructions):
         json.dump(log_data, f, indent=2)
 
 
-def push_transcript_to_server(session_id: str, transcript_path: str):
-    """Upload the full transcript to the observability server before compaction.
+def push_transcript_to_server(session_id: str, content: bytes):
+    """Upload pre-read transcript content to the observability server.
 
+    Accepts already-read bytes so the file is not accessed after the hook
+    returns (compaction may overwrite it immediately on exit).
     Best-effort: errors are silently ignored so compaction always proceeds.
-    Called in a background thread to avoid blocking the hook.
     """
     try:
-        if not transcript_path or not os.path.exists(transcript_path):
-            return
-        with open(transcript_path, 'r', errors='replace') as f:
-            content = f.read()
-        if not content.strip():
-            return
         container_id = os.environ.get('HOSTNAME', 'unknown')
         server_base = os.environ.get('OBSERVABILITY_SERVER_URL', 'http://172.30.0.1:4000')
         # Convert ws(s):// to http(s):// if needed
@@ -80,7 +75,7 @@ def push_transcript_to_server(session_id: str, transcript_path: str):
         url = f"{base}/container/{container_id}/session-log/{session_id}"
         req = urllib.request.Request(
             url,
-            data=content.encode('utf-8'),
+            data=content,
             headers={'Content-Type': 'text/plain'},
             method='POST',
         )
@@ -145,15 +140,23 @@ def main():
         # Log the pre-compact event with custom_instructions
         log_pre_compact(input_data, custom_instructions)
 
-        # Push transcript to observability server before compaction (background, non-blocking)
+        # Push transcript to observability server before compaction.
+        # Read the file on the main thread NOW — compaction will overwrite it
+        # as soon as this hook exits, so we must not defer the read to a thread.
         if transcript_path and session_id != 'unknown':
-            t = threading.Thread(
-                target=push_transcript_to_server,
-                args=(session_id, transcript_path),
-                daemon=True,
-            )
-            t.start()
-            t.join(timeout=8)  # wait up to 8s but don't block compaction indefinitely
+            try:
+                with open(transcript_path, 'rb') as f:
+                    transcript_content = f.read()
+            except OSError:
+                transcript_content = b''
+            if transcript_content.strip():
+                t = threading.Thread(
+                    target=push_transcript_to_server,
+                    args=(session_id, transcript_content),
+                    daemon=True,
+                )
+                t.start()
+                t.join(timeout=8)  # wait up to 8s but don't block compaction indefinitely
 
         # Create backup if requested (pass custom_instructions for naming)
         backup_path = None
