@@ -11,6 +11,12 @@
         <button @click="emit('close')" class="text-slate-500 hover:text-slate-300 text-sm">✕</button>
       </div>
 
+      <!-- Offline warning -->
+      <div v-if="offlineWarning" class="flex items-start gap-2 bg-amber-900/30 border border-amber-700/60 rounded px-3 py-2 text-xs text-amber-300">
+        <span class="shrink-0 mt-0.5">⚠️</span>
+        <span>{{ offlineWarning }}</span>
+      </div>
+
       <div class="flex flex-col gap-1">
         <label class="text-xs text-slate-400">Type</label>
         <select
@@ -368,6 +374,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
 import { useConfirmKey } from '../composables/useConfirmKey'
+import { useContainers } from '../composables/useContainers'
 import MarkdownContent from './MarkdownContent.vue'
 import type { PlanqTask } from '../types'
 
@@ -387,6 +394,21 @@ const emit = defineEmits<{
 
 const { readFile, listPlansFiles } = usePlanq()
 const { onConfirmKey } = useConfirmKey()
+const { containers } = useContainers()
+
+// Warn if this container is offline and a sibling (same host + workspace) is online
+const offlineWarning = computed(() => {
+  const self = containers.value.get(props.containerId)
+  if (!self || self.connected) return null
+  const sibling = [...containers.value.values()].find(c =>
+    c.id !== self.id &&
+    c.connected &&
+    c.machine_hostname === self.machine_hostname &&
+    c.workspace_host_path === self.workspace_host_path
+  )
+  if (!sibling) return null
+  return `This container is offline. A newer instance (${sibling.id.slice(0, 8)}) is online for the same workspace. Tasks added here may not be scheduled.`
+})
 
 const SUBTASK_TYPES = ['task', 'investigate', 'auto-test', 'agent-test', 'manual-test', 'manual-task']
 
