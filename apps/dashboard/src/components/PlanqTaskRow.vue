@@ -40,13 +40,13 @@
         :title="isOpen(taskKey) ? 'Hide description' : 'Show description'"
       >{{ effectiveFilename }}</button>
       <span v-else class="truncate min-w-0">{{ task.description }}</span>
-      <!-- Feedback toggle: immediately after filename for investigate tasks -->
+      <!-- Feedback toggle: visible for investigate, task, plan, make-plan types -->
       <button
-        v-if="task.task_type === 'investigate' && derivedFeedbackFilename"
+        v-if="derivedFeedbackFilename"
         @click.stop="toggleFeedbackOpen"
         class="shrink-0 text-xs px-1"
         :class="isFeedbackOpen(taskKey) ? 'text-indigo-300 hover:text-indigo-200' : 'text-slate-500 hover:text-slate-300'"
-        title="Show investigation feedback"
+        :title="task.task_type === 'investigate' ? 'Show investigation feedback' : 'Show task feedback/summary'"
       >{{ isFeedbackOpen(taskKey) ? 'hide feedback' : 'feedback' }}</button>
       <span v-if="task.commit_mode === 'auto' || task.auto_commit" class="shrink-0 text-green-500" title="Auto-commit after">⇒</span>
       <span v-else-if="task.commit_mode === 'stage'" class="shrink-0 text-blue-400" title="Stage-commit after (Claude stages, you commit)">⇒</span>
@@ -226,9 +226,9 @@
     <div v-else class="text-xs text-slate-500 italic">No description available.</div>
   </div>
 
-  <!-- Investigate feedback panel -->
+  <!-- Feedback panel (investigate, task, plan, make-plan) -->
   <div
-    v-if="isFeedbackOpen(taskKey) && task.task_type === 'investigate' && derivedFeedbackFilename"
+    v-if="isFeedbackOpen(taskKey) && derivedFeedbackFilename"
     class="mx-2 mb-1 rounded border border-indigo-800/50 bg-indigo-950/30 p-2"
   >
     <div class="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5 pb-1 border-b border-indigo-800/40">
@@ -368,8 +368,15 @@ const effectiveFilename = computed(() => {
 const loadingFeedback = ref(false)
 
 const derivedFeedbackFilename = computed(() => {
-  if (props.task.task_type !== 'investigate') return null
-  return effectiveFilename.value?.replace(/^investigate-/, 'feedback-') ?? null
+  const fn = effectiveFilename.value
+  if (!fn) return null
+  if (props.task.task_type === 'investigate') {
+    return fn.replace(/^investigate-/, 'feedback-')
+  }
+  if (['task', 'plan', 'make-plan'].includes(props.task.task_type)) {
+    return `feedback-${fn}`
+  }
+  return null
 })
 
 async function toggleFeedbackOpen() {
