@@ -154,19 +154,24 @@ function sessionLogPath(sessionId: string): string {
   return `${SESSION_LOG_DIR}/${sessionId}.jsonl`;
 }
 
-/** Write (or append) session log content to the filesystem and update DB index. */
+/** Write (or append) session log content to the filesystem and update DB index.
+ *  physicalOffset is the offset in the stored file (accounts for compaction base).
+ *  compactionSeq/compactionBase are preserved in DB when provided (non-zero).
+ */
 async function writeSessionLogFile(
   sessionId: string,
   containerId: string,
   sourceRepo: string,
-  lineOffset: number,
+  physicalOffset: number,
   lineCount: number,
   content: string,
   isComplete: boolean,
+  compactionSeq = 0,
+  compactionBase = 0,
 ): Promise<void> {
   const path = sessionLogPath(sessionId);
-  if (lineOffset === 0) {
-    // First chunk — full overwrite
+  if (physicalOffset === 0) {
+    // First chunk — full overwrite (or fresh start)
     await Bun.write(path, content);
   } else {
     // Incremental append
@@ -180,10 +185,12 @@ async function writeSessionLogFile(
     session_id: sessionId,
     container_id: containerId,
     source_repo: sourceRepo,
-    total_lines: lineOffset + lineCount,
+    total_lines: physicalOffset + lineCount,
     file_size: fileSize,
     is_complete: isComplete,
     last_pushed: Date.now(),
+    compaction_seq: compactionSeq,
+    compaction_base: compactionBase,
   });
 }
 
@@ -246,29 +253,70 @@ async function handleSessionLogPush(ws: any, msg: any): Promise<void> {
   const lineOffset: number = Math.max(0, parseInt(msg.line_offset ?? '0', 10) || 0);
   const content: string = msg.content ?? '';
   const isComplete: boolean = Boolean(msg.is_complete);
+  const incomingCompactionSeq: number = Math.max(0, parseInt(msg.compaction_seq ?? '0', 10) || 0);
 
   // line_count from daemon; fall back to counting newlines in content.
   const lineCount: number = msg.line_count != null
     ? Math.max(0, parseInt(msg.line_count, 10) || 0)
     : content.split('\n').filter(Boolean).length;
 
-  // Verify alignment for every chunk (including the first incremental one).
-  // total_lines in the DB records lines-received-so-far, so it must equal lineOffset.
-  if (lineOffset > 0) {
-    const existing = getSessionLog(sessionId);
-    if (!existing || existing.total_lines !== lineOffset) {
-      const fromLine = existing?.total_lines ?? 0;
-      console.warn(`[session_log_push] ${sessionId}: alignment mismatch — expected offset ${fromLine}, got ${lineOffset}; requesting resend`);
-      try { ws.send(JSON.stringify({ type: 'session_log_resend', session_id: sessionId, from_line: fromLine })); } catch {}
-      return;
-    }
-  }
+  const existing = getSessionLog(sessionId);
+  const storedCompactionSeq = existing?.compaction_seq ?? 0;
+  const storedCompactionBase = existing?.compaction_base ?? 0;
 
-  try {
-    console.log(`[session_log_push] ${sessionId.slice(0, 8)}: received lines ${lineOffset}–${lineOffset + lineCount - 1}${isComplete ? ' (complete)' : ''}`);
-    await writeSessionLogFile(sessionId, containerId, container.source_repo, lineOffset, lineCount, content, isComplete);
-  } catch (e) {
-    console.error(`[session_log_push] Error writing ${sessionId}:`, e);
+  if (incomingCompactionSeq > storedCompactionSeq) {
+    // Session was compacted — append a divider marker then the new post-compaction content.
+    // The pre-compact lines were already pushed (via the pre_compact hook or an earlier push)
+    // and are preserved in the stored file. We keep them and append going forward.
+    const path = sessionLogPath(sessionId);
+    const existingFile = Bun.file(path);
+    const existingContent = (await existingFile.exists()) ? await existingFile.text() : '';
+    const existingLineCount = existingContent ? existingContent.split('\n').filter(Boolean).length : 0;
+    const markerLine = JSON.stringify({ type: '_compaction_divider', seq: incomingCompactionSeq, timestamp: Date.now() }) + '\n';
+    const newBase = existingLineCount + 1; // lines before marker + marker
+    const newTotal = newBase + lineCount;
+    try {
+      await Bun.write(path, existingContent + markerLine + content);
+      const fileSize = (await Bun.file(path).stat()).size;
+      upsertSessionLog({
+        session_id: sessionId,
+        container_id: containerId,
+        source_repo: container.source_repo,
+        total_lines: newTotal,
+        file_size: fileSize,
+        is_complete: isComplete && lineOffset + lineCount >= (msg.total_lines ?? 0),
+        last_pushed: Date.now(),
+        compaction_seq: incomingCompactionSeq,
+        compaction_base: newBase,
+      });
+      console.log(`[session_log_push] ${sessionId.slice(0, 8)}: compaction seq ${incomingCompactionSeq} — preserved ${existingLineCount} lines, appended ${lineCount} new`);
+    } catch (e) {
+      console.error(`[session_log_push] Error writing compaction for ${sessionId}:`, e);
+    }
+  } else {
+    // Normal push or continuation of a post-compaction sequence.
+    // For post-compaction continuations (storedCompactionSeq > 0), the daemon sends
+    // logical lineOffset (0-based from post-compaction start), and physical offset
+    // in the stored file = storedCompactionBase + lineOffset.
+    const physicalOffset = storedCompactionSeq > 0 ? storedCompactionBase + lineOffset : lineOffset;
+
+    // Verify alignment
+    if (physicalOffset > 0) {
+      if (!existing || existing.total_lines !== physicalOffset) {
+        const fromLine = existing ? existing.total_lines - (storedCompactionSeq > 0 ? storedCompactionBase : 0) : 0;
+        const safeFromLine = Math.max(0, fromLine);
+        console.warn(`[session_log_push] ${sessionId}: alignment mismatch — expected physical ${existing?.total_lines ?? 0}, got ${physicalOffset}; requesting resend from logical ${safeFromLine}`);
+        try { ws.send(JSON.stringify({ type: 'session_log_resend', session_id: sessionId, from_line: safeFromLine })); } catch {}
+        return;
+      }
+    }
+
+    try {
+      console.log(`[session_log_push] ${sessionId.slice(0, 8)}: received lines ${lineOffset}–${lineOffset + lineCount - 1}${isComplete ? ' (complete)' : ''}`);
+      await writeSessionLogFile(sessionId, containerId, container.source_repo, physicalOffset, lineCount, content, isComplete, storedCompactionSeq, storedCompactionBase);
+    } catch (e) {
+      console.error(`[session_log_push] Error writing ${sessionId}:`, e);
+    }
   }
 
   // Link any tasks mentioned in this content chunk to the session
@@ -667,9 +715,14 @@ export function handleContainerMessage(ws: any, raw: string | Buffer): void {
       }
       // Always send session_log_ack so daemon knows what we have and pushes the rest.
       // An empty map tells the daemon "I have nothing — push all active sessions."
+      // For sessions with compaction_base > 0, send the logical line count
+      // (total_lines - compaction_base) so the daemon correctly pushes post-compaction lines.
       const cachedSessions = getSessionLogsByContainer(containerId);
       const ackMap: Record<string, number> = {};
-      for (const s of cachedSessions) ackMap[s.session_id] = s.total_lines;
+      for (const s of cachedSessions) {
+        const base = (s as any).compaction_base ?? 0;
+        ackMap[s.session_id] = base > 0 ? Math.max(0, s.total_lines - base) : s.total_lines;
+      }
       try { ws.send(JSON.stringify({ type: 'session_log_ack', sessions: ackMap })); } catch {}
     }
 
@@ -1783,6 +1836,30 @@ export async function handleContainerRequest(req: Request): Promise<Response | n
       return json(data);
     } catch (e: any) {
       return json({ prs: [], error: e?.message ?? 'fetch failed' });
+    }
+  }
+
+  // POST /container/:containerId/session-log/:sessionId
+  // Pre-compact hook uploads raw JSONL transcript so it is preserved before compaction.
+  // Also used as a best-effort flush any time the hook wants to push the full transcript.
+  if (pathname.match(/^\/container\/[^/]+\/session-log\/[^/]+$/) && method === 'POST') {
+    const parts = pathname.split('/');
+    const containerId = decodeURIComponent(parts[2]!);
+    const sessionId = decodeURIComponent(parts[4]!);
+    if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return err('Invalid session ID', 400);
+    const content = await req.text();
+    if (!content) return json({ ok: true, lineCount: 0 });
+    const lines = content.split('\n').filter(Boolean);
+    const lineCount = lines.length;
+    const container = getContainer(containerId);
+    const sourceRepo = container?.source_repo ?? '';
+    try {
+      await writeSessionLogFile(sessionId, containerId, sourceRepo, 0, lineCount, content, false);
+      // Invalidate in-memory cache so next read reflects new content
+      sessionLogCache.delete(sessionId);
+      return json({ ok: true, lineCount });
+    } catch (e: any) {
+      return err('Failed to store session log: ' + (e.message || e), 500);
     }
   }
 

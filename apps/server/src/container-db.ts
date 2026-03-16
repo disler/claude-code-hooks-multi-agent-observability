@@ -261,6 +261,15 @@ export function initContainerDatabase(): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_sl_container ON session_logs(container_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_sl_last_accessed ON session_logs(last_accessed)');
 
+  // Migration for session_logs columns added after initial schema
+  const slColumns = (db.prepare('PRAGMA table_info(session_logs)').all() as any[]).map((r: any) => r.name);
+  if (!slColumns.includes('compaction_seq')) {
+    db.exec('ALTER TABLE session_logs ADD COLUMN compaction_seq INTEGER DEFAULT 0');
+  }
+  if (!slColumns.includes('compaction_base')) {
+    db.exec('ALTER TABLE session_logs ADD COLUMN compaction_base INTEGER DEFAULT 0');
+  }
+
   // Migration for planq_tasks columns added after initial schema
   const taskColumns = (db.prepare('PRAGMA table_info(planq_tasks)').all() as any[]).map((r: any) => r.name);
   if (!taskColumns.includes('auto_commit')) {
@@ -1175,18 +1184,22 @@ export interface SessionLogRow {
   is_complete: boolean;
   last_pushed: number;
   last_accessed: number;
+  compaction_seq: number;
+  compaction_base: number;
 }
 
-export function upsertSessionLog(row: Omit<SessionLogRow, 'last_accessed'> & { last_accessed?: number }): void {
+export function upsertSessionLog(row: Omit<SessionLogRow, 'last_accessed' | 'compaction_seq' | 'compaction_base'> & { last_accessed?: number; compaction_seq?: number; compaction_base?: number }): void {
   db.prepare(`
-    INSERT INTO session_logs (session_id, container_id, source_repo, total_lines, file_size, is_complete, last_pushed, last_accessed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO session_logs (session_id, container_id, source_repo, total_lines, file_size, is_complete, last_pushed, last_accessed, compaction_seq, compaction_base)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       total_lines = excluded.total_lines,
       file_size = excluded.file_size,
       is_complete = excluded.is_complete,
       last_pushed = excluded.last_pushed,
-      last_accessed = excluded.last_accessed
+      last_accessed = excluded.last_accessed,
+      compaction_seq = excluded.compaction_seq,
+      compaction_base = excluded.compaction_base
   `).run(
     row.session_id,
     row.container_id,
@@ -1196,6 +1209,8 @@ export function upsertSessionLog(row: Omit<SessionLogRow, 'last_accessed'> & { l
     row.is_complete ? 1 : 0,
     row.last_pushed,
     row.last_accessed ?? Date.now(),
+    row.compaction_seq ?? 0,
+    row.compaction_base ?? 0,
   );
 }
 

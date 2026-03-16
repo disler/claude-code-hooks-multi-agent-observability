@@ -10,6 +10,9 @@ import argparse
 import json
 import os
 import sys
+import threading
+import urllib.request
+import urllib.error
 from pathlib import Path
 from datetime import datetime
 
@@ -51,6 +54,40 @@ def log_pre_compact(input_data, custom_instructions):
     # Write back to file with formatting
     with open(log_file, 'w') as f:
         json.dump(log_data, f, indent=2)
+
+
+def push_transcript_to_server(session_id: str, transcript_path: str):
+    """Upload the full transcript to the observability server before compaction.
+
+    Best-effort: errors are silently ignored so compaction always proceeds.
+    Called in a background thread to avoid blocking the hook.
+    """
+    try:
+        if not transcript_path or not os.path.exists(transcript_path):
+            return
+        with open(transcript_path, 'r', errors='replace') as f:
+            content = f.read()
+        if not content.strip():
+            return
+        container_id = os.environ.get('HOSTNAME', 'unknown')
+        server_base = os.environ.get('OBSERVABILITY_SERVER_URL', 'http://172.30.0.1:4000')
+        # Convert ws(s):// to http(s):// if needed
+        server_base = server_base.replace('wss://', 'https://').replace('ws://', 'http://')
+        # Strip trailing path components to get base URL
+        from urllib.parse import urlparse
+        parsed = urlparse(server_base)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        url = f"{base}/container/{container_id}/session-log/{session_id}"
+        req = urllib.request.Request(
+            url,
+            data=content.encode('utf-8'),
+            headers={'Content-Type': 'text/plain'},
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            pass  # success
+    except Exception:
+        pass  # silently ignore — compaction must not be blocked
 
 
 def backup_transcript(transcript_path, trigger, custom_instructions=""):
@@ -107,6 +144,16 @@ def main():
         
         # Log the pre-compact event with custom_instructions
         log_pre_compact(input_data, custom_instructions)
+
+        # Push transcript to observability server before compaction (background, non-blocking)
+        if transcript_path and session_id != 'unknown':
+            t = threading.Thread(
+                target=push_transcript_to_server,
+                args=(session_id, transcript_path),
+                daemon=True,
+            )
+            t.start()
+            t.join(timeout=8)  # wait up to 8s but don't block compaction indefinitely
 
         # Create backup if requested (pass custom_instructions for naming)
         backup_path = None

@@ -749,10 +749,14 @@ def _find_session_log(session_id: str):
 _server_session_log_lines: dict = {}
 _server_session_log_lines_lock = threading.Lock()
 
+# session_id → compaction_seq (incremented each time we detect the local file was truncated)
+_session_compaction_seq: dict = {}
+_session_compaction_seq_lock = threading.Lock()
+
 _SESSION_LOG_CHUNK_BYTES = 1_000_000  # max bytes per session_log_push packet
 
 
-def _push_session_log(ws_app, session_id: str, from_line: int = 0):
+def _push_session_log(ws_app, session_id: str, from_line: int = 0, compaction_seq: int = 0):
     """Push session JSONL content to the server from from_line onwards.
 
     Splits the content into packets of at most _SESSION_LOG_CHUNK_BYTES each.
@@ -798,6 +802,7 @@ def _push_session_log(ws_app, session_id: str, from_line: int = 0):
                 'content': ''.join(chunk),
                 'total_lines': total_lines,
                 'is_complete': is_last,
+                'compaction_seq': compaction_seq,
             }, _PRIO_DATA)
             n_chunks += 1
             send_from = i
@@ -997,13 +1002,29 @@ def _run_connection():
                 except OSError:
                     continue
                 if total > server_lines:
-                    threading.Thread(target=_push_session_log, args=(ws, sid, server_lines), daemon=True).start()
+                    with _session_compaction_seq_lock:
+                        seq = _session_compaction_seq.get(sid, 0)
+                    threading.Thread(target=_push_session_log, args=(ws, sid, server_lines, seq), daemon=True).start()
+                elif total < server_lines and total > 0:
+                    # File was truncated — session was compacted or cleared.
+                    # Increment compaction_seq and push from 0 so the server
+                    # appends the new post-compaction content to its stored file.
+                    with _session_compaction_seq_lock:
+                        _session_compaction_seq[sid] = _session_compaction_seq.get(sid, 0) + 1
+                        seq = _session_compaction_seq[sid]
+                    with _server_session_log_lines_lock:
+                        _server_session_log_lines[sid] = 0
+                    log.info('[session_log_ack] compaction detected for session=%s (file=%d < server=%d) seq=%d',
+                             sid[:8], total, server_lines, seq)
+                    threading.Thread(target=_push_session_log, args=(ws, sid, 0, seq), daemon=True).start()
         elif mtype == 'session_log_resend':
             # Server asks us to re-send a session from a given line
             sid = msg.get('session_id', '')
             from_line = int(msg.get('from_line', 0))
             if sid:
-                threading.Thread(target=_push_session_log, args=(ws, sid, from_line), daemon=True).start()
+                with _session_compaction_seq_lock:
+                    seq = _session_compaction_seq.get(sid, 0)
+                threading.Thread(target=_push_session_log, args=(ws, sid, from_line, seq), daemon=True).start()
         elif mtype == 'restart':
             log.info('Received restart request from server — signalling main thread to restart')
             _restart_requested.set()
@@ -1069,7 +1090,9 @@ def _run_connection():
             for sid in newly_idle:
                 with _server_session_log_lines_lock:
                     from_line = _server_session_log_lines.get(sid, 0)
-                threading.Thread(target=_push_session_log, args=(ws_app, sid, from_line), daemon=True).start()
+                with _session_compaction_seq_lock:
+                    seq = _session_compaction_seq.get(sid, 0)
+                threading.Thread(target=_push_session_log, args=(ws_app, sid, from_line, seq), daemon=True).start()
             _prev_running_ids = current_running
 
     ws_app.close()
