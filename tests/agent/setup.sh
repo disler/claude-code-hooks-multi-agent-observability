@@ -186,13 +186,13 @@ if [[ "$START_DASHBOARD" == 1 ]]; then
                 VITE_SERVER_PORT="$TEST_SERVER_PORT" \
                 VITE_HOST=127.0.0.1 \
                 NODE_PATH="${EXTRA_NODE_PATH}${EXTRA_NODE_PATH:+:}${NODE_PATH:-}" \
-                npx vite --port "$DASHBOARD_PORT" \
+                npx vite --port "$DASHBOARD_PORT" --strictPort \
                 >> "$LOGS_DIR/dashboard.log" 2>&1
         ) &
         DASHBOARD_PID=$!
         echo "$DASHBOARD_PID" > "$DASHBOARD_PID_FILE"
 
-        retries=20
+        retries=60
         while [[ "$retries" -gt 0 ]]; do
             sleep 0.5
             if ! kill -0 "$DASHBOARD_PID" 2>/dev/null; then
