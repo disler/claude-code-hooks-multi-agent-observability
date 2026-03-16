@@ -274,7 +274,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, watch } from 'vue'
 import { usePlanq } from '../composables/usePlanq'
 import { useContainers } from '../composables/useContainers'
 import { usePlanqPanelState } from '../composables/usePanelState'
@@ -353,6 +353,15 @@ function toggleFilterInverted(status: string) {
 const activeReviewFilters = reactive(new Set<string>(
   props.initialReviewFilter ? [props.initialReviewFilter] : []
 ))
+
+// When the parent changes the filter (e.g. clicking a different badge for the
+// same already-open container), update the active set so the filter takes effect.
+watch(() => props.initialReviewFilter, (newFilter) => {
+  if (newFilter) {
+    activeReviewFilters.clear()
+    activeReviewFilters.add(newFilter)
+  }
+})
 
 function toggleReviewFilter(status: string) {
   if (activeReviewFilters.has(status)) activeReviewFilters.delete(status)
