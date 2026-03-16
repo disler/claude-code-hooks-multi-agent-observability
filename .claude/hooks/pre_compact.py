@@ -10,7 +10,6 @@ import argparse
 import json
 import os
 import sys
-import threading
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -56,19 +55,12 @@ def log_pre_compact(input_data, custom_instructions):
         json.dump(log_data, f, indent=2)
 
 
-def push_transcript_to_server(session_id: str, content: bytes):
-    """Upload pre-read transcript content to the observability server.
-
-    Accepts already-read bytes so the file is not accessed after the hook
-    returns (compaction may overwrite it immediately on exit).
-    Best-effort: errors are silently ignored so compaction always proceeds.
-    """
+def _do_push(session_id: str, content: bytes) -> None:
+    """HTTP POST in the forked child process. Runs after os.fork(); must not raise."""
     try:
         container_id = os.environ.get('HOSTNAME', 'unknown')
         server_base = os.environ.get('OBSERVABILITY_SERVER_URL', 'http://172.30.0.1:4000')
-        # Convert ws(s):// to http(s):// if needed
         server_base = server_base.replace('wss://', 'https://').replace('ws://', 'http://')
-        # Strip trailing path components to get base URL
         from urllib.parse import urlparse
         parsed = urlparse(server_base)
         base = f"{parsed.scheme}://{parsed.netloc}"
@@ -79,10 +71,10 @@ def push_transcript_to_server(session_id: str, content: bytes):
             headers={'Content-Type': 'text/plain'},
             method='POST',
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            pass  # success
+        with urllib.request.urlopen(req, timeout=30) as _:
+            pass
     except Exception:
-        pass  # silently ignore — compaction must not be blocked
+        pass
 
 
 def backup_transcript(transcript_path, trigger, custom_instructions=""):
@@ -141,8 +133,10 @@ def main():
         log_pre_compact(input_data, custom_instructions)
 
         # Push transcript to observability server before compaction.
-        # Read the file on the main thread NOW — compaction will overwrite it
-        # as soon as this hook exits, so we must not defer the read to a thread.
+        # Read the file NOW on the main thread — compaction overwrites it on
+        # hook exit, so we cannot defer the read.  Then fork: the child
+        # does the HTTP upload independently and the parent returns immediately,
+        # allowing compaction to proceed without any blocking delay.
         if transcript_path and session_id != 'unknown':
             try:
                 with open(transcript_path, 'rb') as f:
@@ -150,13 +144,11 @@ def main():
             except OSError:
                 transcript_content = b''
             if transcript_content.strip():
-                t = threading.Thread(
-                    target=push_transcript_to_server,
-                    args=(session_id, transcript_content),
-                    daemon=True,
-                )
-                t.start()
-                t.join(timeout=8)  # wait up to 8s but don't block compaction indefinitely
+                pid = os.fork()
+                if pid == 0:
+                    # Child: upload and exit; parent carries on immediately.
+                    _do_push(session_id, transcript_content)
+                    os._exit(0)
 
         # Create backup if requested (pass custom_instructions for naming)
         backup_path = None
