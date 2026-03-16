@@ -46,6 +46,15 @@
                 <span v-if="failedTests(c) > 0" class="text-red-400 ml-1">{{ failedTests(c) }} fail</span>
                 <span v-if="passedTests(c) > 0 && failedTests(c) === 0" class="text-green-400 ml-1">{{ passedTests(c) }} pass</span>
               </div>
+              <div v-if="reviewStatusCounts(c).length > 0" class="flex flex-wrap gap-0.5 mt-1">
+                <button
+                  v-for="b in reviewStatusCounts(c)"
+                  :key="b.status"
+                  class="flex items-center gap-0.5 px-1 py-0.5 rounded text-xs bg-slate-700/60 hover:bg-slate-600/60 text-slate-300"
+                  :title="b.status + ' (' + b.count + ')'"
+                  @click.stop="openWithFilter(c, b.status)"
+                >{{ b.icon }}{{ b.count }}</button>
+              </div>
               <div class="flex gap-1 mt-1.5 flex-wrap items-center">
                 <button
                   v-if="c.source_repo"
@@ -78,13 +87,14 @@
         <span class="text-xs text-slate-400 font-semibold truncate">{{ selectedContainer.source_repo }}</span>
         <button
           class="text-slate-500 hover:text-slate-200 text-lg leading-none ml-2 shrink-0"
-          @click="selectedContainerId = null"
+          @click="selectedContainerId = null; sidebarReviewFilter = null"
           title="Close"
         >×</button>
       </div>
       <div class="overflow-y-auto flex-1 p-2">
         <ContainerCard
           :container="selectedContainer"
+          :initial-review-filter="sidebarReviewFilter ?? undefined"
           @tasks-changed="() => {}"
           @open-git-view="(repo, hash) => emit('open-git-view', repo, hash)"
           @open-history="(cid, sid) => emit('open-history', cid, sid)"
@@ -116,7 +126,34 @@ const emit = defineEmits<{
 const { containers } = useContainers()
 
 const selectedContainerId = ref<string | null>(null)
+const sidebarReviewFilter = ref<string | null>(null)
 const dragTarget = ref<string | null>(null)
+
+const REVIEW_BADGE_DEFS: Array<{ status: string; icon: string }> = [
+  { status: 'ready',            icon: '🔵' },
+  { status: 'testing',          icon: '🧪' },
+  { status: 'passed',           icon: '🟢' },
+  { status: 'has-issues',       icon: '🔴' },
+  { status: 'fix-scheduled',    icon: '🔧' },
+  { status: 'follow-up',        icon: '🔄' },
+  { status: 'revert-scheduled', icon: '⏪' },
+  { status: 'ready-for-merge',  icon: '🚀' },
+  { status: 'merged',           icon: '🏁' },
+  { status: 'cancelled',        icon: '🚫' },
+  { status: 'retry-later',      icon: '⏸️' },
+]
+
+function reviewStatusCounts(c: ContainerWithState): Array<{ status: string; icon: string; count: number }> {
+  const tasks = c.planq_tasks ?? []
+  return REVIEW_BADGE_DEFS
+    .map(d => ({ ...d, count: tasks.filter(t => t.review_status === d.status).length }))
+    .filter(d => d.count > 0)
+}
+
+function openWithFilter(c: ContainerWithState, status: string) {
+  selectedContainerId.value = c.id
+  sidebarReviewFilter.value = status
+}
 
 const columns = [
   { state: 'developing',       label: 'Developing',       headerClass: 'text-slate-300' },
@@ -155,7 +192,13 @@ const selectedContainer = computed(() =>
 )
 
 function toggleSidebar(c: ContainerWithState) {
-  selectedContainerId.value = selectedContainerId.value === c.id ? null : c.id
+  if (selectedContainerId.value === c.id) {
+    selectedContainerId.value = null
+    sidebarReviewFilter.value = null
+  } else {
+    selectedContainerId.value = c.id
+    sidebarReviewFilter.value = null
+  }
 }
 
 function worktreeSuffix(c: ContainerWithState): string | null {

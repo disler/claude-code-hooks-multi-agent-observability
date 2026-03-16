@@ -290,6 +290,7 @@ const props = defineProps<{
   tasks: PlanqTask[]
   connected: boolean
   autoTestPending?: AutoTestPending | null
+  initialReviewFilter?: string
 }>()
 
 const emit = defineEmits<{
@@ -349,7 +350,9 @@ function toggleFilterInverted(status: string) {
 }
 
 // Review status filters
-const activeReviewFilters = reactive(new Set<string>())
+const activeReviewFilters = reactive(new Set<string>(
+  props.initialReviewFilter ? [props.initialReviewFilter] : []
+))
 
 function toggleReviewFilter(status: string) {
   if (activeReviewFilters.has(status)) activeReviewFilters.delete(status)
