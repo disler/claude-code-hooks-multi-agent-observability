@@ -65,7 +65,7 @@ def main():
         input_data = json.load(sys.stdin)
     except json.JSONDecodeError as e:
         print(f"Failed to parse JSON input: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(0)  # Exit 0 to not block Claude Code operations
     
     # Prepare event data for server
     event_data = {

@@ -71,7 +71,7 @@ def main():
         input_data = json.load(sys.stdin)
     except json.JSONDecodeError as e:
         print(f"Failed to parse JSON input: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(0)  # Exit 0 to not block Claude Code operations
     
     # Extract model name from transcript (with caching)
     session_id = input_data.get('session_id', 'unknown')
