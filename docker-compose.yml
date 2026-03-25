@@ -1,0 +1,26 @@
+services:
+  server:
+    build: ./apps/server
+    container_name: observability-server
+    ports:
+      - "4000:4000"
+    volumes:
+      - observability-data:/data
+    environment:
+      - SERVER_PORT=4000
+    restart: unless-stopped
+
+  client:
+    build:
+      context: ./apps/client
+      args:
+        VITE_API_PORT: "4000"
+    container_name: observability-client
+    ports:
+      - "5173:5173"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  observability-data:
