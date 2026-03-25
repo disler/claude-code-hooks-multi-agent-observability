@@ -37,7 +37,7 @@
           :title="`Total events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : '5 minutes'}`"
         >
           <span class="text-base w-4 flex-shrink-0">⚡</span>
-          <span class="text-xs font-bold" :class="hoveredEventCount ? 'min-w-[65px]' : ''">
+          <span class="text-xs font-bold" :class="hoveredEventCount ? 'min-w-[65px] mobile:min-w-0' : ''">
             {{ hoveredEventCount ? `${totalEventCount} Events` : totalEventCount }}
           </span>
         </div>
@@ -48,7 +48,7 @@
           :title="`Tool calls in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : '5 minutes'}`"
         >
           <span class="text-base w-4 flex-shrink-0">🔧</span>
-          <span class="text-xs font-bold" :class="hoveredToolCount ? 'min-w-[75px]' : ''">
+          <span class="text-xs font-bold" :class="hoveredToolCount ? 'min-w-[75px] mobile:min-w-0' : ''">
             {{ hoveredToolCount ? `${toolCallCount} Tool Calls` : toolCallCount }}
           </span>
         </div>
@@ -59,7 +59,7 @@
           :title="`Average time between events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : '5 minutes'}`"
         >
           <span class="text-lg w-5 flex-shrink-0">🕐</span>
-          <span class="text-sm font-bold text-[var(--theme-text-primary)]" :class="hoveredAvgTime ? 'min-w-[90px]' : ''">
+          <span class="text-sm font-bold text-[var(--theme-text-primary)]" :class="hoveredAvgTime ? 'min-w-[90px] mobile:min-w-0' : ''">
             {{ hoveredAvgTime ? `Avg Gap: ${formatGap(agentEventTimingMetrics.avgGap)}` : formatGap(agentEventTimingMetrics.avgGap) }}
           </span>
         </div>
@@ -571,5 +571,31 @@ onUnmounted(() => {
   border-radius: 6px;
   overflow: hidden;
   background: var(--theme-bg-tertiary);
+}
+
+@media (max-width: 699px) {
+  .header-left {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .model-badge,
+  .event-count-badge,
+  .tool-call-badge {
+    padding: 4px 6px;
+    font-size: 10px;
+  }
+
+  .avg-time-badge {
+    padding: 4px 6px !important;
+    font-size: 10px;
+  }
+
+  .agent-label-app,
+  .agent-label-session {
+    padding: 4px 6px;
+    min-height: 22px;
+    font-size: 10px;
+  }
 }
 </style>

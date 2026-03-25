@@ -9,9 +9,7 @@
       
       <!-- Modal -->
       <div 
-        class="relative bg-white dark:bg-gray-800 rounded-lg mobile:rounded-none shadow-xl flex flex-col overflow-hidden z-10 mobile:w-full mobile:h-full mobile:fixed mobile:inset-0"
-        :style="{ width: '85vw', height: '85vh' }"
-        :class="{ 'mobile:!w-full mobile:!h-full': true }"
+        class="relative bg-white dark:bg-gray-800 rounded-lg mobile:rounded-none shadow-xl flex flex-col overflow-hidden z-10 mobile:w-full mobile:h-full mobile:fixed mobile:inset-0 w-[85vw] h-[85vh]"
         @click.stop
       >
           <!-- Header -->

@@ -214,7 +214,7 @@
         </div>
         
         <!-- Summary aligned to the right -->
-        <div v-if="event.summary" class="max-w-[50%] px-3 py-1.5 bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/30 rounded-lg shadow-md">
+        <div v-if="event.summary" class="max-w-[50%] mobile:max-w-full px-3 py-1.5 bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/30 rounded-lg shadow-md">
           <span class="text-sm text-[var(--theme-text-primary)] font-semibold">
             <span class="mr-1">📝</span>
             {{ event.summary }}

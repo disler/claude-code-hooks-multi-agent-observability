@@ -18,7 +18,6 @@ export function useHITLNotifications() {
 
     const notification = new Notification('Agent Needs Your Input', {
       body: event.humanInTheLoop.question.slice(0, 100),
-      icon: '/vite.svg',
       tag: `hitl-${event.id}`,
       requireInteraction: true
     });

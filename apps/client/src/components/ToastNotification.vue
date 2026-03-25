@@ -2,9 +2,9 @@
   <Transition name="toast">
     <div
       v-if="isVisible"
-      class="fixed left-1/2 transform -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-light)] text-white rounded-lg border-2 font-semibold drop-shadow-2xl transition-all duration-300"
+      class="fixed left-1/2 transform -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-light)] text-white rounded-lg border-2 font-semibold drop-shadow-2xl transition-all duration-300 mobile:max-w-[90vw]"
       :style="{
-        top: `${16 + (index * 68)}px`,
+        top: `${isMobile ? (8 + index * 56) : (16 + index * 68)}px`,
         borderColor: agentColor,
         boxShadow: `0 10px 40px -10px rgba(0, 0, 0, 0.5), 0 20px 50px -15px rgba(0, 0, 0, 0.3), 0 0 0 3px ${agentColor}33`
       }"
@@ -29,6 +29,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
+import { useMediaQuery } from '../composables/useMediaQuery';
 
 const props = defineProps<{
   agentName: string;
@@ -41,6 +42,7 @@ const emit = defineEmits<{
   dismiss: [];
 }>();
 
+const { isMobile } = useMediaQuery();
 const isVisible = ref(false);
 let dismissTimer: number | null = null;
 
