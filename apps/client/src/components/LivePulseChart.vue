@@ -381,9 +381,18 @@ const handleMouseMove = (event: MouseEvent) => {
         .map(([type, count]) => `${type}: ${count}`)
         .join(', ');
       
+      const tooltipEstimatedWidth = 200;
+      const containerWidth = chartContainer.value.clientWidth;
+      let tooltipX = event.clientX - rect.left;
+
+      // Clamp tooltip to prevent overflow on the right edge
+      if (tooltipX + tooltipEstimatedWidth > containerWidth) {
+        tooltipX = tooltipX - tooltipEstimatedWidth;
+      }
+
       tooltip.value = {
         visible: true,
-        x: event.clientX - rect.left,
+        x: tooltipX,
         y: event.clientY - rect.top - 30,
         text: `${point.count} events${eventTypesText ? ` (${eventTypesText})` : ''}`
       };

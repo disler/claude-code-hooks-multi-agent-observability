@@ -4,7 +4,8 @@ import type { HookEvent, FilterOptions, Theme, ThemeSearchQuery } from './types'
 let db: Database;
 
 export function initDatabase(): void {
-  db = new Database('events.db');
+  const dbPath = process.env.DB_PATH || 'events.db';
+  db = new Database(dbPath);
   
   // Enable WAL mode for better concurrent performance
   db.exec('PRAGMA journal_mode = WAL');
@@ -158,14 +159,16 @@ export function insertEvent(event: HookEvent): HookEvent {
 }
 
 export function getFilterOptions(): FilterOptions {
-  const sourceApps = db.prepare('SELECT DISTINCT source_app FROM events ORDER BY source_app').all() as { source_app: string }[];
-  const sessionIds = db.prepare('SELECT DISTINCT session_id FROM events ORDER BY session_id DESC LIMIT 300').all() as { session_id: string }[];
-  const hookEventTypes = db.prepare('SELECT DISTINCT hook_event_type FROM events ORDER BY hook_event_type').all() as { hook_event_type: string }[];
-  
+  const row = db.prepare(`
+    SELECT
+      (SELECT json_group_array(val) FROM (SELECT DISTINCT source_app as val FROM events)) as source_apps,
+      (SELECT json_group_array(val) FROM (SELECT DISTINCT session_id as val FROM events ORDER BY session_id DESC LIMIT 300)) as session_ids,
+      (SELECT json_group_array(val) FROM (SELECT DISTINCT hook_event_type as val FROM events)) as hook_event_types
+  `).get() as any;
   return {
-    source_apps: sourceApps.map(row => row.source_app),
-    session_ids: sessionIds.map(row => row.session_id),
-    hook_event_types: hookEventTypes.map(row => row.hook_event_type)
+    source_apps: JSON.parse(row.source_apps || '[]'),
+    session_ids: JSON.parse(row.session_ids || '[]'),
+    hook_event_types: JSON.parse(row.hook_event_types || '[]'),
   };
 }
 

@@ -1,0 +1,49 @@
+services:
+  server:
+    build: ./apps/server
+    container_name: observability-server
+    ports:
+      - "4000:4000"
+    volumes:
+      - observability-data:/data
+    environment:
+      - SERVER_PORT=4000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:4000/events/recent?limit=1').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  client:
+    build:
+      context: ./apps/client
+      args:
+        VITE_API_PORT: "4000"
+    container_name: observability-client
+    ports:
+      - "5173:5173"
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+volumes:
+  observability-data:
