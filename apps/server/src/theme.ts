@@ -118,7 +118,7 @@ function sanitizeTheme(theme: any): Partial<Theme> {
     description: theme.description?.toString().trim() || '',
     colors: theme.colors || {},
     isPublic: Boolean(theme.isPublic),
-    tags: Array.isArray(theme.tags) ? theme.tags.filter(tag => typeof tag === 'string' && tag.trim()) : [],
+    tags: Array.isArray(theme.tags) ? theme.tags.filter((tag: unknown): tag is string => typeof tag === 'string' && tag.trim().length > 0) : [],
     authorId: theme.authorId?.toString() || null,
     authorName: theme.authorName?.toString() || null
   };

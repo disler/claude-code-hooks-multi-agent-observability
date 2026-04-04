@@ -123,7 +123,7 @@ const server = Bun.serve({
     // POST /events - Receive new events
     if (url.pathname === '/events' && req.method === 'POST') {
       try {
-        const event: HookEvent = await req.json();
+        const event = await req.json() as HookEvent;
         
         // Validate required fields
         if (!event.source_app || !event.session_id || !event.hook_event_type || !event.payload) {
@@ -178,10 +178,17 @@ const server = Bun.serve({
 
     // POST /events/:id/respond - Respond to HITL request
     if (url.pathname.match(/^\/events\/\d+\/respond$/) && req.method === 'POST') {
-      const id = parseInt(url.pathname.split('/')[2]);
+      const idSegment = url.pathname.split('/')[2];
+      if (!idSegment) {
+        return new Response(JSON.stringify({ error: 'Event ID is required' }), {
+          status: 400,
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+      const id = parseInt(idSegment);
 
       try {
-        const response: HumanInTheLoopResponse = await req.json();
+        const response = await req.json() as HumanInTheLoopResponse;
         response.respondedAt = Date.now();
 
         // Update event in database
@@ -353,6 +360,15 @@ const server = Bun.serve({
     // GET /api/themes/:id/export - Export a theme
     if (url.pathname.match(/^\/api\/themes\/[^\/]+\/export$/) && req.method === 'GET') {
       const id = url.pathname.split('/')[3];
+      if (!id) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Theme ID is required'
+        }), {
+          status: 400,
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
       
       const result = await exportThemeById(id);
       if (!result.success) {
@@ -436,11 +452,6 @@ const server = Bun.serve({
     
     close(ws) {
       console.log('WebSocket client disconnected');
-      wsClients.delete(ws);
-    },
-    
-    error(ws, error) {
-      console.error('WebSocket error:', error);
       wsClients.delete(ws);
     }
   }

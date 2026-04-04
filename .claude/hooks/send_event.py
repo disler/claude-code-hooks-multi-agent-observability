@@ -63,6 +63,10 @@ def main():
     parser.add_argument('--server-url', default='http://localhost:4000/events', help='Server URL')
     parser.add_argument('--add-chat', action='store_true', help='Include chat transcript if available')
     parser.add_argument('--summarize', action='store_true', help='Generate AI summary of the event')
+    # OPC Mission Control extensions
+    parser.add_argument('--opc-role', default=None, help='OPC role name (e.g. ceo, wechat-writer)')
+    parser.add_argument('--opc-bu', default=None, help='OPC business unit (e.g. operations-bu, technology-bu)')
+    parser.add_argument('--opc-topic', default=None, help='OPC topic ID (e.g. TOPIC-2026-0328-001)')
     
     args = parser.parse_args()
     
@@ -89,6 +93,14 @@ def main():
         'timestamp': int(datetime.now().timestamp() * 1000),
         'model_name': model_name
     }
+
+    # Inject OPC metadata if provided
+    if args.opc_role:
+        event_data['opc_role'] = args.opc_role
+    if args.opc_bu:
+        event_data['opc_bu'] = args.opc_bu
+    if args.opc_topic:
+        event_data['opc_topic'] = args.opc_topic
 
     # Forward event-specific fields as top-level properties for easier querying.
     # These fields are only present for certain event types.
