@@ -23,6 +23,15 @@ export function useEventSearch() {
   // Extract searchable text from event
   const getSearchableText = (event: HookEvent): string => {
     const parts: string[] = [];
+    const payload = event.payload || {};
+    const model = event.model_name || (typeof payload.model === 'string' ? payload.model : undefined);
+    const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : undefined;
+    const toolCommand = typeof payload.tool_command === 'string' ? payload.tool_command : undefined;
+    const toolFilePath = typeof payload.tool_file === 'string'
+      ? payload.tool_file
+      : (payload.tool_file && typeof payload.tool_file.path === 'string' ? payload.tool_file.path : undefined);
+    const hitlQuestion = event.humanInTheLoop?.question;
+    const hitlPermission = event.humanInTheLoop?.type === 'permission' ? 'permission' : undefined;
 
     // Event type
     if (event.hook_event_type) {
@@ -38,19 +47,19 @@ export function useEventSearch() {
     }
 
     // Model name
-    if (event.model) {
-      parts.push(event.model);
+    if (model) {
+      parts.push(model);
     }
 
     // Tool information
-    if (event.tool_name) {
-      parts.push(event.tool_name);
+    if (toolName) {
+      parts.push(toolName);
     }
-    if (event.tool_command) {
-      parts.push(event.tool_command);
+    if (toolCommand) {
+      parts.push(toolCommand);
     }
-    if (event.tool_file && event.tool_file.path) {
-      parts.push(event.tool_file.path);
+    if (toolFilePath) {
+      parts.push(toolFilePath);
     }
 
     // Summary text
@@ -59,11 +68,11 @@ export function useEventSearch() {
     }
 
     // HITL information
-    if (event.hitl_question) {
-      parts.push(event.hitl_question);
+    if (hitlQuestion) {
+      parts.push(hitlQuestion);
     }
-    if (event.hitl_permission) {
-      parts.push(event.hitl_permission);
+    if (hitlPermission) {
+      parts.push(hitlPermission);
     }
 
     return parts.join(' ').toLowerCase();

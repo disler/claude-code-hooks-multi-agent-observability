@@ -35,6 +35,15 @@ export interface HookEvent {
   summary?: string;
   timestamp?: number;
   model_name?: string;
+  model?: string;
+  tool_name?: string;
+  tool_command?: string;
+  tool_file?: {
+    path?: string;
+    [key: string]: any;
+  };
+  hitl_question?: string;
+  hitl_permission?: string;
 
   // NEW: Optional HITL data
   humanInTheLoop?: HumanInTheLoop;
