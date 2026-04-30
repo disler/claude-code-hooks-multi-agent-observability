@@ -30,7 +30,7 @@ def log_user_prompt(session_id, input_data):
 
     # Read existing log data or initialize empty list
     if log_file.exists():
-        with open(log_file, "r") as f:
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
             try:
                 log_data = json.load(f)
             except (json.JSONDecodeError, ValueError):
@@ -59,7 +59,7 @@ def manage_session_data(session_id, prompt, name_agent=False):
 
     if session_file.exists():
         try:
-            with open(session_file, "r") as f:
+            with open(session_file, "r", encoding="utf-8", errors="replace") as f:
                 session_data = json.load(f)
         except (json.JSONDecodeError, ValueError):
             session_data = {"session_id": session_id, "prompts": []}

@@ -34,7 +34,7 @@ def get_model_from_transcript(session_id: str, transcript_path: str, ttl: int = 
     # Try to read from cache (only if caching is enabled)
     if ENABLE_CACHING and cache_file.exists():
         try:
-            with open(cache_file, 'r') as f:
+            with open(cache_file, 'r', encoding="utf-8", errors="replace") as f:
                 cache_data = json.load(f)
 
             # Check if cache is still fresh
@@ -83,7 +83,7 @@ def extract_model_from_transcript(transcript_path: str) -> str:
     try:
         # Read transcript file in reverse to find most recent assistant message
         # We'll read the whole file since we need to find the LAST occurrence
-        with open(transcript_path, 'r') as f:
+        with open(transcript_path, 'r', encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
 
         # Iterate in reverse to find most recent assistant message with model
