@@ -83,7 +83,7 @@
                   color: theme.colors?.accentInfo || '#3b82f6'
                 }"
               >
-                🔧 PreToolUse
+                Tool started
               </span>
             </div>
             <span 
@@ -119,7 +119,7 @@
                 class="text-sm"
                 :style="{ color: theme.colors?.textSecondary || '#374151' }"
               >
-                📝 Summary available
+                Summary available
               </span>
             </div>
           </div>

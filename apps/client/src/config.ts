@@ -1,7 +1,10 @@
 // Centralized configuration for API and WebSocket URLs
-// Uses environment variables to support dynamic port configuration for worktrees
-
+// Auto-detects host so it works from localhost AND remote devices (Tailscale, LAN)
 const SERVER_PORT = import.meta.env.VITE_API_PORT || '4000';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || `http://localhost:${SERVER_PORT}`;
-export const WS_URL = import.meta.env.VITE_WS_URL || `ws://localhost:${SERVER_PORT}/stream`;
+// Use the same hostname the page was loaded from. localhost when on Mac,
+// Tailscale IP when on phone — no env vars or per-device config needed.
+const HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+
+export const API_BASE_URL = import.meta.env.VITE_API_URL || `http://${HOST}:${SERVER_PORT}`;
+export const WS_URL = import.meta.env.VITE_WS_URL || `ws://${HOST}:${SERVER_PORT}/stream`;

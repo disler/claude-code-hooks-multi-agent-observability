@@ -704,20 +704,10 @@ export function useThemes() {
     }
   };
 
-  // Initialization
+  // Initialization — Apple-minimal dark only.
   const initializeTheme = () => {
     loadCustomThemes();
-    
-    // Load saved theme
-    const savedTheme = localStorage.getItem('theme');
-    
-    if (savedTheme) {
-      setTheme(savedTheme);
-    } else {
-      // Detect system preference
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      setTheme(prefersDark ? 'dark' : 'light');
-    }
+    setTheme('dark');
   };
 
   // Manager state functions

@@ -1,282 +1,143 @@
 <template>
   <div>
-    <!-- HITL Question Section (NEW) -->
+    <!-- HITL block -->
     <div
       v-if="event.humanInTheLoop && (event.humanInTheLoopStatus?.status === 'pending' || hasSubmittedResponse)"
-      class="mb-4 p-4 rounded-lg border-2 shadow-lg"
-      :class="hasSubmittedResponse || event.humanInTheLoopStatus?.status === 'responded' ? 'border-green-500 bg-gradient-to-r from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20' : 'border-yellow-500 bg-gradient-to-r from-yellow-50 to-yellow-100 dark:from-yellow-900/20 dark:to-yellow-800/20 animate-pulse-slow'"
+      class="hitl-card"
+      :class="hitlResolved ? 'is-responded' : 'is-pending'"
       @click.stop
     >
-      <!-- Question Header -->
-      <div class="mb-3">
-        <div class="flex items-center justify-between mb-2">
-          <div class="flex items-center space-x-2">
-            <span class="text-2xl">{{ hitlTypeEmoji }}</span>
-            <h3 class="text-lg font-bold" :class="hasSubmittedResponse || event.humanInTheLoopStatus?.status === 'responded' ? 'text-green-900 dark:text-green-100' : 'text-yellow-900 dark:text-yellow-100'">
-              {{ hitlTypeLabel }}
-            </h3>
-            <span v-if="permissionType" class="text-xs font-mono font-semibold px-2 py-1 rounded border-2 bg-blue-50 dark:bg-blue-900/20 border-blue-500 text-blue-900 dark:text-blue-100">
-              {{ permissionType }}
-            </span>
-          </div>
-          <span v-if="!hasSubmittedResponse && event.humanInTheLoopStatus?.status !== 'responded'" class="text-xs font-semibold text-yellow-700 dark:text-yellow-300">
-            ⏱️ Waiting for response...
-          </span>
-        </div>
-        <div class="flex items-center space-x-2 ml-9">
-          <span
-            class="text-xs font-semibold text-[var(--theme-text-primary)] px-1.5 py-0.5 rounded-full border-2 bg-[var(--theme-bg-tertiary)] shadow-sm"
-            :style="{ ...appBgStyle, ...appBorderStyle }"
-          >
-            {{ event.source_app }}
-          </span>
-          <span class="text-xs text-[var(--theme-text-secondary)] px-1.5 py-0.5 rounded-full border bg-[var(--theme-bg-tertiary)]/50 shadow-sm" :class="borderColorClass">
-            {{ sessionIdShort }}
-          </span>
-          <span class="text-xs text-[var(--theme-text-tertiary)] font-medium">
-            {{ formatTime(event.timestamp) }}
-          </span>
-        </div>
+      <div class="hitl-card__head">
+        <span class="hitl-card__kind">{{ hitlTypeLabel }}</span>
+        <span v-if="permissionType" class="hitl-card__perm">{{ permissionType }}</span>
+        <span v-if="!hitlResolved" class="hitl-card__status">Awaiting response</span>
+        <span v-else class="hitl-card__status is-ok">Responded</span>
       </div>
 
-      <!-- Question Text -->
-      <div class="mb-4 p-3 bg-white dark:bg-gray-800 rounded-lg border" :class="hasSubmittedResponse || event.humanInTheLoopStatus?.status === 'responded' ? 'border-green-300' : 'border-yellow-300'">
-        <p class="text-base font-medium text-gray-900 dark:text-gray-100">
-          {{ event.humanInTheLoop.question }}
-        </p>
+      <div class="hitl-card__meta">
+        <span class="hitl-card__app" :style="{ color: appHexColor }">{{ event.source_app }}</span>
+        <span class="meta-sep">·</span>
+        <span class="hitl-card__sess">{{ sessionIdShort }}</span>
+        <span class="meta-sep">·</span>
+        <span>{{ formatTime(event.timestamp) }}</span>
       </div>
 
-      <!-- Inline Response Display (Optimistic UI) -->
-      <div v-if="localResponse || (event.humanInTheLoopStatus?.status === 'responded' && event.humanInTheLoopStatus.response)" class="mb-4 p-3 bg-white dark:bg-gray-800 rounded-lg border border-green-400">
-        <div class="flex items-center mb-2">
-          <span class="text-xl mr-2">✅</span>
-          <strong class="text-green-900 dark:text-green-100">Your Response:</strong>
-        </div>
-        <div v-if="(localResponse?.response || event.humanInTheLoopStatus?.response?.response)" class="text-gray-900 dark:text-gray-100 ml-7">
+      <p class="hitl-card__q">{{ event.humanInTheLoop.question }}</p>
+
+      <!-- Inline response display -->
+      <div
+        v-if="localResponse || (event.humanInTheLoopStatus?.status === 'responded' && event.humanInTheLoopStatus.response)"
+        class="hitl-card__response"
+      >
+        <span class="hitl-card__response-label">Response</span>
+        <div v-if="(localResponse?.response || event.humanInTheLoopStatus?.response?.response)" class="hitl-card__response-body">
           {{ localResponse?.response || event.humanInTheLoopStatus?.response?.response }}
         </div>
-        <div v-if="(localResponse?.permission !== undefined || event.humanInTheLoopStatus?.response?.permission !== undefined)" class="text-gray-900 dark:text-gray-100 ml-7">
-          {{ (localResponse?.permission ?? event.humanInTheLoopStatus?.response?.permission) ? 'Approved ✅' : 'Denied ❌' }}
+        <div v-if="(localResponse?.permission !== undefined || event.humanInTheLoopStatus?.response?.permission !== undefined)" class="hitl-card__response-body">
+          {{ (localResponse?.permission ?? event.humanInTheLoopStatus?.response?.permission) ? 'Approved' : 'Denied' }}
         </div>
-        <div v-if="(localResponse?.choice || event.humanInTheLoopStatus?.response?.choice)" class="text-gray-900 dark:text-gray-100 ml-7">
+        <div v-if="(localResponse?.choice || event.humanInTheLoopStatus?.response?.choice)" class="hitl-card__response-body">
           {{ localResponse?.choice || event.humanInTheLoopStatus?.response?.choice }}
         </div>
       </div>
 
-      <!-- Response UI -->
-      <div v-if="event.humanInTheLoop.type === 'question'">
-        <!-- Text Input for Questions -->
+      <!-- Question -->
+      <div v-if="event.humanInTheLoop.type === 'question'" class="hitl-card__form">
         <textarea
           v-model="responseText"
-          class="w-full p-3 border-2 border-yellow-500 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent resize-none"
+          class="hitl-card__textarea"
           rows="3"
-          placeholder="Type your response here..."
+          placeholder="Type your response…"
           @click.stop
         ></textarea>
-        <div class="flex justify-end space-x-2 mt-2">
+        <div class="hitl-card__actions">
           <button
             @click.stop="submitResponse"
             :disabled="!responseText.trim() || isSubmitting || hasSubmittedResponse"
-            class="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-bold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 disabled:transform-none disabled:cursor-not-allowed"
-          >
-            {{ isSubmitting ? '⏳ Sending...' : '✅ Submit Response' }}
-          </button>
+            class="btn btn--primary"
+          >{{ isSubmitting ? 'Sending…' : 'Submit' }}</button>
         </div>
       </div>
 
-      <div v-else-if="event.humanInTheLoop.type === 'permission'">
-        <!-- Yes/No Buttons for Permissions -->
-        <div class="flex justify-end items-center space-x-3">
-          <div v-if="hasSubmittedResponse || event.humanInTheLoopStatus?.status === 'responded'" class="flex items-center px-3 py-2 bg-green-100 dark:bg-green-900/30 rounded-lg border border-green-500">
-            <span class="text-sm font-bold text-green-900 dark:text-green-100">Responded</span>
-          </div>
-          <button
-            @click.stop="submitPermission(false)"
-            :disabled="isSubmitting || hasSubmittedResponse"
-            class="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
-            :class="hasSubmittedResponse ? 'opacity-40 cursor-not-allowed' : ''"
-          >
-            {{ isSubmitting ? '⏳' : '❌ Deny' }}
-          </button>
-          <button
-            @click.stop="submitPermission(true)"
-            :disabled="isSubmitting || hasSubmittedResponse"
-            class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
-            :class="hasSubmittedResponse ? 'opacity-40 cursor-not-allowed' : ''"
-          >
-            {{ isSubmitting ? '⏳' : '✅ Approve' }}
-          </button>
-        </div>
+      <!-- Permission -->
+      <div v-else-if="event.humanInTheLoop.type === 'permission'" class="hitl-card__actions">
+        <button
+          @click.stop="submitPermission(false)"
+          :disabled="isSubmitting || hasSubmittedResponse"
+          class="btn btn--danger"
+        >{{ isSubmitting ? '…' : 'Deny' }}</button>
+        <button
+          @click.stop="submitPermission(true)"
+          :disabled="isSubmitting || hasSubmittedResponse"
+          class="btn btn--primary"
+        >{{ isSubmitting ? '…' : 'Approve' }}</button>
       </div>
 
-      <div v-else-if="event.humanInTheLoop.type === 'choice'">
-        <!-- Multiple Choice Buttons -->
-        <div class="flex flex-wrap gap-2 justify-end">
-          <button
-            v-for="choice in event.humanInTheLoop.choices"
-            :key="choice"
-            @click.stop="submitChoice(choice)"
-            :disabled="isSubmitting || hasSubmittedResponse"
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 disabled:transform-none"
-          >
-            {{ isSubmitting ? '⏳' : choice }}
-          </button>
-        </div>
+      <!-- Choice -->
+      <div v-else-if="event.humanInTheLoop.type === 'choice'" class="hitl-card__actions">
+        <button
+          v-for="choice in event.humanInTheLoop.choices"
+          :key="choice"
+          @click.stop="submitChoice(choice)"
+          :disabled="isSubmitting || hasSubmittedResponse"
+          class="btn btn--primary"
+        >{{ isSubmitting ? '…' : choice }}</button>
       </div>
     </div>
 
-    <!-- Original Event Row Content (skip if HITL with humanInTheLoop) -->
+    <!-- Standard event card -->
     <div
       v-if="!event.humanInTheLoop"
-      class="group relative p-4 mobile:p-2 rounded-lg shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer border border-[var(--theme-border-primary)] hover:border-[var(--theme-primary)] bg-gradient-to-r from-[var(--theme-bg-primary)] to-[var(--theme-bg-secondary)]"
-      :class="{ 'ring-2 ring-[var(--theme-primary)] border-[var(--theme-primary)] shadow-2xl': isExpanded }"
+      class="evt-card"
+      :class="{ 'is-expanded': isExpanded }"
       @click="toggleExpanded"
     >
-    <!-- App color indicator -->
-    <div 
-      class="absolute left-0 top-0 bottom-0 w-3 rounded-l-lg"
-      :style="{ backgroundColor: appHexColor }"
-    ></div>
-    
-    <!-- Session color indicator -->
-    <div 
-      class="absolute left-3 top-0 bottom-0 w-1.5"
-      :class="gradientClass"
-    ></div>
-    
-    <div class="ml-4">
-      <!-- Desktop Layout: Original horizontal layout -->
-      <div class="hidden mobile:block mb-2">
-        <!-- Mobile: App + Time on first row -->
-        <div class="flex items-center justify-between mb-1">
-          <span 
-            class="text-xs font-semibold text-[var(--theme-text-primary)] px-1.5 py-0.5 rounded-full border-2 bg-[var(--theme-bg-tertiary)] shadow-md"
-            :style="{ ...appBgStyle, ...appBorderStyle }"
-          >
-            {{ event.source_app }}
-          </span>
-          <span class="text-xs text-[var(--theme-text-tertiary)] font-medium">
-            {{ formatTime(event.timestamp) }}
-          </span>
-        </div>
-        
-        <!-- Mobile: Session + Event Type on second row -->
-        <div class="flex items-center space-x-2">
-          <span class="text-xs text-[var(--theme-text-secondary)] px-1.5 py-0.5 rounded-full border bg-[var(--theme-bg-tertiary)]/50" :class="borderColorClass">
-            {{ sessionIdShort }}
-          </span>
-          <span v-if="event.model_name" class="text-xs text-[var(--theme-text-secondary)] px-1.5 py-0.5 rounded-full border bg-[var(--theme-bg-tertiary)]/50 shadow-sm" :title="`Model: ${event.model_name}`">
-            <span class="mr-0.5">🧠</span>{{ formatModelName(event.model_name) }}
-          </span>
-          <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-bold bg-[var(--theme-primary)] text-white shadow-md">
-            <span class="mr-1 text-sm">{{ hookEmoji }}</span>
-            {{ event.hook_event_type }}
-          </span>
-          <span v-if="toolName" class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-semibold border-2 border-[var(--theme-primary)] text-[var(--theme-primary)] bg-[var(--theme-primary-light)] shadow-sm">
-            <span class="mr-0.5">{{ toolEmoji }}</span>{{ toolName }}
-          </span>
-        </div>
-      </div>
+      <span class="evt-card__app-stripe" :style="{ background: appHexColor }"></span>
+      <span class="evt-card__sess-stripe" :class="gradientClass"></span>
 
-      <!-- Desktop Layout: Original single row layout -->
-      <div class="flex items-center justify-between mb-2 mobile:hidden">
-        <div class="flex items-center space-x-4">
-          <span
-            class="text-base font-bold text-[var(--theme-text-primary)] px-2 py-0.5 rounded-full border-2 bg-[var(--theme-bg-tertiary)] shadow-lg"
-            :style="{ ...appBgStyle, ...appBorderStyle }"
-          >
-            {{ event.source_app }}
-          </span>
-          <span class="text-sm text-[var(--theme-text-secondary)] px-2 py-0.5 rounded-full border bg-[var(--theme-bg-tertiary)]/50 shadow-md" :class="borderColorClass">
-            {{ sessionIdShort }}
-          </span>
-          <span v-if="event.model_name" class="text-sm text-[var(--theme-text-secondary)] px-2 py-0.5 rounded-full border bg-[var(--theme-bg-tertiary)]/50 shadow-md" :title="`Model: ${event.model_name}`">
-            <span class="mr-1">🧠</span>{{ formatModelName(event.model_name) }}
-          </span>
-          <span class="inline-flex items-center px-3 py-0.5 rounded-full text-sm font-bold bg-[var(--theme-primary)] text-white shadow-lg">
-            <span class="mr-1.5 text-base">{{ hookEmoji }}</span>
-            {{ event.hook_event_type }}
-          </span>
-          <span v-if="toolName" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-semibold border-2 border-[var(--theme-primary)] text-[var(--theme-primary)] bg-[var(--theme-primary-light)] shadow-sm">
-            <span class="mr-1">{{ toolEmoji }}</span>{{ toolName }}
-          </span>
+      <div class="evt-card__body">
+        <!-- Line 1: tag, tool, app·session·model, time -->
+        <div class="evt-card__top">
+          <span class="evt-tag" :class="`evt-tag--${tone}`">{{ hookLabel }}</span>
+          <span v-if="toolName" class="evt-tool">{{ toolName }}</span>
+          <span class="evt-id-app" :style="{ color: appHexColor }">{{ event.source_app }}</span>
+          <span class="meta-sep">·</span>
+          <span class="evt-id-session">{{ sessionIdShort }}</span>
+          <template v-if="event.model_name">
+            <span class="meta-sep">·</span>
+            <span class="evt-id-model">{{ formatModelName(event.model_name) }}</span>
+          </template>
+          <span class="evt-card__spacer"></span>
+          <span class="evt-time">{{ formatTime(event.timestamp) }}</span>
         </div>
-        <span class="text-sm text-[var(--theme-text-tertiary)] font-semibold">
-          {{ formatTime(event.timestamp) }}
-        </span>
-      </div>
-      
-      <!-- Tool info and Summary - Desktop Layout -->
-      <div class="flex items-center justify-between mb-2 mobile:hidden">
-        <div v-if="toolInfo" class="text-base text-[var(--theme-text-secondary)] font-semibold">
-          <span class="font-medium italic px-2 py-0.5 rounded border-2 border-[var(--theme-primary)] bg-[var(--theme-primary-light)] shadow-sm">{{ toolInfo.tool }}</span>
-          <span v-if="toolInfo.detail" class="ml-2 text-[var(--theme-text-tertiary)]" :class="{ 'italic': event.hook_event_type === 'UserPromptSubmit' }">{{ toolInfo.detail }}</span>
-        </div>
-        
-        <!-- Summary aligned to the right -->
-        <div v-if="event.summary" class="max-w-[50%] px-3 py-1.5 bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/30 rounded-lg shadow-md">
-          <span class="text-sm text-[var(--theme-text-primary)] font-semibold">
-            <span class="mr-1">📝</span>
-            {{ event.summary }}
-          </span>
-        </div>
-      </div>
 
-      <!-- Tool info and Summary - Mobile Layout -->
-      <div class="space-y-2 hidden mobile:block mb-2">
-        <div v-if="toolInfo" class="text-sm text-[var(--theme-text-secondary)] font-semibold w-full">
-          <span class="font-medium italic px-1.5 py-0.5 rounded border-2 border-[var(--theme-primary)] bg-[var(--theme-primary-light)] shadow-sm">{{ toolInfo.tool }}</span>
-          <span v-if="toolInfo.detail" class="ml-2 text-[var(--theme-text-tertiary)]" :class="{ 'italic': event.hook_event_type === 'UserPromptSubmit' }">{{ toolInfo.detail }}</span>
+        <!-- Line 2: tool detail OR summary, truncated -->
+        <div v-if="lineTwo" class="evt-card__detail">
+          <span v-if="lineTwo.label" class="evt-detail-label">{{ lineTwo.label }}</span>
+          <span class="evt-detail-text">{{ lineTwo.text }}</span>
         </div>
-        
-        <div v-if="event.summary" class="w-full px-2 py-1 bg-[var(--theme-primary)]/10 border border-[var(--theme-primary)]/30 rounded-lg shadow-md">
-          <span class="text-xs text-[var(--theme-text-primary)] font-semibold">
-            <span class="mr-1">📝</span>
-            {{ event.summary }}
-          </span>
-        </div>
-      </div>
-      
-      <!-- Expanded content -->
-      <div v-if="isExpanded" class="mt-2 pt-2 border-t-2 border-[var(--theme-primary)] bg-gradient-to-r from-[var(--theme-bg-primary)] to-[var(--theme-bg-secondary)] rounded-b-lg p-3 space-y-3">
-        <!-- Payload -->
-        <div>
-          <div class="flex items-center justify-between mb-2">
-            <h4 class="text-base mobile:text-sm font-bold text-[var(--theme-primary)] drop-shadow-sm flex items-center">
-              <span class="mr-1.5 text-xl mobile:text-base">📦</span>
-              Payload
-            </h4>
+
+        <!-- Expanded -->
+        <div v-if="isExpanded" class="evt-card__expanded">
+          <div class="evt-payload-head">
+            <span class="evt-payload-title">Payload</span>
+            <button @click.stop="copyPayload" class="btn btn--ghost btn--sm">{{ copyButtonText }}</button>
+          </div>
+          <pre class="evt-payload-pre">{{ formattedPayload }}</pre>
+
+          <div v-if="event.chat && event.chat.length > 0" class="evt-card__chat">
             <button
-              @click.stop="copyPayload"
-              class="px-3 py-1 mobile:px-2 mobile:py-0.5 text-sm mobile:text-xs font-bold rounded-lg bg-[var(--theme-primary)] hover:bg-[var(--theme-primary-dark)] text-white transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 flex items-center space-x-1"
+              @click.stop="!isMobile && (showChatModal = true)"
+              :disabled="isMobile"
+              class="btn btn--ghost"
             >
-              <span>{{ copyButtonText }}</span>
+              {{ isMobile ? 'Transcript not available on mobile' : `View transcript · ${event.chat.length} messages` }}
             </button>
           </div>
-          <pre class="text-sm mobile:text-xs text-[var(--theme-text-primary)] bg-[var(--theme-bg-tertiary)] p-3 mobile:p-2 rounded-lg overflow-x-auto max-h-64 overflow-y-auto font-mono border border-[var(--theme-primary)]/30 shadow-md hover:shadow-lg transition-shadow duration-200">{{ formattedPayload }}</pre>
-        </div>
-        
-        <!-- Chat transcript button -->
-        <div v-if="event.chat && event.chat.length > 0" class="flex justify-end">
-          <button
-            @click.stop="!isMobile && (showChatModal = true)"
-            :class="[
-              'px-4 py-2 mobile:px-3 mobile:py-1.5 font-bold rounded-lg transition-all duration-200 flex items-center space-x-1.5 shadow-md hover:shadow-lg',
-              isMobile 
-                ? 'bg-[var(--theme-bg-quaternary)] cursor-not-allowed opacity-50 text-[var(--theme-text-quaternary)] border border-[var(--theme-border-tertiary)]' 
-                : 'bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-light)] hover:from-[var(--theme-primary-dark)] hover:to-[var(--theme-primary)] text-white border border-[var(--theme-primary-dark)] transform hover:scale-105'
-            ]"
-            :disabled="isMobile"
-          >
-            <span class="text-base mobile:text-sm">💬</span>
-            <span class="text-sm mobile:text-xs font-bold drop-shadow-sm">
-              {{ isMobile ? 'Not available in mobile' : `View Chat Transcript (${event.chat.length} messages)` }}
-            </span>
-          </button>
         </div>
       </div>
     </div>
-    </div>
+
     <!-- Chat Modal -->
     <ChatTranscriptModal
       v-if="event.chat && event.chat.length > 0"
@@ -295,7 +156,7 @@ import { useEventEmojis } from '../composables/useEventEmojis';
 import ChatTranscriptModal from './ChatTranscriptModal.vue';
 import { API_BASE_URL } from '../config';
 
-const { getEmojiForToolName } = useEventEmojis();
+const { getLabelForEventType, getToneForEventType } = useEventEmojis();
 
 const props = defineProps<{
   event: HookEvent;
@@ -310,76 +171,25 @@ const emit = defineEmits<{
   (e: 'response-submitted', response: HumanInTheLoopResponse): void;
 }>();
 
-// Existing refs
 const isExpanded = ref(false);
 const showChatModal = ref(false);
-const copyButtonText = ref('📋 Copy');
+const copyButtonText = ref('Copy');
 
-// New refs for HITL
 const responseText = ref('');
 const isSubmitting = ref(false);
 const hasSubmittedResponse = ref(false);
-const localResponse = ref<HumanInTheLoopResponse | null>(null); // Optimistic UI
+const localResponse = ref<HumanInTheLoopResponse | null>(null);
 
-// Media query for responsive design
 const { isMobile } = useMediaQuery();
 
-const toggleExpanded = () => {
-  isExpanded.value = !isExpanded.value;
-};
+const toggleExpanded = () => { isExpanded.value = !isExpanded.value; };
 
-const sessionIdShort = computed(() => {
-  return props.event.session_id.slice(0, 8);
-});
+const sessionIdShort = computed(() => props.event.session_id.slice(0, 8));
 
-const hookEmoji = computed(() => {
-  const emojiMap: Record<string, string> = {
-    'PreToolUse': '🔧',
-    'PostToolUse': '✅',
-    'PostToolUseFailure': '❌',
-    'PermissionRequest': '🔐',
-    'Notification': '🔔',
-    'Stop': '🛑',
-    'SubagentStart': '🟢',
-    'SubagentStop': '👥',
-    'PreCompact': '📦',
-    'UserPromptSubmit': '💬',
-    'SessionStart': '🚀',
-    'SessionEnd': '🏁'
-  };
-  const baseEmoji = emojiMap[props.event.hook_event_type] || '❓';
+const hookLabel = computed(() => getLabelForEventType(props.event.hook_event_type));
+const tone = computed(() => getToneForEventType(props.event.hook_event_type));
 
-  // For tool events, show combo: event emoji + tool emoji (e.g., 🔧💻)
-  const toolEventTypes = ['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest'];
-  if (toolEventTypes.includes(props.event.hook_event_type) && props.event.payload?.tool_name) {
-    return `${baseEmoji}${getEmojiForToolName(props.event.payload.tool_name)}`;
-  }
-
-  return baseEmoji;
-});
-
-const borderColorClass = computed(() => {
-  // Convert bg-color-500 to border-color-500
-  return props.colorClass.replace('bg-', 'border-');
-});
-
-
-const appBorderStyle = computed(() => {
-  return {
-    borderColor: props.appHexColor
-  };
-});
-
-const appBgStyle = computed(() => {
-  // Use the hex color with 20% opacity
-  return {
-    backgroundColor: props.appHexColor + '33' // Add 33 for 20% opacity in hex
-  };
-});
-
-const formattedPayload = computed(() => {
-  return JSON.stringify(props.event.payload, null, 2);
-});
+const formattedPayload = computed(() => JSON.stringify(props.event.payload, null, 2));
 
 const toolName = computed(() => {
   const eventType = props.event.hook_event_type;
@@ -390,187 +200,129 @@ const toolName = computed(() => {
   return null;
 });
 
-const toolEmoji = computed(() => {
-  if (!toolName.value) return '';
-  return getEmojiForToolName(toolName.value);
+const lineTwo = computed<{ label?: string; text: string } | null>(() => {
+  if (props.event.summary) return { label: '', text: props.event.summary };
+  const info = toolInfo.value;
+  if (info && info.detail) return { label: info.tool, text: info.detail };
+  if (info) return { label: '', text: info.tool };
+  return null;
 });
 
 const toolInfo = computed(() => {
   const payload = props.event.payload;
-  
-  // Handle UserPromptSubmit events
+
   if (props.event.hook_event_type === 'UserPromptSubmit' && payload.prompt) {
     return {
-      tool: 'Prompt:',
-      detail: `"${payload.prompt.slice(0, 100)}${payload.prompt.length > 100 ? '...' : ''}"`
+      tool: 'Prompt',
+      detail: `"${payload.prompt.slice(0, 100)}${payload.prompt.length > 100 ? '…' : ''}"`,
     };
   }
-  
-  // Handle PreCompact events
+
   if (props.event.hook_event_type === 'PreCompact') {
     const trigger = payload.trigger || 'unknown';
     return {
-      tool: 'Compaction:',
-      detail: trigger === 'manual' ? 'Manual compaction' : 'Auto-compaction (full context)'
+      tool: 'Compaction',
+      detail: trigger === 'manual' ? 'Manual' : 'Auto (full context)',
     };
   }
-  
-  // Handle SessionStart events
+
   if (props.event.hook_event_type === 'SessionStart') {
     const source = payload.source || 'unknown';
     const sourceLabels: Record<string, string> = {
-      'startup': 'New session',
-      'resume': 'Resuming session',
-      'clear': 'Fresh session'
+      startup: 'New session',
+      resume: 'Resuming session',
+      clear: 'Fresh session',
     };
-    return {
-      tool: 'Session:',
-      detail: sourceLabels[source] || source
-    };
+    return { tool: 'Session', detail: sourceLabels[source] || source };
   }
-  
-  // Handle tool-based events
+
   if (payload.tool_name) {
     const info: { tool: string; detail?: string } = { tool: payload.tool_name };
-    
     if (payload.tool_input) {
       const input = payload.tool_input;
-      if (input.command) {
-        info.detail = input.command.slice(0, 50) + (input.command.length > 50 ? '...' : '');
-      } else if (input.file_path) {
-        info.detail = input.file_path.split('/').pop();
-      } else if (input.pattern) {
-        info.detail = input.pattern;
-      } else if (input.url) {
-        // WebFetch
-        info.detail = input.url.slice(0, 60) + (input.url.length > 60 ? '...' : '');
-      } else if (input.query) {
-        // WebSearch
-        info.detail = `"${input.query.slice(0, 50)}${input.query.length > 50 ? '...' : ''}"`;
-      } else if (input.notebook_path) {
-        // NotebookEdit
-        info.detail = input.notebook_path.split('/').pop();
-      } else if (input.recipient) {
-        // SendMessage
-        info.detail = `→ ${input.recipient}${input.summary ? ': ' + input.summary : ''}`;
-      } else if (input.subject) {
-        // TaskCreate
-        info.detail = input.subject;
-      } else if (input.taskId) {
-        // TaskGet, TaskUpdate
-        info.detail = `#${input.taskId}${input.status ? ' → ' + input.status : ''}`;
-      } else if (input.description && input.subagent_type) {
-        // Task (launch agent)
-        info.detail = `${input.subagent_type}: ${input.description}`;
-      } else if (input.task_id) {
-        // TaskOutput, TaskStop
-        info.detail = `task: ${input.task_id}`;
-      } else if (input.team_name) {
-        // TeamCreate
-        info.detail = input.team_name;
-      } else if (input.skill) {
-        // Skill
-        info.detail = input.skill;
-      }
+      if (input.command) info.detail = input.command.slice(0, 80) + (input.command.length > 80 ? '…' : '');
+      else if (input.file_path) info.detail = input.file_path.split('/').pop();
+      else if (input.pattern) info.detail = input.pattern;
+      else if (input.url) info.detail = input.url.slice(0, 80) + (input.url.length > 80 ? '…' : '');
+      else if (input.query) info.detail = `"${input.query.slice(0, 60)}${input.query.length > 60 ? '…' : ''}"`;
+      else if (input.notebook_path) info.detail = input.notebook_path.split('/').pop();
+      else if (input.recipient) info.detail = `→ ${input.recipient}${input.summary ? ': ' + input.summary : ''}`;
+      else if (input.subject) info.detail = input.subject;
+      else if (input.taskId) info.detail = `#${input.taskId}${input.status ? ' → ' + input.status : ''}`;
+      else if (input.description && input.subagent_type) info.detail = `${input.subagent_type}: ${input.description}`;
+      else if (input.task_id) info.detail = `task: ${input.task_id}`;
+      else if (input.team_name) info.detail = input.team_name;
+      else if (input.skill) info.detail = input.skill;
     }
-    
     return info;
   }
-  
+
   return null;
 });
 
 const formatTime = (timestamp?: number) => {
   if (!timestamp) return '';
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString();
+  return new Date(timestamp).toLocaleTimeString();
 };
 
-// Format model name for display (e.g., "claude-haiku-4-5-20251001" -> "haiku-4-5")
 const formatModelName = (name: string | null | undefined): string => {
   if (!name) return '';
-
-  // Extract model family and version
-  // "claude-haiku-4-5-20251001" -> "haiku-4-5"
-  // "claude-sonnet-4-5-20250929" -> "sonnet-4-5"
   const parts = name.split('-');
-  if (parts.length >= 4) {
-    return `${parts[1]}-${parts[2]}-${parts[3]}`;
-  }
+  if (parts.length >= 4) return `${parts[1]}-${parts[2]}-${parts[3]}`;
   return name;
 };
 
 const copyPayload = async () => {
   try {
     await navigator.clipboard.writeText(formattedPayload.value);
-    copyButtonText.value = '✅ Copied!';
-    setTimeout(() => {
-      copyButtonText.value = '📋 Copy';
-    }, 2000);
+    copyButtonText.value = 'Copied';
+    setTimeout(() => { copyButtonText.value = 'Copy'; }, 1500);
   } catch (err) {
     console.error('Failed to copy:', err);
-    copyButtonText.value = '❌ Failed';
-    setTimeout(() => {
-      copyButtonText.value = '📋 Copy';
-    }, 2000);
+    copyButtonText.value = 'Failed';
+    setTimeout(() => { copyButtonText.value = 'Copy'; }, 1500);
   }
 };
 
-// New computed properties for HITL
-const hitlTypeEmoji = computed(() => {
-  if (!props.event.humanInTheLoop) return '';
-  const emojiMap = {
-    question: '❓',
-    permission: '🔐',
-    choice: '🎯'
-  };
-  return emojiMap[props.event.humanInTheLoop.type] || '❓';
-});
+// HITL
+const hitlResolved = computed(() =>
+  hasSubmittedResponse.value || props.event.humanInTheLoopStatus?.status === 'responded'
+);
 
 const hitlTypeLabel = computed(() => {
   if (!props.event.humanInTheLoop) return '';
   const labelMap = {
-    question: 'Agent Question',
-    permission: 'Permission Request',
-    choice: 'Choice Required'
+    question: 'Question',
+    permission: 'Permission',
+    choice: 'Choice',
   };
   return labelMap[props.event.humanInTheLoop.type] || 'Question';
 });
 
-const permissionType = computed(() => {
-  return props.event.payload?.permission_type || null;
-});
+const permissionType = computed(() => props.event.payload?.permission_type || null);
 
-// Methods for HITL responses
 const submitResponse = async () => {
   if (!responseText.value.trim() || !props.event.id) return;
-
   const response: HumanInTheLoopResponse = {
     response: responseText.value.trim(),
     hookEvent: props.event,
-    respondedAt: Date.now()
+    respondedAt: Date.now(),
   };
-
-  // Optimistic UI: Show response immediately
   localResponse.value = response;
   hasSubmittedResponse.value = true;
   const savedText = responseText.value;
   responseText.value = '';
   isSubmitting.value = true;
-
   try {
     const res = await fetch(`${API_BASE_URL}/events/${props.event.id}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(response)
+      body: JSON.stringify(response),
     });
-
     if (!res.ok) throw new Error('Failed to submit response');
-
     emit('response-submitted', response);
   } catch (error) {
     console.error('Error submitting response:', error);
-    // Rollback optimistic update
     localResponse.value = null;
     hasSubmittedResponse.value = false;
     responseText.value = savedText;
@@ -582,31 +334,24 @@ const submitResponse = async () => {
 
 const submitPermission = async (approved: boolean) => {
   if (!props.event.id) return;
-
   const response: HumanInTheLoopResponse = {
     permission: approved,
     hookEvent: props.event,
-    respondedAt: Date.now()
+    respondedAt: Date.now(),
   };
-
-  // Optimistic UI: Show response immediately
   localResponse.value = response;
   hasSubmittedResponse.value = true;
   isSubmitting.value = true;
-
   try {
     const res = await fetch(`${API_BASE_URL}/events/${props.event.id}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(response)
+      body: JSON.stringify(response),
     });
-
     if (!res.ok) throw new Error('Failed to submit permission');
-
     emit('response-submitted', response);
   } catch (error) {
     console.error('Error submitting permission:', error);
-    // Rollback optimistic update
     localResponse.value = null;
     hasSubmittedResponse.value = false;
     alert('Failed to submit permission. Please try again.');
@@ -617,31 +362,24 @@ const submitPermission = async (approved: boolean) => {
 
 const submitChoice = async (choice: string) => {
   if (!props.event.id) return;
-
   const response: HumanInTheLoopResponse = {
     choice,
     hookEvent: props.event,
-    respondedAt: Date.now()
+    respondedAt: Date.now(),
   };
-
-  // Optimistic UI: Show response immediately
   localResponse.value = response;
   hasSubmittedResponse.value = true;
   isSubmitting.value = true;
-
   try {
     const res = await fetch(`${API_BASE_URL}/events/${props.event.id}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(response)
+      body: JSON.stringify(response),
     });
-
     if (!res.ok) throw new Error('Failed to submit choice');
-
     emit('response-submitted', response);
   } catch (error) {
     console.error('Error submitting choice:', error);
-    // Rollback optimistic update
     localResponse.value = null;
     hasSubmittedResponse.value = false;
     alert('Failed to submit choice. Please try again.');
@@ -652,16 +390,346 @@ const submitChoice = async (choice: string) => {
 </script>
 
 <style scoped>
-@keyframes pulse-slow {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.95;
-  }
+/* Apple-minimal event card */
+.evt-card {
+  position: relative;
+  display: flex;
+  padding: 5px 10px 5px 14px;
+  background: var(--theme-bg-primary);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+.evt-card:hover { border-color: var(--theme-border-secondary); }
+.evt-card.is-expanded {
+  border-color: var(--theme-primary);
+  background: var(--theme-bg-secondary);
 }
 
-.animate-pulse-slow {
-  animation: pulse-slow 2s ease-in-out infinite;
+.evt-card__app-stripe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 7px 0 0 7px;
+}
+.evt-card__sess-stripe {
+  position: absolute;
+  left: 2px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  opacity: 0.55;
+}
+
+.evt-card__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 4px;
+  min-width: 0;
+}
+
+.evt-card__top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.evt-card__spacer { flex: 1 1 auto; }
+
+.evt-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  border-radius: 4px;
+  background: var(--theme-bg-tertiary);
+  color: var(--theme-text-secondary);
+  border: 1px solid var(--theme-border-primary);
+  white-space: nowrap;
+  flex: none;
+}
+.evt-tag--success { color: var(--theme-accent-success); border-color: rgba(48, 209, 88, 0.35); background: rgba(48, 209, 88, 0.10); }
+.evt-tag--error   { color: var(--theme-accent-error);   border-color: rgba(255, 69, 58, 0.40); background: rgba(255, 69, 58, 0.10); }
+.evt-tag--warning { color: var(--theme-accent-warning); border-color: rgba(255, 214, 10, 0.40); background: rgba(255, 214, 10, 0.10); }
+.evt-tag--info    { color: var(--theme-primary);        border-color: rgba(10, 132, 255, 0.40); background: var(--theme-primary-light); }
+
+.evt-tool {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--theme-text-primary);
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: 4px;
+  flex: none;
+}
+
+.evt-time {
+  font-size: 10.5px;
+  color: var(--theme-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.003em;
+  white-space: nowrap;
+  flex: none;
+}
+
+.evt-id-app {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.evt-id-session,
+.evt-id-model {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--theme-text-tertiary);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.meta-sep { color: var(--theme-text-quaternary); font-size: 10.5px; }
+
+.evt-card__detail {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--theme-text-secondary);
+  min-width: 0;
+  overflow: hidden;
+}
+.evt-detail-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--theme-text-tertiary);
+  white-space: nowrap;
+  flex: none;
+}
+.evt-detail-text {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--theme-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.evt-card__expanded {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--theme-border-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.evt-payload-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.evt-payload-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--theme-text-tertiary);
+}
+.evt-payload-pre {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--theme-text-primary);
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: 6px;
+  max-height: 320px;
+  overflow: auto;
+}
+.evt-card__chat { display: flex; justify-content: flex-end; }
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  user-select: none;
+}
+.btn--sm { padding: 3px 8px; font-size: 11px; }
+.btn--primary {
+  background: var(--theme-primary);
+  color: #fff;
+  border-color: var(--theme-primary);
+}
+.btn--primary:hover:not(:disabled) { background: var(--theme-primary-hover); border-color: var(--theme-primary-hover); }
+.btn--primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn--danger {
+  background: var(--theme-accent-error);
+  color: #fff;
+  border-color: var(--theme-accent-error);
+}
+.btn--danger:hover:not(:disabled) { filter: brightness(1.05); }
+.btn--danger:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn--ghost {
+  background: var(--theme-bg-secondary);
+  color: var(--theme-text-secondary);
+  border-color: var(--theme-border-primary);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: var(--theme-bg-tertiary);
+  color: var(--theme-text-primary);
+}
+.btn--ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* HITL card */
+.hitl-card {
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--theme-bg-primary);
+  border: 1px solid var(--theme-border-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hitl-card.is-pending {
+  border-color: rgba(255, 214, 10, 0.45);
+  background: rgba(255, 214, 10, 0.04);
+}
+.hitl-card.is-responded {
+  border-color: rgba(48, 209, 88, 0.45);
+  background: rgba(48, 209, 88, 0.04);
+}
+
+.hitl-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.hitl-card__kind {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--theme-text-primary);
+}
+.hitl-card__perm {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--theme-primary-light);
+  color: var(--theme-primary);
+  border: 1px solid rgba(10, 132, 255, 0.30);
+}
+.hitl-card__status {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--theme-accent-warning);
+  letter-spacing: 0.01em;
+}
+.hitl-card__status.is-ok {
+  color: var(--theme-accent-success);
+}
+
+.hitl-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--theme-text-tertiary);
+  flex-wrap: wrap;
+}
+.hitl-card__app { font-weight: 600; }
+.hitl-card__sess { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; }
+
+.hitl-card__q {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--theme-text-primary);
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: 8px;
+  line-height: 1.4;
+}
+
+.hitl-card__response {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: 8px;
+}
+.hitl-card__response-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--theme-text-tertiary);
+}
+.hitl-card__response-body {
+  font-size: 12px;
+  color: var(--theme-text-primary);
+  line-height: 1.4;
+}
+
+.hitl-card__form { display: flex; flex-direction: column; gap: 8px; }
+.hitl-card__textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--theme-text-primary);
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: 8px;
+  resize: vertical;
+  outline: none;
+}
+.hitl-card__textarea:focus {
+  border-color: var(--theme-primary);
+  box-shadow: 0 0 0 3px var(--theme-primary-light);
+}
+
+.hitl-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
 }
 </style>

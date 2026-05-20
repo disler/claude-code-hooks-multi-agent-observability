@@ -239,11 +239,20 @@ results/
 *.bak
 *.backup
 *.old
+*.save
+*.err
 .history/
 .svn/
 CVS/
 claude-output.json
 .claude/commands/feature.md
+
+# Runtime junk
+**/.claude/data/
+**/.claude/sessions/
+apps/client/.claude/
+dashboard.err
+dashboard.log
 
 # Specs - ignore everything except specific plan files
 specs/*

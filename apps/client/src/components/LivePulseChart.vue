@@ -1,66 +1,26 @@
 <template>
-  <div class="bg-gradient-to-r from-[var(--theme-bg-primary)] to-[var(--theme-bg-secondary)] px-3 py-4 mobile:py-2 shadow-lg">
-    <div class="flex items-center justify-between mb-3 mobile:mb-2">
-      <div class="flex items-center gap-3 mobile:gap-2">
-        <h3 class="text-base mobile:text-xs font-bold text-[var(--theme-primary)] drop-shadow-sm flex items-center">
-          <span class="mr-1.5 mobile:mr-1 text-xl mobile:text-sm">📊</span>
-          <span class="mobile:hidden">Live Activity Pulse</span>
-        </h3>
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-gradient-to-r from-[var(--theme-primary)]/10 to-[var(--theme-primary-light)]/10 rounded-lg border border-[var(--theme-primary)]/30 shadow-sm"
-            :title="`${uniqueAgentCount} active agent${uniqueAgentCount !== 1 ? 's' : ''}`"
-          >
-            <span class="text-lg mobile:text-base">👥</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-primary)]">{{ uniqueAgentCount }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">agents</span>
-          </div>
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm"
-            :title="`Total events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : timeRange === '5m' ? '5 minutes' : '10 minutes'}`"
-          >
-            <span class="text-lg mobile:text-base">⚡</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-text-primary)]">{{ totalEventCount }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">events</span>
-          </div>
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm"
-            :title="`Total tool calls in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : timeRange === '5m' ? '5 minutes' : '10 minutes'}`"
-          >
-            <span class="text-lg mobile:text-base">🔧</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-text-primary)]">{{ toolCallCount }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">tools</span>
-          </div>
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm"
-            :title="`Average time between events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : timeRange === '5m' ? '5 minutes' : '10 minutes'}`"
-          >
-            <span class="text-lg mobile:text-base">🕐</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-text-primary)]">{{ formatGap(eventTimingMetrics.avgGap) }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">avg gap</span>
-          </div>
-        </div>
+  <div class="atlas-pulse">
+    <div class="atlas-pulse__bar">
+      <div class="atlas-pulse__metrics">
+        <h3 class="atlas-pulse__title mobile:hidden">Live activity</h3>
+        <span class="atlas-metric" :title="`${uniqueAgentCount} active agent${uniqueAgentCount !== 1 ? 's' : ''}`">
+          <span class="atlas-metric__value">{{ uniqueAgentCount }}</span>
+          <span class="atlas-metric__label">agents</span>
+        </span>
+        <span class="atlas-metric">
+          <span class="atlas-metric__value">{{ totalEventCount }}</span>
+          <span class="atlas-metric__label">events</span>
+        </span>
+        <span class="atlas-metric">
+          <span class="atlas-metric__value">{{ toolCallCount }}</span>
+          <span class="atlas-metric__label">tools</span>
+        </span>
+        <span class="atlas-metric">
+          <span class="atlas-metric__value">{{ formatGap(eventTimingMetrics.avgGap) }}</span>
+          <span class="atlas-metric__label">avg gap</span>
+        </span>
       </div>
-      <div class="flex gap-1.5 mobile:gap-1" role="tablist" aria-label="Time range selector">
-        <button
-          v-for="(range, index) in timeRanges"
-          :key="range"
-          @click="setTimeRange(range)"
-          @keydown="handleTimeRangeKeyDown($event, index)"
-          :class="[
-            'px-3 py-1.5 mobile:px-2 mobile:py-1 text-sm mobile:text-xs font-bold rounded-lg transition-all duration-200 min-w-[30px] mobile:min-w-[24px] min-h-[30px] mobile:min-h-[24px] flex items-center justify-center shadow-md hover:shadow-lg transform hover:scale-105 border',
-            timeRange === range
-              ? 'bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-light)] text-white border-[var(--theme-primary-dark)] drop-shadow-md'
-              : 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border-[var(--theme-border-primary)] hover:bg-[var(--theme-bg-quaternary)] hover:border-[var(--theme-primary)]'
-          ]"
-          role="tab"
-          :aria-selected="timeRange === range"
-          :aria-label="`Show ${range === '1m' ? '1 minute' : range === '3m' ? '3 minutes' : range === '5m' ? '5 minutes' : '10 minutes'} of activity`"
-          :tabindex="timeRange === range ? 0 : -1"
-        >
-          {{ range }}
-        </button>
-      </div>
+
     </div>
     <div ref="chartContainer" class="relative">
       <canvas
@@ -74,19 +34,11 @@
       ></canvas>
       <div
         v-if="tooltip.visible"
-        class="absolute bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-dark)] text-white px-2 py-1.5 mobile:px-3 mobile:py-2 rounded-lg text-xs mobile:text-sm pointer-events-none z-10 shadow-lg border border-[var(--theme-primary-light)] font-bold drop-shadow-md"
+        class="atlas-pulse__tooltip"
         :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
-      >
-        {{ tooltip.text }}
-      </div>
-      <div
-        v-if="!hasData"
-        class="absolute inset-0 flex items-center justify-center"
-      >
-        <p class="text-[var(--theme-text-tertiary)] mobile:text-sm text-base font-semibold">
-          <span class="mr-1.5 text-base">⏳</span>
-          Waiting for events...
-        </p>
+      >{{ tooltip.text }}</div>
+      <div v-if="!hasData" class="absolute inset-0 flex items-center justify-center">
+        <p class="atlas-pulse__waiting">Waiting for events…</p>
       </div>
     </div>
   </div>
@@ -107,6 +59,7 @@ const props = defineProps<{
     sessionId: string;
     eventType: string;
   };
+  timeRange?: TimeRange;
 }>();
 
 const emit = defineEmits<{
@@ -118,7 +71,7 @@ const emit = defineEmits<{
 const canvas = ref<HTMLCanvasElement>();
 const chartContainer = ref<HTMLDivElement>();
 const windowHeight = ref(typeof window !== 'undefined' ? window.innerHeight : 600);
-const chartHeight = computed(() => windowHeight.value <= 400 ? 210 : 96);
+const chartHeight = computed(() => windowHeight.value <= 400 ? 160 : 72);
 
 const timeRanges: TimeRange[] = ['1m', '3m', '5m', '10m'];
 
@@ -160,6 +113,11 @@ watch(allUniqueAgentIds, (agentIds) => {
 watch(timeRange, (range) => {
   emit('updateTimeRange', range);
 }, { immediate: true });
+
+// Mirror time range from parent when prop changes
+watch(() => props.timeRange, (range) => {
+  if (range && range !== timeRange.value) setTimeRange(range);
+});
 
 let renderer: ReturnType<typeof createChartRenderer> | null = null;
 let resizeObserver: ResizeObserver | null = null;
@@ -499,3 +457,109 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleWindowResize);
 });
 </script>
+
+<style scoped>
+.atlas-pulse {
+  background: var(--theme-bg-primary);
+  border-bottom: 1px solid var(--theme-border-primary);
+  padding: 4px 14px 0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+@media (max-width: 699px) {
+  .atlas-pulse { padding: 4px 12px 0; }
+}
+
+.atlas-pulse__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.atlas-pulse__title {
+  margin: 0 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--theme-text-primary);
+  letter-spacing: -0.005em;
+}
+
+.atlas-pulse__metrics {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+@media (max-width: 699px) {
+  .atlas-pulse__metrics { gap: 10px; }
+}
+
+.atlas-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--theme-text-secondary);
+}
+.atlas-metric__value {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-text-primary);
+}
+.atlas-metric__label {
+  font-size: 11px;
+  color: var(--theme-text-tertiary);
+  letter-spacing: 0.01em;
+}
+
+.atlas-segctrl {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: 8px;
+  gap: 0;
+}
+.atlas-segctrl__btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--theme-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.atlas-segctrl__btn:hover { color: var(--theme-text-primary); }
+.atlas-segctrl__btn.is-active {
+  background: var(--theme-bg-primary);
+  color: var(--theme-text-primary);
+  box-shadow: 0 1px 2px var(--theme-shadow);
+}
+
+.atlas-pulse__tooltip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #FFFFFF;
+  background: rgba(28, 28, 30, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.atlas-pulse__waiting {
+  font-size: 12px;
+  color: var(--theme-text-tertiary);
+  font-weight: 500;
+}
+</style>

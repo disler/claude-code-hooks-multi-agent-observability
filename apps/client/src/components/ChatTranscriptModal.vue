@@ -18,7 +18,7 @@
           <div class="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6 mobile:p-3">
             <div class="flex items-center justify-between mb-4 mobile:mb-2">
               <h2 class="text-3xl mobile:text-lg font-semibold text-gray-900 dark:text-white">
-                💬 Chat Transcript
+                Transcript
               </h2>
               <button
                 @click="close"
@@ -72,7 +72,6 @@
                     ? 'bg-blue-500 text-white' 
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'"
                 >
-                  <span class="mr-1">{{ filter.icon }}</span>
                   {{ filter.label }}
                 </button>
                 
@@ -121,23 +120,18 @@ const emit = defineEmits<{
 const searchQuery = ref('');
 const activeSearchQuery = ref('');
 const activeFilters = ref<string[]>([]);
-const copyAllButtonText = ref('📋 Copy All');
+const copyAllButtonText = ref('Copy all');
 
 const filters = [
-  // Message types
-  { type: 'user', label: 'User', icon: '👤' },
-  { type: 'assistant', label: 'Assistant', icon: '🤖' },
-  { type: 'system', label: 'System', icon: '⚙️' },
-  
-  // Tool actions
-  { type: 'tool_use', label: 'Tool Use', icon: '🔧' },
-  { type: 'tool_result', label: 'Tool Result', icon: '✅' },
-  
-  // Specific tools
-  { type: 'Read', label: 'Read', icon: '📄' },
-  { type: 'Write', label: 'Write', icon: '✍️' },
-  { type: 'Edit', label: 'Edit', icon: '✏️' },
-  { type: 'Glob', label: 'Glob', icon: '🔎' },
+  { type: 'user', label: 'User' },
+  { type: 'assistant', label: 'Assistant' },
+  { type: 'system', label: 'System' },
+  { type: 'tool_use', label: 'Tool use' },
+  { type: 'tool_result', label: 'Tool result' },
+  { type: 'Read', label: 'Read' },
+  { type: 'Write', label: 'Write' },
+  { type: 'Edit', label: 'Edit' },
+  { type: 'Glob', label: 'Glob' },
 ];
 
 const toggleFilter = (type: string) => {
@@ -169,16 +163,12 @@ const copyAllMessages = async () => {
     const jsonPayload = JSON.stringify(props.chat, null, 2);
     await navigator.clipboard.writeText(jsonPayload);
     
-    copyAllButtonText.value = '✅ Copied!';
-    setTimeout(() => {
-      copyAllButtonText.value = '📋 Copy All';
-    }, 2000);
+    copyAllButtonText.value = 'Copied';
+    setTimeout(() => { copyAllButtonText.value = 'Copy all'; }, 1500);
   } catch (err) {
     console.error('Failed to copy all messages:', err);
-    copyAllButtonText.value = '❌ Failed';
-    setTimeout(() => {
-      copyAllButtonText.value = '📋 Copy All';
-    }, 2000);
+    copyAllButtonText.value = 'Failed';
+    setTimeout(() => { copyAllButtonText.value = 'Copy all'; }, 1500);
   }
 };
 

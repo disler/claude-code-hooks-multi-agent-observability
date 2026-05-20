@@ -1,61 +1,31 @@
 <template>
-  <div class="bg-gradient-to-r from-[var(--theme-bg-primary)] to-[var(--theme-bg-secondary)] border-b-2 border-[var(--theme-primary)] px-3 py-4 mobile:py-2 shadow-lg">
-    <div class="flex flex-wrap gap-3 items-center mobile:flex-col mobile:items-stretch">
-      <div class="flex-1 min-w-0 mobile:w-full">
-        <label class="block text-base mobile:text-sm font-bold text-[var(--theme-primary)] mb-1.5 drop-shadow-sm">
-          Source App
-        </label>
-        <select
-          v-model="localFilters.sourceApp"
-          @change="updateFilters"
-          class="w-full px-4 py-2 mobile:px-2 mobile:py-1.5 text-base mobile:text-sm border border-[var(--theme-primary)] rounded-lg focus:ring-2 focus:ring-[var(--theme-primary)]/30 focus:border-[var(--theme-primary-dark)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] shadow-md hover:shadow-lg transition-all duration-200"
-        >
-          <option value="">All Sources</option>
-          <option v-for="app in filterOptions.source_apps" :key="app" :value="app">
-            {{ app }}
-          </option>
+  <div class="atlas-filter">
+    <div class="atlas-filter__row">
+      <div class="atlas-filter__field">
+        <label>Source app</label>
+        <select v-model="localFilters.sourceApp" @change="updateFilters">
+          <option value="">All</option>
+          <option v-for="app in filterOptions.source_apps" :key="app" :value="app">{{ app }}</option>
         </select>
       </div>
-      
-      <div class="flex-1 min-w-0 mobile:w-full">
-        <label class="block text-base mobile:text-sm font-bold text-[var(--theme-primary)] mb-1.5 drop-shadow-sm">
-          Session ID
-        </label>
-        <select
-          v-model="localFilters.sessionId"
-          @change="updateFilters"
-          class="w-full px-4 py-2 mobile:px-2 mobile:py-1.5 text-base mobile:text-sm border border-[var(--theme-primary)] rounded-lg focus:ring-2 focus:ring-[var(--theme-primary)]/30 focus:border-[var(--theme-primary-dark)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] shadow-md hover:shadow-lg transition-all duration-200"
-        >
-          <option value="">All Sessions</option>
-          <option v-for="session in filterOptions.session_ids" :key="session" :value="session">
-            {{ session.slice(0, 8) }}...
-          </option>
+
+      <div class="atlas-filter__field">
+        <label>Session</label>
+        <select v-model="localFilters.sessionId" @change="updateFilters">
+          <option value="">All</option>
+          <option v-for="session in filterOptions.session_ids" :key="session" :value="session">{{ session.slice(0, 8) }}…</option>
         </select>
       </div>
-      
-      <div class="flex-1 min-w-0 mobile:w-full">
-        <label class="block text-base mobile:text-sm font-bold text-[var(--theme-primary)] mb-1.5 drop-shadow-sm">
-          Event Type
-        </label>
-        <select
-          v-model="localFilters.eventType"
-          @change="updateFilters"
-          class="w-full px-4 py-2 mobile:px-2 mobile:py-1.5 text-base mobile:text-sm border border-[var(--theme-primary)] rounded-lg focus:ring-2 focus:ring-[var(--theme-primary)]/30 focus:border-[var(--theme-primary-dark)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] shadow-md hover:shadow-lg transition-all duration-200"
-        >
-          <option value="">All Types</option>
-          <option v-for="type in filterOptions.hook_event_types" :key="type" :value="type">
-            {{ type }}
-          </option>
+
+      <div class="atlas-filter__field">
+        <label>Event type</label>
+        <select v-model="localFilters.eventType" @change="updateFilters">
+          <option value="">All</option>
+          <option v-for="type in filterOptions.hook_event_types" :key="type" :value="type">{{ type }}</option>
         </select>
       </div>
-      
-      <button
-        v-if="hasActiveFilters"
-        @click="clearFilters"
-        class="px-4 py-2 mobile:px-2 mobile:py-1.5 mobile:w-full text-base mobile:text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
-      >
-        Clear Filters
-      </button>
+
+      <button v-if="hasActiveFilters" @click="clearFilters" class="atlas-filter__clear">Clear</button>
     </div>
   </div>
 </template>
@@ -119,3 +89,75 @@ onMounted(() => {
   setInterval(fetchFilterOptions, 10000);
 });
 </script>
+
+<style scoped>
+.atlas-filter {
+  background: var(--theme-bg-primary);
+  border-bottom: 1px solid var(--theme-border-primary);
+  padding: 12px 20px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+@media (max-width: 699px) {
+  .atlas-filter { padding: 10px 12px; }
+}
+
+.atlas-filter__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+@media (max-width: 699px) {
+  .atlas-filter__row { gap: 8px; }
+}
+
+.atlas-filter__field {
+  flex: 1 1 180px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.atlas-filter__field label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--theme-text-tertiary);
+  letter-spacing: 0.02em;
+}
+.atlas-filter__field select {
+  width: 100%;
+  padding: 6px 28px 6px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--theme-text-primary);
+  background-color: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: 6px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10' fill='none' stroke='%236E6E73' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='m2 4 3 3 3-3'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.atlas-filter__field select:hover { border-color: var(--theme-border-secondary); }
+.atlas-filter__field select:focus {
+  border-color: var(--theme-primary);
+  box-shadow: 0 0 0 3px var(--theme-primary-light);
+}
+
+.atlas-filter__clear {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--theme-text-secondary);
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.atlas-filter__clear:hover { background: var(--theme-hover-bg); color: var(--theme-text-primary); }
+</style>

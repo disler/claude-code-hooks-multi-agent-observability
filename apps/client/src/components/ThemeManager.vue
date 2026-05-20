@@ -17,7 +17,7 @@
         <div class="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-3xl font-semibold text-gray-900 dark:text-white">
-              🎨 Theme Manager
+              Theme
             </h2>
             <button
               @click="close"

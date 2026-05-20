@@ -48,8 +48,43 @@ export interface FilterOptions {
 }
 
 export interface WebSocketMessage {
-  type: 'initial' | 'event' | 'hitl_response';
-  data: HookEvent | HookEvent[] | HumanInTheLoopResponse;
+  type: 'initial' | 'event' | 'hitl_response' | 'plan_update' | 'plan_event';
+  data?: HookEvent | HookEvent[] | HumanInTheLoopResponse;
+  project?: string;
+  plan?: PlanSummary;
+  event?: string;
+  payload?: any;
+}
+
+// ---- /spinup-plan planning layer types ----
+
+export type PhaseStatus = 'backlog' | 'running' | 'done' | 'archived';
+
+export interface PhaseSummary {
+  project: string;
+  number: number;
+  slug: string;
+  file: string;
+  status: PhaseStatus;
+  target_days: number | null;
+  started: string | null;
+  finished: string | null;
+  spawned_session: string | null;
+  outcome: string;
+}
+
+export interface PlanSummary {
+  project: string;
+  hasPlan: boolean;
+  locked: boolean;
+  locked_at: string | null;
+  depth: 'quick' | 'deep' | null;
+  owner_agent: string | null;
+  target_done: string | null;
+  created: string | null;
+  phases: PhaseSummary[];
+  timeline: string[];
+  questions: number;
 }
 
 export type TimeRange = '1m' | '3m' | '5m' | '10m';
