@@ -33,6 +33,7 @@ import { join } from 'path';
 import crypto from 'crypto';
 import { listProposals, approveProposal, rejectProposal } from './atlas-proposals';
 import { listCandidates, listTrials } from './atlas-scout';
+import { existingGoalIds } from './atlas-goals';
 
 const ATLAS_HOME = '/Users/hrmacnair/atlas';
 const TODAY_DIR = join(ATLAS_HOME, 'today');
@@ -49,7 +50,8 @@ export type TodayItemType =
   | 'read_recommended'
   | 'operator_added'
   | 'retirement_proposal'
-  | 'trial_concern';
+  | 'trial_concern'
+  | 'incubator_stale';
 
 export type TodayUrgency = 'red' | 'yellow' | 'green' | 'white';
 
@@ -68,7 +70,24 @@ export type TodayItem = {
   operator_done: boolean;
   operator_done_at: string | null;
   pinned?: boolean;
+  // Paperclip-3 cascade: optional link up the ancestry tree.
+  // Mission → Project → Goal → Task. `goal_id` references atlas-goals.
+  // Cards without a goal_id (or pointing at a stale goal) surface as orphans.
+  goal_id?: string | null;
+  orphan?: boolean;
 };
+
+// Paperclip-3: in-place tag of cards with no goal_id or a goal_id pointing
+// at a goal that no longer exists. Pure function — caller decides whether
+// to persist. Returns the same array reference for ergonomic chaining.
+export function flagOrphanCards<T extends Pick<TodayItem, 'goal_id' | 'orphan'>>(cards: T[]): T[] {
+  let ids: Set<string>;
+  try { ids = existingGoalIds(); } catch { ids = new Set(); }
+  for (const c of cards) {
+    c.orphan = !c.goal_id || !ids.has(c.goal_id);
+  }
+  return cards;
+}
 
 // ----- yaml helpers --------------------------------------------------------
 
@@ -306,6 +325,59 @@ export function syncFromProposals(): { added: number; removed: number; total: nu
     // Scout module not yet built or empty — sync gracefully skips.
   }
 
+  // ----- Phase A: surface stale incubator missions as Today items -----
+  // Stale rules live in atlas-incubator.ts (queued >21d, in_progress >14d,
+  // drafted >7d, review >3d). Each stale mission becomes one Today item.
+  // De-dupe by mission id so re-syncs don't pile up duplicates.
+  const existingIncubatorArtifacts = new Set<string>();
+  for (const it of filtered) {
+    if (it.type === 'incubator_stale' && it.related_artifact) {
+      existingIncubatorArtifacts.add(it.related_artifact);
+    }
+  }
+  try {
+    const { listMissions, isStale, daysInCurrentStage } = require('./atlas-incubator');
+    const allMissions = listMissions() as any[];
+    const staleMissions = allMissions.filter(m =>
+      m.status !== 'graduated' && m.status !== 'abandoned' && isStale(m)
+    );
+    for (const m of staleMissions) {
+      if (existingIncubatorArtifacts.has(m.id)) continue;
+      const days = daysInCurrentStage(m) ?? '?';
+      const urgency: TodayUrgency =
+        m.status === 'review' ? 'red'
+        : m.status === 'in_progress' ? 'red'
+        : m.status === 'drafted' ? 'yellow'
+        : 'yellow';
+      const verbForStage =
+        m.status === 'review' ? 'Promote or kill'
+        : m.status === 'in_progress' ? 'Decide: validate harder or kill'
+        : m.status === 'drafted' ? 'Open landing or kill'
+        : 'Validate or kill';
+      filtered.push({
+        item_id: newItemId(),
+        type: 'incubator_stale',
+        title: `${verbForStage} — ${m.title}`,
+        urgency,
+        priority_rank: 0,
+        origin: 'incubator',
+        related_artifact: m.id,
+        preview: `${m.status} for ${days}d · score ${m.score?.total ?? '?'}/50 · ${m.category || ''}`,
+        actions: [
+          { label: 'Open',  verb: 'pin',    target: m.id },
+          { label: 'Defer', verb: 'defer',  target: m.id },
+        ],
+        created: m.created || nowIso(),
+        updated: nowIso(),
+        operator_done: false,
+        operator_done_at: null,
+      });
+      added++;
+    }
+  } catch (err) {
+    // Incubator module not yet built or empty — sync gracefully skips.
+  }
+
   const ranked = rankItems(filtered);
   writeQueue(ranked);
   return { added, removed, total: ranked.length };
@@ -317,6 +389,7 @@ export function getToday(opts?: { includeDeferred?: boolean }): {
   queue: TodayItem[];
   deferred: TodayItem[];
   completed_today: TodayItem[];
+  summary: { total: number; orphan_count: number };
 } {
   // Sync from proposals every read — cheap and keeps the queue fresh.
   syncFromProposals();
@@ -326,10 +399,21 @@ export function getToday(opts?: { includeDeferred?: boolean }): {
     return it.operator_done_at.slice(0, 10) === new Date().toISOString().slice(0, 10);
   });
   const active = all.filter(it => !it.operator_done);
+
+  // Paperclip-3: tag orphans on the live + deferred surfaces so the dashboard
+  // can render the red-dot badge without a second round-trip.
+  flagOrphanCards(active);
+  const deferred = opts?.includeDeferred ? readDeferred() : [];
+  if (deferred.length > 0) flagOrphanCards(deferred);
+  flagOrphanCards(completed_today);
+
+  const orphan_count = active.reduce((n, it) => n + (it.orphan ? 1 : 0), 0);
+
   return {
     queue: active,
-    deferred: opts?.includeDeferred ? readDeferred() : [],
+    deferred,
     completed_today,
+    summary: { total: active.length, orphan_count },
   };
 }
 
