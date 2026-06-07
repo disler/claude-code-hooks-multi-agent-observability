@@ -1,93 +1,42 @@
 <template>
-  <div class="bg-gradient-to-r from-[var(--theme-bg-primary)] to-[var(--theme-bg-secondary)] px-3 py-4 mobile:py-2 shadow-lg">
-    <div class="flex items-center justify-between mb-3 mobile:mb-2">
-      <div class="flex items-center gap-3 mobile:gap-2">
-        <h3 class="text-base mobile:text-xs font-bold text-[var(--theme-primary)] drop-shadow-sm flex items-center">
-          <span class="mr-1.5 mobile:mr-1 text-xl mobile:text-sm">📊</span>
-          <span class="mobile:hidden">Live Activity Pulse</span>
-        </h3>
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-gradient-to-r from-[var(--theme-primary)]/10 to-[var(--theme-primary-light)]/10 rounded-lg border border-[var(--theme-primary)]/30 shadow-sm"
-            :title="`${uniqueAgentCount} active agent${uniqueAgentCount !== 1 ? 's' : ''}`"
-          >
-            <span class="text-lg mobile:text-base">👥</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-primary)]">{{ uniqueAgentCount }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">agents</span>
-          </div>
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm"
-            :title="`Total events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : timeRange === '5m' ? '5 minutes' : '10 minutes'}`"
-          >
-            <span class="text-lg mobile:text-base">⚡</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-text-primary)]">{{ totalEventCount }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">events</span>
-          </div>
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm"
-            :title="`Total tool calls in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : timeRange === '5m' ? '5 minutes' : '10 minutes'}`"
-          >
-            <span class="text-lg mobile:text-base">🔧</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-text-primary)]">{{ toolCallCount }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">tools</span>
-          </div>
-          <div
-            class="flex items-center gap-1.5 px-2 py-1 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm"
-            :title="`Average time between events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : timeRange === '5m' ? '5 minutes' : '10 minutes'}`"
-          >
-            <span class="text-lg mobile:text-base">🕐</span>
-            <span class="text-sm mobile:text-xs font-bold text-[var(--theme-text-primary)]">{{ formatGap(eventTimingMetrics.avgGap) }}</span>
-            <span class="text-xs mobile:text-[10px] text-[var(--theme-text-tertiary)] font-medium mobile:hidden">avg gap</span>
-          </div>
-        </div>
-      </div>
-      <div class="flex gap-1.5 mobile:gap-1" role="tablist" aria-label="Time range selector">
+  <div class="pulse">
+    <div class="pulse-head">
+      <span class="cap">Live pulse</span>
+      <span class="rule"></span>
+      <span class="meta mono mobile:hidden">events / sec · last {{ rangeText }}</span>
+      <div class="tabs" role="tablist" aria-label="Time range selector">
         <button
           v-for="(range, index) in timeRanges"
           :key="range"
           @click="setTimeRange(range)"
           @keydown="handleTimeRangeKeyDown($event, index)"
-          :class="[
-            'px-3 py-1.5 mobile:px-2 mobile:py-1 text-sm mobile:text-xs font-bold rounded-lg transition-all duration-200 min-w-[30px] mobile:min-w-[24px] min-h-[30px] mobile:min-h-[24px] flex items-center justify-center shadow-md hover:shadow-lg transform hover:scale-105 border',
-            timeRange === range
-              ? 'bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-light)] text-white border-[var(--theme-primary-dark)] drop-shadow-md'
-              : 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] border-[var(--theme-border-primary)] hover:bg-[var(--theme-bg-quaternary)] hover:border-[var(--theme-primary)]'
-          ]"
+          :class="{ on: timeRange === range }"
           role="tab"
           :aria-selected="timeRange === range"
           :aria-label="`Show ${range === '1m' ? '1 minute' : range === '3m' ? '3 minutes' : range === '5m' ? '5 minutes' : '10 minutes'} of activity`"
           :tabindex="timeRange === range ? 0 : -1"
-        >
-          {{ range }}
-        </button>
+        >{{ range }}</button>
       </div>
     </div>
-    <div ref="chartContainer" class="relative">
+
+    <div ref="chartContainer" class="chart-box">
+      <div class="legend">
+        <span class="item"><span class="sw sw-primary"></span>all events</span>
+        <span class="item"><span class="sw sw-tool"></span>tool calls</span>
+      </div>
       <canvas
         ref="canvas"
-        class="w-full cursor-crosshair"
+        class="canvas"
         :style="{ height: chartHeight + 'px' }"
         @mousemove="handleMouseMove"
         @mouseleave="handleMouseLeave"
         role="img"
         :aria-label="chartAriaLabel"
       ></canvas>
-      <div
-        v-if="tooltip.visible"
-        class="absolute bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-dark)] text-white px-2 py-1.5 mobile:px-3 mobile:py-2 rounded-lg text-xs mobile:text-sm pointer-events-none z-10 shadow-lg border border-[var(--theme-primary-light)] font-bold drop-shadow-md"
-        :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
-      >
+      <div v-if="tooltip.visible" class="tooltip mono" :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }">
         {{ tooltip.text }}
       </div>
-      <div
-        v-if="!hasData"
-        class="absolute inset-0 flex items-center justify-center"
-      >
-        <p class="text-[var(--theme-text-tertiary)] mobile:text-sm text-base font-semibold">
-          <span class="mr-1.5 text-base">⏳</span>
-          Waiting for events...
-        </p>
-      </div>
+      <div v-if="!hasData" class="chart-empty">Waiting for events…</div>
     </div>
   </div>
 </template>
@@ -97,8 +46,6 @@ import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import type { HookEvent, TimeRange, ChartConfig } from '../types';
 import { useChartData } from '../composables/useChartData';
 import { createChartRenderer, type ChartDimensions } from '../utils/chartRenderer';
-import { useEventEmojis } from '../composables/useEventEmojis';
-import { useEventColors } from '../composables/useEventColors';
 
 const props = defineProps<{
   events: HookEvent[];
@@ -113,12 +60,13 @@ const emit = defineEmits<{
   updateUniqueApps: [appNames: string[]];
   updateAllApps: [appNames: string[]];
   updateTimeRange: [timeRange: TimeRange];
+  updateMetrics: [metrics: { totalEvents: number; toolCalls: number; avgGap: number; minGap: number; maxGap: number }];
 }>();
 
 const canvas = ref<HTMLCanvasElement>();
 const chartContainer = ref<HTMLDivElement>();
 const windowHeight = ref(typeof window !== 'undefined' ? window.innerHeight : 600);
-const chartHeight = computed(() => windowHeight.value <= 400 ? 210 : 96);
+const chartHeight = computed(() => windowHeight.value <= 400 ? 210 : 184);
 
 const timeRanges: TimeRange[] = ['1m', '3m', '5m', '10m'];
 
@@ -130,21 +78,15 @@ const {
   setTimeRange,
   cleanup: cleanupChartData,
   clearData,
-  uniqueAgentCount,
   uniqueAgentIdsInWindow,
   allUniqueAgentIds,
   toolCallCount,
   eventTimingMetrics
 } = useChartData();
 
-// Format gap time in ms to readable string (e.g., "125ms" or "1.2s")
-const formatGap = (gapMs: number): string => {
-  if (gapMs === 0) return '—';
-  if (gapMs < 1000) {
-    return `${Math.round(gapMs)}ms`;
-  }
-  return `${(gapMs / 1000).toFixed(1)}s`;
-};
+const rangeText = computed(() =>
+  timeRange.value === '1m' ? '60s' : timeRange.value === '3m' ? '3m' : timeRange.value === '5m' ? '5m' : '10m'
+);
 
 // Watch uniqueAgentIdsInWindow and emit updates (for active agents in time window)
 watch(uniqueAgentIdsInWindow, (agentIds) => {
@@ -164,10 +106,8 @@ watch(timeRange, (range) => {
 let renderer: ReturnType<typeof createChartRenderer> | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let animationFrame: number | null = null;
+let idleTimer: number | null = null;
 const processedEventIds = new Set<string>();
-
-const { formatEventTypeLabel } = useEventEmojis();
-const { getHexColorForSession } = useEventColors();
 
 const hasData = computed(() => dataPoints.value.some(dp => dp.count > 0));
 
@@ -176,9 +116,19 @@ const totalEventCount = computed(() => {
 });
 
 const chartAriaLabel = computed(() => {
-  const rangeText = timeRange.value === '1m' ? '1 minute' : timeRange.value === '3m' ? '3 minutes' : timeRange.value === '5m' ? '5 minutes' : '10 minutes';
-  return `Activity chart showing ${totalEventCount.value} events over the last ${rangeText}`;
+  const rangeTextLong = timeRange.value === '1m' ? '1 minute' : timeRange.value === '3m' ? '3 minutes' : timeRange.value === '5m' ? '5 minutes' : '10 minutes';
+  return `Activity chart showing ${totalEventCount.value} events over the last ${rangeTextLong}`;
 });
+
+// Surface window metrics to the parent (MetricsBar lives in the left column now)
+const metricsPayload = computed(() => ({
+  totalEvents: totalEventCount.value,
+  toolCalls: toolCallCount.value,
+  avgGap: eventTimingMetrics.value.avgGap,
+  minGap: eventTimingMetrics.value.minGap,
+  maxGap: eventTimingMetrics.value.maxGap,
+}));
+watch(metricsPayload, (m) => emit('updateMetrics', m), { immediate: true, deep: true });
 
 const tooltip = ref({
   visible: false,
@@ -202,7 +152,7 @@ const getActiveConfig = (): ChartConfig => {
     colors: {
       primary: getThemeColor('primary'),
       glow: getThemeColor('primary-light'),
-      axis: getThemeColor('border-primary'),
+      axis: getThemeColor('border-secondary'),
       text: getThemeColor('text-tertiary')
     }
   };
@@ -214,10 +164,10 @@ const getDimensions = (): ChartDimensions => {
     width,
     height: chartHeight.value,
     padding: {
-      top: 7,
-      right: 7,
-      bottom: 20,
-      left: 7
+      top: 14,
+      right: 14,
+      bottom: 22,
+      left: 30
     }
   };
 };
@@ -227,34 +177,34 @@ const render = () => {
 
   const data = getChartData();
   const maxValue = Math.max(...data.map(d => d.count), 1);
-  
+
   renderer.clear();
   renderer.drawBackground();
-  renderer.drawAxes();
+  renderer.drawAxes(maxValue);
   renderer.drawTimeLabels(timeRange.value);
-  renderer.drawBars(data, maxValue, 1, formatEventTypeLabel, getHexColorForSession);
+  renderer.drawBars(data, maxValue, 1);
 };
 
 const animateNewEvent = (x: number, y: number) => {
   let radius = 0;
   let opacity = 0.8;
-  
+
   const animate = () => {
     if (!renderer) return;
-    
+
     render();
     renderer.drawPulseEffect(x, y, radius, opacity);
-    
+
     radius += 2;
-    opacity -= 0.02;
-    
+    opacity -= 0.04;
+
     if (opacity > 0) {
       animationFrame = requestAnimationFrame(animate);
     } else {
       animationFrame = null;
     }
   };
-  
+
   animate();
 };
 
@@ -286,7 +236,7 @@ const isEventFiltered = (event: HookEvent): boolean => {
 const processNewEvents = () => {
   const currentEvents = props.events;
   const newEventsToProcess: HookEvent[] = [];
-  
+
   // Find events that haven't been processed yet
   currentEvents.forEach(event => {
     const eventKey = `${event.id}-${event.timestamp}`;
@@ -295,31 +245,30 @@ const processNewEvents = () => {
       newEventsToProcess.push(event);
     }
   });
-  
+
   // Process new events
   newEventsToProcess.forEach(event => {
     if (event.hook_event_type !== 'refresh' && event.hook_event_type !== 'initial' && isEventFiltered(event)) {
       addEvent(event);
-      
+
       // Trigger pulse animation for new event
       if (renderer && canvas.value) {
         const chartArea = getDimensions();
-        const x = chartArea.width - chartArea.padding.right - 10;
-        const y = chartArea.height / 2;
+        const x = chartArea.width - chartArea.padding.right;
+        const y = chartArea.padding.top + (chartArea.height - chartArea.padding.top - chartArea.padding.bottom) / 2;
         animateNewEvent(x, y);
       }
     }
   });
-  
-  // Clean up old event IDs to prevent memory leak
-  // Keep only IDs from current events
+
+  // Clean up old event IDs to prevent memory leak (keep only current ids)
   const currentEventIds = new Set(currentEvents.map(e => `${e.id}-${e.timestamp}`));
   processedEventIds.forEach(id => {
     if (!currentEventIds.has(id)) {
       processedEventIds.delete(id);
     }
   });
-  
+
   render();
 };
 
@@ -345,8 +294,6 @@ watch(() => props.filters, () => {
 
 // Watch for time range changes
 watch(timeRange, () => {
-  // Need to re-process all events when time range changes
-  // because bucket sizes are different
   render();
 });
 
@@ -357,11 +304,11 @@ watch(chartHeight, () => {
 
 const handleMouseMove = (event: MouseEvent) => {
   if (!canvas.value || !chartContainer.value) return;
-  
+
   const rect = canvas.value.getBoundingClientRect();
   const x = event.clientX - rect.left;
   const y = event.clientY - rect.top;
-  
+
   const data = getChartData();
   const dimensions = getDimensions();
   const chartArea = {
@@ -370,27 +317,28 @@ const handleMouseMove = (event: MouseEvent) => {
     width: dimensions.width - dimensions.padding.left - dimensions.padding.right,
     height: dimensions.height - dimensions.padding.top - dimensions.padding.bottom
   };
-  
-  const barWidth = chartArea.width / data.length;
-  const barIndex = Math.floor((x - chartArea.x) / barWidth);
-  
+
+  if (data.length < 2) { tooltip.value.visible = false; return; }
+  const step = chartArea.width / (data.length - 1);
+  const barIndex = Math.round((x - chartArea.x) / step);
+
   if (barIndex >= 0 && barIndex < data.length && y >= chartArea.y && y <= chartArea.y + chartArea.height) {
     const point = data[barIndex];
     if (point.count > 0) {
       const eventTypesText = Object.entries(point.eventTypes || {})
         .map(([type, count]) => `${type}: ${count}`)
         .join(', ');
-      
+
       tooltip.value = {
         visible: true,
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top - 30,
+        x: Math.min(x + 8, chartArea.x + chartArea.width - 4),
+        y: event.clientY - rect.top - 34,
         text: `${point.count} events${eventTypesText ? ` (${eventTypesText})` : ''}`
       };
       return;
     }
   }
-  
+
   tooltip.value.visible = false;
 };
 
@@ -400,7 +348,7 @@ const handleMouseLeave = () => {
 
 const handleTimeRangeKeyDown = (event: KeyboardEvent, currentIndex: number) => {
   let newIndex = currentIndex;
-  
+
   switch (event.key) {
     case 'ArrowLeft':
       newIndex = Math.max(0, currentIndex - 1);
@@ -417,7 +365,7 @@ const handleTimeRangeKeyDown = (event: KeyboardEvent, currentIndex: number) => {
     default:
       return;
   }
-  
+
   if (newIndex !== currentIndex) {
     event.preventDefault();
     setTimeRange(timeRanges[newIndex]);
@@ -432,6 +380,7 @@ const handleTimeRangeKeyDown = (event: KeyboardEvent, currentIndex: number) => {
 // Watch for theme changes
 const themeObserver = new MutationObserver(() => {
   if (renderer) {
+    renderer = createChartRenderer(canvas.value!, getDimensions(), getActiveConfig());
     render();
   }
 });
@@ -456,26 +405,13 @@ onMounted(() => {
 
   // Listen for window height changes
   window.addEventListener('resize', handleWindowResize);
-  
+
   // Initial render
   render();
-  
-  // Start optimized render loop with FPS limiting
-  let lastRenderTime = 0;
-  const targetFPS = 30;
-  const frameInterval = 1000 / targetFPS;
-  
-  const renderLoop = (currentTime: number) => {
-    const deltaTime = currentTime - lastRenderTime;
-    
-    if (deltaTime >= frameInterval) {
-      render();
-      lastRenderTime = currentTime - (deltaTime % frameInterval);
-    }
-    
-    requestAnimationFrame(renderLoop);
-  };
-  requestAnimationFrame(renderLoop);
+
+  // Idle redraw once a second so the time axis slides even without new events
+  // (replaces the old always-on 30fps loop).
+  idleTimer = window.setInterval(render, 1000);
 });
 
 onUnmounted(() => {
@@ -493,9 +429,71 @@ onUnmounted(() => {
     cancelAnimationFrame(animationFrame);
   }
 
+  if (idleTimer !== null) {
+    clearInterval(idleTimer);
+  }
+
   themeObserver.disconnect();
 
   // Remove window resize listener
   window.removeEventListener('resize', handleWindowResize);
 });
 </script>
+
+<style scoped>
+.pulse {
+  padding: 12px 16px 16px;
+}
+.pulse-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.pulse-head .cap {
+  font-size: var(--text-2xs); font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-faint); flex: none;
+}
+.pulse-head .rule { height: 1px; flex: 1; background: var(--hair-faint); }
+.pulse-head .meta { font-size: var(--text-2xs); color: var(--text-faint); flex: none; }
+
+.tabs { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--hair-faint); border-radius: var(--radius-md); background: var(--surface-canvas); flex: none; }
+.tabs button {
+  min-width: 30px; padding: 3px 9px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-faint); cursor: pointer;
+  font-family: var(--font-mono); font-size: var(--text-xs); font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  transition: color var(--motion-fast), background var(--motion-fast);
+}
+.tabs button:hover { color: var(--text-base); }
+.tabs button.on { background: var(--theme-primary); color: #fff; }
+
+.chart-box {
+  position: relative;
+  border: 1px solid var(--hair-faint);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 4px 6px 2px 2px;
+}
+.canvas { display: block; width: 100%; cursor: crosshair; }
+
+.legend {
+  position: absolute; top: 10px; right: 14px; z-index: 2;
+  display: flex; align-items: center; gap: 12px;
+  font-size: var(--text-2xs); color: var(--text-faint);
+}
+.legend .item { display: inline-flex; align-items: center; gap: 5px; }
+.legend .sw { width: 11px; height: 2px; border-radius: 2px; }
+.legend .sw-primary { background: var(--theme-primary); }
+.legend .sw-tool { background: var(--theme-accent-success); }
+
+.tooltip {
+  position: absolute; z-index: 5; pointer-events: none;
+  padding: 5px 8px; border-radius: var(--radius-sm);
+  background: var(--surface-raised); border: 1px solid var(--hair-strong);
+  box-shadow: var(--elevation-2);
+  color: var(--text-strong); font-size: var(--text-2xs); white-space: nowrap;
+}
+
+.chart-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint); font-size: var(--text-sm);
+}
+</style>

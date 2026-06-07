@@ -1,0 +1,115 @@
+/* ============================================================================
+   DESIGN TOKENS  (additive foundation for the "Precision Instrument" overhaul)
+   ----------------------------------------------------------------------------
+   This layer is ADDITIVE. It does NOT rename or remove any existing --theme-*
+   token (those remain the source of truth for color, per-theme). It adds the
+   token families the old system lacked — typography, spacing, radius,
+   elevation, motion, density — plus *semantic aliases* that map onto the
+   existing --theme-* color tokens so every one of the 13 themes keeps working.
+
+   PORTER MAP (mockup var  ->  use this alias in components):
+     --theme-bg-base / -canvas   ->  var(--surface-canvas)
+     --theme-bg-panel            ->  var(--surface)
+     --theme-bg-raised           ->  var(--surface-raised)
+     --theme-bg-hover            ->  var(--surface-hover)
+     --theme-bg-active           ->  var(--surface-active)
+     --theme-border-faint        ->  var(--hair-faint)
+     --theme-border              ->  var(--hair)
+     --theme-border-strong       ->  var(--hair-strong)
+     --theme-text-strong         ->  var(--text-strong)
+     --theme-text                ->  var(--text-base)
+     --theme-text-muted          ->  var(--text-muted)
+     --theme-text-faint          ->  var(--text-faint)
+     --theme-text-ghost          ->  var(--text-ghost)
+     --theme-primary             ->  var(--theme-primary)        (unchanged)
+     --font-ui                   ->  var(--font-sans)
+     --font-mono                 ->  var(--font-mono)            (unchanged)
+     --agent-*                   ->  per-row inline --row-c (from appHexColor)
+   ============================================================================ */
+
+:root {
+  /* ---- Typography ------------------------------------------------------- */
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --text-2xs: 10px;
+  --text-xs:  11px;
+  --text-sm:  12px;
+  --text-body:13px;   /* base body size (named --text-body to avoid colliding with the --text-base color alias below) */
+  --text-md:  14px;
+  --text-lg:  16px;
+  --text-xl:  20px;
+  --text-2xl: 24px;
+
+  --leading-tight:  1.15;
+  --leading-snug:   1.35;
+  --leading-normal: 1.5;
+
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-semibold:600;
+  --weight-bold:    700;
+
+  --tracking-caps: 0.08em;   /* uppercase micro-labels */
+
+  /* ---- Spacing (4px base) ---------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  /* ---- Radius ----------------------------------------------------------- */
+  --radius-xs:  4px;
+  --radius-sm:  6px;
+  --radius-md:  8px;
+  --radius-lg:  11px;
+  --radius-full:9999px;
+
+  /* ---- Motion ----------------------------------------------------------- */
+  --motion-fast: 110ms;
+  --motion-base: 200ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  /* ---- Density (toggled by .compact on the shell root) ------------------ */
+  --row-h: 32px;
+  --row-pad-y: 7px;
+  --row-h-comfortable: 32px;
+  --row-h-compact: 26px;
+
+  /* ====================================================================== */
+  /* SEMANTIC COLOR ALIASES  — map onto existing --theme-* (per-theme)       */
+  /* ====================================================================== */
+
+  /* surfaces */
+  --surface-canvas: var(--theme-bg-secondary);  /* app/page background    */
+  --surface:        var(--theme-bg-primary);     /* panels, rows base       */
+  --surface-sunken: var(--theme-bg-secondary);
+  --surface-raised: var(--theme-bg-tertiary);    /* expanded JSON / overlays*/
+  --surface-hover:  var(--theme-hover-bg);
+  --surface-active: var(--theme-active-bg);
+
+  /* hairlines */
+  --hair-faint:  var(--theme-border-primary);
+  --hair:        var(--theme-border-secondary);
+  --hair-strong: var(--theme-border-tertiary);
+
+  /* text ramp (maps onto the 4 existing theme text levels; ghost reuses the
+     faintest) */
+  --text-strong: var(--theme-text-primary);
+  --text-base:   var(--theme-text-secondary);
+  --text-muted:  var(--theme-text-tertiary);
+  --text-faint:  var(--theme-text-quaternary);
+  --text-ghost:  var(--theme-text-quaternary);
+
+  /* primary tints (derived; primary itself stays --theme-primary) */
+  --primary-soft: color-mix(in srgb, var(--theme-primary) 14%, transparent);
+  --primary-line: color-mix(in srgb, var(--theme-primary) 42%, transparent);
+
+  /* ---- Elevation (built on existing shadow color tokens) ---------------- */
+  --elevation-1: 0 1px 2px var(--theme-shadow);
+  --elevation-2: 0 1px 0 0 var(--hair), 0 10px 28px -14px var(--theme-shadow-lg);
+}

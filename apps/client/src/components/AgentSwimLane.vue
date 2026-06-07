@@ -1,99 +1,35 @@
 <template>
-  <div class="agent-swim-lane">
-    <div class="lane-header">
-      <div class="header-left">
-        <div class="agent-label-container">
-          <span
-            class="agent-label-app"
-            :style="{
-              backgroundColor: getHexColorForApp(appName),
-              borderColor: getHexColorForApp(appName)
-            }"
-          >
-            <span class="font-mono text-xs">{{ appName }}</span>
-          </span>
-          <span
-            class="agent-label-session"
-            :style="{
-              backgroundColor: getHexColorForSession(sessionId),
-              borderColor: getHexColorForSession(sessionId)
-            }"
-          >
-            <span class="font-mono text-xs">{{ sessionId }}</span>
-          </span>
-        </div>
-        <div
-          v-if="modelName"
-          class="model-badge"
-          :title="`Model: ${modelName}`"
-        >
-          <span class="text-base">🧠</span>
-          <span class="text-xs font-bold">{{ formatModelName(modelName) }}</span>
-        </div>
-        <div
-          class="event-count-badge"
-          @mouseover="hoveredEventCount = true"
-          @mouseleave="hoveredEventCount = false"
-          :title="`Total events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : '5 minutes'}`"
-        >
-          <span class="text-base w-4 flex-shrink-0">⚡</span>
-          <span class="text-xs font-bold" :class="hoveredEventCount ? 'min-w-[65px]' : ''">
-            {{ hoveredEventCount ? `${totalEventCount} Events` : totalEventCount }}
-          </span>
-        </div>
-        <div
-          class="tool-call-badge"
-          @mouseover="hoveredToolCount = true"
-          @mouseleave="hoveredToolCount = false"
-          :title="`Tool calls in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : '5 minutes'}`"
-        >
-          <span class="text-base w-4 flex-shrink-0">🔧</span>
-          <span class="text-xs font-bold" :class="hoveredToolCount ? 'min-w-[75px]' : ''">
-            {{ hoveredToolCount ? `${toolCallCount} Tool Calls` : toolCallCount }}
-          </span>
-        </div>
-        <div
-          class="avg-time-badge flex items-center gap-1.5 px-2 py-2 bg-[var(--theme-bg-tertiary)] rounded-lg border border-[var(--theme-border-primary)] shadow-sm min-h-[28px]"
-          @mouseover="hoveredAvgTime = true"
-          @mouseleave="hoveredAvgTime = false"
-          :title="`Average time between events in the last ${timeRange === '1m' ? '1 minute' : timeRange === '3m' ? '3 minutes' : '5 minutes'}`"
-        >
-          <span class="text-lg w-5 flex-shrink-0">🕐</span>
-          <span class="text-sm font-bold text-[var(--theme-text-primary)]" :class="hoveredAvgTime ? 'min-w-[90px]' : ''">
-            {{ hoveredAvgTime ? `Avg Gap: ${formatGap(agentEventTimingMetrics.avgGap)}` : formatGap(agentEventTimingMetrics.avgGap) }}
-          </span>
-        </div>
-      </div>
-      <button @click="emit('close')" class="close-btn" title="Remove this swim lane">
-        ✕
+  <div class="lane">
+    <div class="lane-head">
+      <span class="agent-tag" :style="{ '--c': getHexColorForApp(appName) }">
+        <span class="cdot"></span>
+        <span class="mono">{{ appName }}<span class="sid">:{{ sessionId }}</span></span>
+      </span>
+      <span v-if="modelName" class="model mono" :title="`Model: ${modelName}`">{{ formatModelName(modelName) }}</span>
+      <span class="spacer"></span>
+      <span class="stats">
+        <span class="stat"><span class="sv mono tabular">{{ totalEventCount }}</span><span class="sk">events</span></span>
+        <span class="stat"><span class="sv mono tabular">{{ toolCallCount }}</span><span class="sk">tools</span></span>
+        <span class="stat"><span class="sv mono tabular">{{ formatGap(agentEventTimingMetrics.avgGap) }}</span><span class="sk">avg gap</span></span>
+      </span>
+      <button @click="emit('close')" class="close" title="Remove this swim lane" aria-label="Remove swim lane">
+        <AppIcon name="x" :size="14" />
       </button>
     </div>
-    <div ref="chartContainer" class="chart-wrapper">
+    <div ref="chartContainer" class="chart-wrapper" :style="{ '--c': getHexColorForApp(appName) }">
       <canvas
         ref="canvas"
-        class="w-full cursor-crosshair"
+        class="canvas"
         :style="{ height: chartHeight + 'px' }"
         @mousemove="handleMouseMove"
         @mouseleave="handleMouseLeave"
         role="img"
         :aria-label="chartAriaLabel"
       ></canvas>
-      <div
-        v-if="tooltip.visible"
-        class="absolute bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-primary-dark)] text-white px-2 py-1.5 rounded-lg text-xs pointer-events-none z-10 shadow-lg border border-[var(--theme-primary-light)] font-bold drop-shadow-md"
-        :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
-      >
+      <div v-if="tooltip.visible" class="tooltip mono" :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }">
         {{ tooltip.text }}
       </div>
-      <div
-        v-if="!hasData"
-        class="absolute inset-0 flex items-center justify-center"
-      >
-        <p class="text-[var(--theme-text-tertiary)] text-sm font-semibold">
-          <span class="mr-1">⏳</span>
-          Waiting for events...
-        </p>
-      </div>
+      <div v-if="!hasData" class="chart-empty">Waiting for events…</div>
     </div>
   </div>
 </template>
@@ -103,8 +39,8 @@ import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import type { HookEvent, TimeRange, ChartConfig } from '../types';
 import { useAgentChartData } from '../composables/useAgentChartData';
 import { createChartRenderer, type ChartDimensions } from '../utils/chartRenderer';
-import { useEventEmojis } from '../composables/useEventEmojis';
 import { useEventColors } from '../composables/useEventColors';
+import AppIcon from './AppIcon.vue';
 
 const props = defineProps<{
   agentName: string; // Format: "app:session" (e.g., "claude-code:a1b2c3d4")
@@ -118,10 +54,7 @@ const emit = defineEmits<{
 
 const canvas = ref<HTMLCanvasElement>();
 const chartContainer = ref<HTMLDivElement>();
-const chartHeight = 80;
-const hoveredEventCount = ref(false);
-const hoveredToolCount = ref(false);
-const hoveredAvgTime = ref(false);
+const chartHeight = 56;
 
 // Format gap time in ms to readable string (e.g., "125ms" or "1.2s")
 const formatGap = (gapMs: number): string => {
@@ -154,9 +87,6 @@ const modelName = computed(() => {
 const formatModelName = (name: string | null | undefined): string => {
   if (!name) return '';
 
-  // Extract model family and version
-  // "claude-haiku-4-5-20251001" -> "haiku-4-5"
-  // "claude-sonnet-4-5-20250929" -> "sonnet-4-5"
   const parts = name.split('-');
   if (parts.length >= 4) {
     return `${parts[1]}-${parts[2]}-${parts[3]}`;
@@ -176,10 +106,10 @@ const {
 let renderer: ReturnType<typeof createChartRenderer> | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let animationFrame: number | null = null;
+let idleTimer: number | null = null;
 const processedEventIds = new Set<string>();
 
-const { formatEventTypeLabel } = useEventEmojis();
-const { getHexColorForApp, getHexColorForSession } = useEventColors();
+const { getHexColorForApp } = useEventColors();
 
 const hasData = computed(() => dataPoints.value.some(dp => dp.count > 0));
 
@@ -218,9 +148,10 @@ const getActiveConfig = (): ChartConfig => {
     barWidth: 3,
     barGap: 1,
     colors: {
-      primary: getThemeColor('primary'),
+      // The lane sparkline is drawn in the agent's own hue
+      primary: getHexColorForApp(appName.value) || getThemeColor('primary'),
       glow: getThemeColor('primary-light'),
-      axis: getThemeColor('border-primary'),
+      axis: getThemeColor('border-secondary'),
       text: getThemeColor('text-tertiary')
     }
   };
@@ -231,12 +162,7 @@ const getDimensions = (): ChartDimensions => {
   return {
     width,
     height: chartHeight,
-    padding: {
-      top: 7,
-      right: 7,
-      bottom: 20,
-      left: 7
-    }
+    padding: { top: 8, right: 10, bottom: 8, left: 10 }
   };
 };
 
@@ -247,10 +173,7 @@ const render = () => {
   const maxValue = Math.max(...data.map(d => d.count), 1);
 
   renderer.clear();
-  renderer.drawBackground();
-  renderer.drawAxes();
-  renderer.drawTimeLabels(props.timeRange);
-  renderer.drawBars(data, maxValue, 1, formatEventTypeLabel, getHexColorForSession);
+  renderer.drawBars(data, maxValue, 1);
 };
 
 const animateNewEvent = (x: number, y: number) => {
@@ -264,7 +187,7 @@ const animateNewEvent = (x: number, y: number) => {
     renderer.drawPulseEffect(x, y, radius, opacity);
 
     radius += 2;
-    opacity -= 0.02;
+    opacity -= 0.04;
 
     if (opacity > 0) {
       animationFrame = requestAnimationFrame(animate);
@@ -313,7 +236,7 @@ const processNewEvents = () => {
       // Trigger pulse animation for new event
       if (renderer && canvas.value) {
         const chartArea = getDimensions();
-        const x = chartArea.width - chartArea.padding.right - 10;
+        const x = chartArea.width - chartArea.padding.right;
         const y = chartArea.height / 2;
         animateNewEvent(x, y);
       }
@@ -356,8 +279,9 @@ const handleMouseMove = (event: MouseEvent) => {
     height: dimensions.height - dimensions.padding.top - dimensions.padding.bottom
   };
 
-  const barWidth = chartArea.width / data.length;
-  const barIndex = Math.floor((x - chartArea.x) / barWidth);
+  if (data.length < 2) { tooltip.value.visible = false; return; }
+  const step = chartArea.width / (data.length - 1);
+  const barIndex = Math.round((x - chartArea.x) / step);
 
   if (barIndex >= 0 && barIndex < data.length && y >= chartArea.y && y <= chartArea.y + chartArea.height) {
     const point = data[barIndex];
@@ -368,7 +292,7 @@ const handleMouseMove = (event: MouseEvent) => {
 
       tooltip.value = {
         visible: true,
-        x: event.clientX - rect.left,
+        x: Math.min(x + 8, chartArea.x + chartArea.width - 4),
         y: event.clientY - rect.top - 30,
         text: `${point.count} events${eventTypesText ? ` (${eventTypesText})` : ''}`
       };
@@ -383,9 +307,10 @@ const handleMouseLeave = () => {
   tooltip.value.visible = false;
 };
 
-// Watch for theme changes
+// Watch for theme changes (rebuild renderer so axis/theme colors refresh)
 const themeObserver = new MutationObserver(() => {
-  if (renderer) {
+  if (renderer && canvas.value) {
+    renderer = createChartRenderer(canvas.value, getDimensions(), getActiveConfig());
     render();
   }
 });
@@ -411,22 +336,8 @@ onMounted(() => {
   // Initial render
   render();
 
-  // Start optimized render loop with FPS limiting
-  let lastRenderTime = 0;
-  const targetFPS = 30;
-  const frameInterval = 1000 / targetFPS;
-
-  const renderLoop = (currentTime: number) => {
-    const deltaTime = currentTime - lastRenderTime;
-
-    if (deltaTime >= frameInterval) {
-      render();
-      lastRenderTime = currentTime - (deltaTime % frameInterval);
-    }
-
-    requestAnimationFrame(renderLoop);
-  };
-  requestAnimationFrame(renderLoop);
+  // Idle redraw once a second (replaces always-on 30fps loop)
+  idleTimer = window.setInterval(render, 1000);
 });
 
 onUnmounted(() => {
@@ -444,132 +355,79 @@ onUnmounted(() => {
     cancelAnimationFrame(animationFrame);
   }
 
+  if (idleTimer !== null) {
+    clearInterval(idleTimer);
+  }
+
   themeObserver.disconnect();
 });
 </script>
 
 <style scoped>
-.agent-swim-lane {
+.lane {
   width: 100%;
-  background: transparent;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.lane-header {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr minmax(150px, 230px);
   align-items: center;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 0 7px;
-  gap: 8px;
+  gap: 14px;
+  padding: 8px 0;
+  border-left: 2px solid var(--c, var(--theme-primary));
+  padding-left: 12px;
 }
 
-.header-left {
+.lane-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+  min-width: 0;
 }
+.agent-tag {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-width: 0; flex: 0 1 auto;
+  font-size: var(--text-xs);
+}
+.agent-tag .cdot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; }
+.agent-tag .mono { color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-tag .sid { color: var(--text-faint); }
+.model { font-size: var(--text-2xs); color: var(--text-faint); border: 1px dashed var(--hair); border-radius: var(--radius-xs); padding: 1px 6px; flex: none; }
+.spacer { flex: 1; }
 
-.agent-label-container {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  white-space: nowrap;
-}
+.stats { display: flex; align-items: center; gap: 16px; flex: none; }
+.stat { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.05; }
+.stat .sv { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-strong); }
+.stat .sk { font-size: 9px; letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-ghost); margin-top: 2px; }
 
-.agent-label-app,
-.agent-label-session {
-  padding: 8px 8px;
-  border-radius: 0;
-  border: 1px solid currentColor;
-  color: white;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
+.close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; flex: none;
+  border: 0; background: transparent; color: var(--text-faint); cursor: pointer; border-radius: var(--radius-sm);
+  transition: color var(--motion-fast), background var(--motion-fast);
 }
-
-.agent-label-app {
-  border-radius: 3px 0 0 3px;
-}
-
-.agent-label-session {
-  border-radius: 0 3px 3px 0;
-  border-left: none;
-}
-
-.model-badge,
-.event-count-badge,
-.tool-call-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 8px;
-  background: var(--theme-bg-tertiary);
-  border: 1px solid var(--theme-border-primary);
-  border-radius: 8px;
-  color: var(--theme-text-primary);
-  font-size: 11px;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  user-select: none;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  min-height: 28px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.model-badge {
-  cursor: default;
-}
-
-.event-count-badge:hover,
-.tool-call-badge:hover,
-.model-badge:hover {
-  background: var(--theme-bg-quaternary);
-  border-color: var(--theme-primary);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.avg-time-badge {
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  color: var(--theme-text-tertiary);
-  padding: 0;
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 3px;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-
-.close-btn:hover {
-  background: var(--theme-bg-quaternary);
-  color: var(--theme-text-primary);
-  transform: scale(1.1);
-}
+.close:hover { color: var(--text-strong); background: var(--surface-hover); }
 
 .chart-wrapper {
   position: relative;
-  width: 100%;
-  border: 1px solid var(--theme-border-primary);
-  border-radius: 6px;
+  border: 1px solid var(--hair-faint);
+  border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--theme-bg-tertiary);
+  background: var(--surface);
+}
+.canvas { display: block; width: 100%; cursor: crosshair; }
+
+.tooltip {
+  position: absolute; z-index: 5; pointer-events: none;
+  padding: 4px 7px; border-radius: var(--radius-sm);
+  background: var(--surface-raised); border: 1px solid var(--hair-strong);
+  box-shadow: var(--elevation-2);
+  color: var(--text-strong); font-size: var(--text-2xs); white-space: nowrap;
+}
+.chart-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint); font-size: var(--text-xs);
+}
+
+@media (max-width: 699px) {
+  .lane { grid-template-columns: 1fr; }
+  .lane-head { flex-wrap: wrap; }
 }
 </style>

@@ -6,7 +6,22 @@ Real-time monitoring and visualization for Claude Code agents through comprehens
 
 This system provides complete observability into Claude Code agent behavior by capturing, storing, and visualizing Claude Code [Hook events](https://docs.anthropic.com/en/docs/claude-code/hooks) in real-time. It enables monitoring of multiple concurrent agents with session tracking, event filtering, and live updates. 
 
-<img src="images/app.png" alt="Multi-Agent Observability Dashboard" style="max-width: 800px; width: 100%;">
+<img src="images/redesign-dark.png" alt="Multi-Agent Observability Dashboard — redesigned UI" style="max-width: 100%; width: 100%;">
+
+### ✨ Redesigned UI
+
+A dense, dark-first **"precision instrument"** client: flat token-driven surfaces, IBM Plex Sans/Mono with tabular figures, a unified line-icon set (no emoji), a real labelled-axis live-pulse chart, per-agent swim lanes, inline human-in-the-loop approvals, and 13 fully-themed palettes.
+
+![Redesigned dashboard — live demo](images/redesign-demo.gif)
+
+<details>
+<summary><b>Light theme</b> — every surface is token-driven, so all 13 themes adapt</summary>
+
+<br>
+
+<img src="images/redesign-light.png" alt="Redesigned dashboard — light theme" style="max-width: 100%; width: 100%;">
+
+</details>
 
 ## 🏗️ Architecture
 

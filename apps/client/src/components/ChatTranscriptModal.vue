@@ -1,106 +1,85 @@
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 mobile:p-0">
+    <div v-if="isOpen" class="overlay" role="dialog" aria-modal="true" aria-label="Chat transcript">
       <!-- Backdrop -->
-      <div 
-        class="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
-        @click="close"
-      ></div>
-      
+      <div class="scrim" @click="close"></div>
+
       <!-- Modal -->
-      <div 
-        class="relative bg-white dark:bg-gray-800 rounded-lg mobile:rounded-none shadow-xl flex flex-col overflow-hidden z-10 mobile:w-full mobile:h-full mobile:fixed mobile:inset-0"
-        :style="{ width: '85vw', height: '85vh' }"
-        :class="{ 'mobile:!w-full mobile:!h-full': true }"
-        @click.stop
-      >
-          <!-- Header -->
-          <div class="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6 mobile:p-3">
-            <div class="flex items-center justify-between mb-4 mobile:mb-2">
-              <h2 class="text-3xl mobile:text-lg font-semibold text-gray-900 dark:text-white">
-                💬 Chat Transcript
-              </h2>
-              <button
-                @click="close"
-                class="p-2 mobile:p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-              >
-                <svg class="w-6 h-6 mobile:w-5 mobile:h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+      <div class="modal" @click.stop>
+        <!-- Header -->
+        <div class="modal-head">
+          <div class="head-row">
+            <h2 class="title">
+              <span class="title-ico"><AppIcon name="prompt" :size="16" /></span>
+              Chat Transcript
+            </h2>
+            <button class="iconbtn" title="Close" aria-label="Close" @click="close">
+              <AppIcon name="x" :size="16" />
+            </button>
+          </div>
+
+          <!-- Search and Filters -->
+          <div class="controls">
+            <!-- Search Input -->
+            <div class="search-row">
+              <div class="search">
+                <AppIcon name="search" :size="14" class="s-ico" />
+                <input
+                  v-model="searchQuery"
+                  type="text"
+                  placeholder="Search transcript…"
+                  @keyup.enter="executeSearch"
+                >
+              </div>
+              <button class="ghost-btn" @click="executeSearch">
+                <AppIcon name="search" :size="13" />
+                <span>Search</span>
+              </button>
+              <button class="ghost-btn" title="Copy all messages as JSON" @click="copyAllMessages">
+                <AppIcon :name="copyAllIcon" :size="13" />
+                <span>{{ copyAllLabel }}</span>
               </button>
             </div>
-            
-            <!-- Search and Filters -->
-            <div class="space-y-4">
-              <!-- Search Input -->
-              <div class="flex gap-2">
-                <div class="relative flex-1">
-                  <input
-                    v-model="searchQuery"
-                    @keyup.enter="executeSearch"
-                    type="text"
-                    placeholder="Search transcript..."
-                    class="w-full px-4 py-2 mobile:px-3 mobile:py-2 pl-10 mobile:pl-8 text-lg mobile:text-base border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                  >
-                  <svg class="absolute left-3 top-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </div>
-                <button
-                  @click="executeSearch"
-                  class="px-4 py-2 mobile:px-3 mobile:py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-colors text-base mobile:text-sm min-w-[44px] min-h-[44px] flex items-center justify-center"
-                >
-                  Search
-                </button>
-                <button
-                  @click="copyAllMessages"
-                  class="px-4 py-2 mobile:px-3 mobile:py-2 bg-gray-500 hover:bg-gray-600 text-white font-medium rounded-lg transition-colors text-base mobile:text-sm min-w-[44px] min-h-[44px] flex items-center justify-center"
-                  title="Copy all messages as JSON"
-                >
-                  {{ copyAllButtonText }}
-                </button>
-              </div>
-              
-              <!-- Filters -->
-              <div class="flex flex-wrap gap-2 mobile:gap-1 max-h-24 mobile:max-h-32 overflow-y-auto p-2 mobile:p-1 bg-gray-50 dark:bg-gray-900/50 rounded-lg mobile:overflow-x-auto mobile:pb-2">
-                <button
-                  v-for="filter in filters"
-                  :key="filter.type"
-                  @click="toggleFilter(filter.type)"
-                  class="px-4 py-2 mobile:px-3 mobile:py-1.5 rounded-full text-sm mobile:text-xs font-medium transition-colors min-h-[44px] mobile:min-h-[36px] flex items-center whitespace-nowrap"
-                  :class="activeFilters.includes(filter.type) 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'"
-                >
-                  <span class="mr-1">{{ filter.icon }}</span>
-                  {{ filter.label }}
-                </button>
-                
-                <!-- Clear Filters -->
-                <button
-                  v-if="searchQuery || activeSearchQuery || activeFilters.length > 0"
-                  @click="clearSearch"
-                  class="px-4 py-2 mobile:px-3 mobile:py-1.5 rounded-full text-sm mobile:text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50 min-h-[44px] mobile:min-h-[36px] flex items-center whitespace-nowrap"
-                >
-                  Clear All
-                </button>
-              </div>
-              
-              <!-- Results Count -->
-              <div v-if="activeSearchQuery || activeFilters.length > 0" class="text-sm mobile:text-xs text-gray-500 dark:text-gray-400">
-                Showing {{ filteredChat.length }} of {{ chat.length }} messages
-                <span v-if="activeSearchQuery" class="ml-2 font-medium mobile:block mobile:ml-0 mobile:mt-1">
-                  (searching for "{{ activeSearchQuery }}")
-                </span>
-              </div>
+
+            <!-- Filters -->
+            <div class="filters">
+              <button
+                v-for="filter in filters"
+                :key="filter.type"
+                class="chip"
+                :class="{ on: activeFilters.includes(filter.type) }"
+                @click="toggleFilter(filter.type)"
+              >
+                <AppIcon :name="filter.icon" :size="12" />
+                <span>{{ filter.label }}</span>
+              </button>
+
+              <!-- Clear Filters -->
+              <button
+                v-if="searchQuery || activeSearchQuery || activeFilters.length > 0"
+                class="chip chip-clear"
+                @click="clearSearch"
+              >
+                <AppIcon name="x" :size="12" />
+                <span>Clear All</span>
+              </button>
+            </div>
+
+            <!-- Results Count -->
+            <div v-if="activeSearchQuery || activeFilters.length > 0" class="results">
+              Showing <span class="mono tabular">{{ filteredChat.length }}</span> of <span class="mono tabular">{{ chat.length }}</span> messages
+              <span v-if="activeSearchQuery" class="results-q">
+                · searching for "<span class="mono">{{ activeSearchQuery }}</span>"
+              </span>
             </div>
           </div>
-          
-          <!-- Content -->
-          <div class="flex-1 p-6 mobile:p-3 overflow-hidden flex flex-col">
-            <ChatTranscript :chat="filteredChat" />
-          </div>
         </div>
+
+        <!-- Content -->
+        <div class="modal-body">
+          <ChatTranscript :chat="filteredChat" />
+        </div>
+      </div>
     </div>
   </Teleport>
 </template>
@@ -108,6 +87,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import ChatTranscript from './ChatTranscript.vue';
+import AppIcon from './AppIcon.vue';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -121,23 +101,24 @@ const emit = defineEmits<{
 const searchQuery = ref('');
 const activeSearchQuery = ref('');
 const activeFilters = ref<string[]>([]);
-const copyAllButtonText = ref('📋 Copy All');
+const copyAllIcon = ref('copy');
+const copyAllLabel = ref('Copy All');
 
 const filters = [
   // Message types
-  { type: 'user', label: 'User', icon: '👤' },
-  { type: 'assistant', label: 'Assistant', icon: '🤖' },
-  { type: 'system', label: 'System', icon: '⚙️' },
-  
+  { type: 'user', label: 'User', icon: 'prompt' },
+  { type: 'assistant', label: 'Assistant', icon: 'zap' },
+  { type: 'system', label: 'System', icon: 'tool' },
+
   // Tool actions
-  { type: 'tool_use', label: 'Tool Use', icon: '🔧' },
-  { type: 'tool_result', label: 'Tool Result', icon: '✅' },
-  
+  { type: 'tool_use', label: 'Tool Use', icon: 'pre-tool' },
+  { type: 'tool_result', label: 'Tool Result', icon: 'post-tool' },
+
   // Specific tools
-  { type: 'Read', label: 'Read', icon: '📄' },
-  { type: 'Write', label: 'Write', icon: '✍️' },
-  { type: 'Edit', label: 'Edit', icon: '✏️' },
-  { type: 'Glob', label: 'Glob', icon: '🔎' },
+  { type: 'Read', label: 'Read', icon: 'read' },
+  { type: 'Write', label: 'Write', icon: 'write' },
+  { type: 'Edit', label: 'Edit', icon: 'edit' },
+  { type: 'Glob', label: 'Glob', icon: 'glob' },
 ];
 
 const toggleFilter = (type: string) => {
@@ -168,44 +149,48 @@ const copyAllMessages = async () => {
     // Copy all chat messages as formatted JSON
     const jsonPayload = JSON.stringify(props.chat, null, 2);
     await navigator.clipboard.writeText(jsonPayload);
-    
-    copyAllButtonText.value = '✅ Copied!';
+
+    copyAllIcon.value = 'check';
+    copyAllLabel.value = 'Copied!';
     setTimeout(() => {
-      copyAllButtonText.value = '📋 Copy All';
+      copyAllIcon.value = 'copy';
+      copyAllLabel.value = 'Copy All';
     }, 2000);
   } catch (err) {
     console.error('Failed to copy all messages:', err);
-    copyAllButtonText.value = '❌ Failed';
+    copyAllIcon.value = 'x';
+    copyAllLabel.value = 'Failed';
     setTimeout(() => {
-      copyAllButtonText.value = '📋 Copy All';
+      copyAllIcon.value = 'copy';
+      copyAllLabel.value = 'Copy All';
     }, 2000);
   }
 };
 
 const matchesSearch = (item: any, query: string): boolean => {
   const lowerQuery = query.toLowerCase().trim();
-  
+
   // Check direct content (for system messages and simple chat)
   if (typeof item.content === 'string') {
     // Remove ANSI codes before searching
-    const cleanContent = item.content.replace(/\u001b\[[0-9;]*m/g, '').toLowerCase();
+    const cleanContent = item.content.replace(/\[[0-9;]*m/g, '').toLowerCase();
     if (cleanContent.includes(lowerQuery)) {
       return true;
     }
   }
-  
+
   // Check role in simple format
   if (item.role && item.role.toLowerCase().includes(lowerQuery)) {
     return true;
   }
-  
+
   // Check message object (complex format)
   if (item.message) {
     // Check message role
     if (item.message.role && item.message.role.toLowerCase().includes(lowerQuery)) {
       return true;
     }
-    
+
     // Check message content
     if (item.message.content) {
       if (typeof item.message.content === 'string' && item.message.content.toLowerCase().includes(lowerQuery)) {
@@ -230,12 +215,12 @@ const matchesSearch = (item: any, query: string): boolean => {
       }
     }
   }
-  
+
   // Check type
   if (item.type && item.type.toLowerCase().includes(lowerQuery)) {
     return true;
   }
-  
+
   // Check parentUuid, uuid, sessionId
   if (item.uuid && item.uuid.toLowerCase().includes(lowerQuery)) {
     return true;
@@ -243,30 +228,30 @@ const matchesSearch = (item: any, query: string): boolean => {
   if (item.sessionId && item.sessionId.toLowerCase().includes(lowerQuery)) {
     return true;
   }
-  
+
   // Check toolUseResult
   if (item.toolUseResult) {
     if (JSON.stringify(item.toolUseResult).toLowerCase().includes(lowerQuery)) {
       return true;
     }
   }
-  
+
   return false;
 };
 
 const matchesFilters = (item: any): boolean => {
   if (activeFilters.value.length === 0) return true;
-  
+
   // Check message type
   if (item.type && activeFilters.value.includes(item.type)) {
     return true;
   }
-  
+
   // Check role (simple format)
   if (item.role && activeFilters.value.includes(item.role)) {
     return true;
   }
-  
+
   // Check for system messages with hook types
   if (item.type === 'system' && item.content) {
     // Extract hook type from system content (e.g., "PreToolUse:Read")
@@ -286,19 +271,19 @@ const matchesFilters = (item: any): boolean => {
       }
     }
   }
-  
+
   // Check for command messages
   if (item.message?.content && typeof item.message.content === 'string') {
     if (item.message.content.includes('<command-') && activeFilters.value.includes('command')) {
       return true;
     }
   }
-  
+
   // Check for meta messages
   if (item.isMeta && activeFilters.value.includes('meta')) {
     return true;
   }
-  
+
   // Check for tool use in content
   if (item.message?.content && Array.isArray(item.message.content)) {
     for (const content of item.message.content) {
@@ -316,7 +301,7 @@ const matchesFilters = (item: any): boolean => {
       }
     }
   }
-  
+
   return false;
 };
 
@@ -324,7 +309,7 @@ const filteredChat = computed(() => {
   if (!activeSearchQuery.value && activeFilters.value.length === 0) {
     return props.chat;
   }
-  
+
   return props.chat.filter(item => {
     const matchesQueryCondition = !activeSearchQuery.value || matchesSearch(item, activeSearchQuery.value);
     const matchesFilterCondition = matchesFilters(item);
@@ -355,3 +340,126 @@ watch(() => props.isOpen, (newVal) => {
 });
 
 </script>
+
+<style scoped>
+.overlay {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-4);
+}
+.scrim {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* ───────── modal shell ───────── */
+.modal {
+  position: relative; z-index: 1;
+  width: 85vw; height: 85vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elevation-2);
+  font-family: var(--font-sans);
+}
+
+/* ───────── header ───────── */
+.modal-head {
+  flex: none;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--hair-faint);
+  background: var(--surface);
+}
+.head-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+.title {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-lg); font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+}
+.title-ico { display: inline-flex; color: var(--theme-primary); }
+
+.iconbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-faint); cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
+}
+.iconbtn:hover { color: var(--text-strong); background: var(--surface-hover); }
+
+/* ───────── controls ───────── */
+.controls { display: flex; flex-direction: column; gap: var(--space-3); }
+
+.search-row { display: flex; align-items: center; gap: var(--space-2); }
+.search { position: relative; display: flex; align-items: center; flex: 1; min-width: 0; }
+.search .s-ico { position: absolute; left: 10px; color: var(--text-faint); pointer-events: none; }
+.search input {
+  width: 100%; padding: 7px 12px 7px 32px;
+  border: 1px solid var(--hair); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text-strong);
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  transition: border-color var(--motion-fast);
+}
+.search input::placeholder { color: var(--text-ghost); font-family: var(--font-sans); }
+.search input:focus { outline: none; border-color: var(--theme-primary); }
+
+.ghost-btn {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  padding: 7px 11px; border: 1px solid var(--hair); border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  font-family: var(--font-sans); font-size: var(--text-xs); font-weight: var(--weight-medium);
+  transition: color var(--motion-fast), border-color var(--motion-fast);
+}
+.ghost-btn:hover { color: var(--theme-primary); border-color: var(--primary-line); }
+
+/* ───────── filter chips ───────── */
+.filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: var(--radius-full);
+  border: 1px solid var(--hair); background: transparent;
+  color: var(--text-muted); cursor: pointer;
+  font-family: var(--font-sans); font-size: var(--text-xs); font-weight: var(--weight-medium);
+  white-space: nowrap;
+  transition: color var(--motion-fast), border-color var(--motion-fast), background var(--motion-fast);
+}
+.chip:hover { color: var(--text-strong); border-color: var(--hair-strong); }
+.chip.on {
+  color: var(--theme-primary);
+  border-color: var(--primary-line);
+  background: var(--primary-soft);
+}
+.chip-clear { color: var(--text-faint); }
+.chip-clear:hover {
+  color: var(--theme-accent-error);
+  border-color: color-mix(in srgb, var(--theme-accent-error) 55%, transparent);
+  background: color-mix(in srgb, var(--theme-accent-error) 10%, transparent);
+}
+
+/* ───────── results count ───────── */
+.results { font-size: var(--text-xs); color: var(--text-faint); }
+.results .mono { color: var(--text-base); }
+.results-q { color: var(--text-muted); }
+
+/* ───────── body ───────── */
+.modal-body {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+@media (max-width: 699px) {
+  .overlay { padding: 0; }
+  .modal {
+    width: 100%; height: 100%;
+    border: 0; border-radius: 0;
+  }
+  .modal-head { padding: var(--space-3); }
+  .filters { max-height: 96px; overflow-y: auto; }
+}
+</style>

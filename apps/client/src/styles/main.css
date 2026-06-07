@@ -1,3 +1,72 @@
+/* Font faces must be imported before any other rules */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ============================================================================
+   BASELINE  — token-bound globals (replaces the empty stylesheet)
+   ============================================================================ */
+@layer base {
+  html, body, #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--theme-bg-secondary);
+    color: var(--theme-text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--leading-normal);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Mono data should always use tabular figures so columns of numbers and
+     timestamps line up and don't jitter as they update. */
+  code, pre, kbd, samp, .font-mono, [class*="mono"] {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Visible, themed keyboard focus everywhere (was missing entirely). */
+  :focus-visible {
+    outline: 2px solid var(--theme-focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
+  /* Don't show the ring for mouse users on elements that handle it themselves. */
+  :focus:not(:focus-visible) { outline: none; }
+}
+
+@layer utilities {
+  .tabular { font-variant-numeric: tabular-nums; }
+}
+
+/* Themed, unobtrusive scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-border-tertiary) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--theme-border-tertiary);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--theme-text-quaternary); background-clip: padding-box; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* Respect reduced-motion: kill the page-load reveals and transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

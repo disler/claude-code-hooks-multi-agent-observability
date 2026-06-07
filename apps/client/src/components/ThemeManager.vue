@@ -1,95 +1,65 @@
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <!-- Backdrop -->
-      <div 
-        class="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
-        @click="close"
-      ></div>
-      
+    <div v-if="isOpen" class="tm-overlay" role="dialog" aria-modal="true" aria-label="Theme Manager">
+      <!-- Scrim -->
+      <div class="tm-scrim" @click="close"></div>
+
       <!-- Modal -->
-      <div 
-        class="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl flex flex-col overflow-hidden z-10"
-        style="width: 75vw; height: 75vh"
-        @click.stop
-      >
+      <div class="tm-modal" @click.stop>
         <!-- Header -->
-        <div class="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-3xl font-semibold text-gray-900 dark:text-white">
-              🎨 Theme Manager
-            </h2>
-            <button
-              @click="close"
-              class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-            >
-              <svg class="w-6 h-6 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+        <header class="tm-head">
+          <div class="tm-title">
+            <span class="tm-title-ico"><AppIcon name="theme" :size="18" /></span>
+            <h2>Theme Manager</h2>
           </div>
-        </div>
-        
+          <button class="tm-close" type="button" aria-label="Close" @click="close">
+            <AppIcon name="x" :size="16" />
+          </button>
+        </header>
+
         <!-- Content -->
-        <div class="flex-1 p-6 overflow-y-auto">
+        <div class="tm-content">
+          <p class="tm-caption">Predefined Themes</p>
+
           <!-- Theme Grid -->
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-            <div
+          <div class="tm-grid">
+            <button
               v-for="theme in predefinedThemes"
               :key="theme.name"
+              type="button"
+              class="tm-card"
+              :class="{ 'is-active': currentTheme === theme.name }"
+              :aria-pressed="currentTheme === theme.name"
               @click="selectTheme(theme.name)"
-              :class="[
-                'cursor-pointer rounded-lg border-2 p-4 transition-all hover:shadow-md',
-                currentTheme === theme.name
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-              ]"
             >
-              <!-- Theme Preview -->
-              <div class="flex h-16 rounded-md overflow-hidden mb-3">
-                <div 
-                  class="flex-1"
-                  :style="{ backgroundColor: theme.preview.primary }"
-                ></div>
-                <div 
-                  class="flex-1"
-                  :style="{ backgroundColor: theme.preview.secondary }"
-                ></div>
-                <div 
-                  class="flex-1"
-                  :style="{ backgroundColor: theme.preview.accent }"
-                ></div>
+              <!-- Color preview -->
+              <div class="tm-swatches">
+                <span class="tm-swatch" :style="{ backgroundColor: theme.preview.primary }"></span>
+                <span class="tm-swatch" :style="{ backgroundColor: theme.preview.secondary }"></span>
+                <span class="tm-swatch" :style="{ backgroundColor: theme.preview.accent }"></span>
               </div>
-              
-              <!-- Theme Info -->
-              <h3 class="font-medium text-gray-900 dark:text-white">{{ theme.displayName }}</h3>
-              <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">{{ theme.description }}</p>
-              
-              <!-- Current indicator -->
-              <div v-if="currentTheme === theme.name" class="mt-2">
-                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
-                  <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                  </svg>
-                  Current
-                </span>
+
+              <!-- Info -->
+              <div class="tm-card-body">
+                <div class="tm-card-name">
+                  <span class="tm-name">{{ theme.displayName }}</span>
+                  <span v-if="currentTheme === theme.name" class="tm-current">
+                    <AppIcon name="check" :size="12" /><span>Current</span>
+                  </span>
+                </div>
+                <p class="tm-desc">{{ theme.description }}</p>
               </div>
-            </div>
-          </div>
-          
-          <!-- Actions -->
-          <div class="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-700">
-            <div class="text-sm text-gray-500 dark:text-gray-400">
-              {{ predefinedThemes.length }} themes available
-            </div>
-            <button
-              @click="close"
-              class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-            >
-              Close
             </button>
           </div>
         </div>
+
+        <!-- Footer -->
+        <footer class="tm-foot">
+          <span class="tm-count">
+            <span class="mono tabular">{{ predefinedThemes.length }}</span> themes available
+          </span>
+          <button class="tm-btn" type="button" @click="close">Close</button>
+        </footer>
       </div>
     </div>
   </Teleport>
@@ -98,6 +68,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useThemes } from '../composables/useThemes';
+import AppIcon from './AppIcon.vue';
 
 defineProps<{
   isOpen: boolean;
@@ -123,3 +94,187 @@ const close = () => {
   emit('close');
 };
 </script>
+
+<style scoped>
+.tm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.tm-scrim {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--theme-shadow-lg) 80%, transparent);
+}
+
+/* ───────── modal ───────── */
+.tm-modal {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  width: 75vw;
+  height: 75vh;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elevation-2);
+  color: var(--text-base);
+  font-family: var(--font-sans);
+}
+
+/* ───────── header ───────── */
+.tm-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--hair-faint);
+}
+.tm-title { display: flex; align-items: center; gap: var(--space-3); }
+.tm-title-ico { display: inline-flex; color: var(--theme-primary); }
+.tm-title h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+.tm-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
+}
+.tm-close:hover { color: var(--text-strong); background: var(--surface-hover); }
+
+/* ───────── content ───────── */
+.tm-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+.tm-caption {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.tm-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+/* ───────── theme card ───────── */
+.tm-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  text-align: left;
+  background: var(--surface-raised);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
+}
+.tm-card:hover { border-color: var(--hair-strong); background: var(--surface-hover); }
+.tm-card:focus-visible { outline: 2px solid var(--theme-focus-ring); outline-offset: 2px; }
+.tm-card.is-active { border-color: var(--theme-primary); background: var(--primary-soft); }
+
+.tm-swatches {
+  display: flex;
+  height: 56px;
+  overflow: hidden;
+  border: 1px solid var(--hair-faint);
+  border-radius: var(--radius-sm);
+}
+.tm-swatch { flex: 1; }
+.tm-swatch + .tm-swatch { border-left: 1px solid var(--hair-faint); }
+
+.tm-card-body { display: flex; flex-direction: column; gap: var(--space-1); }
+.tm-card-name { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.tm-name {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-strong);
+}
+.tm-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--primary-line);
+  border-radius: var(--radius-full);
+  color: var(--theme-primary);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.tm-desc {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--text-muted);
+}
+
+/* ───────── footer ───────── */
+.tm-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--hair-faint);
+}
+.tm-count { font-size: var(--text-sm); color: var(--text-faint); }
+.tm-count .mono { color: var(--text-muted); }
+.tm-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  transition: color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
+}
+.tm-btn:hover { color: var(--theme-primary); border-color: var(--primary-line); background: var(--primary-soft); }
+
+.mono { font-family: var(--font-mono); }
+.tabular { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1023px) {
+  .tm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 699px) {
+  .tm-modal { width: 100%; height: 100%; border-radius: 0; border: 0; }
+  .tm-grid { grid-template-columns: 1fr; }
+}
+</style>

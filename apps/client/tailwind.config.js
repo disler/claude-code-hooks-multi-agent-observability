@@ -11,6 +11,11 @@ export default {
         'mobile': {'max': '699px'}, // Custom mobile breakpoint for < 700px
         'short': {'raw': '(max-height: 400px)'}, // Custom breakpoint for height <= 400px
       },
+      fontFamily: {
+        // IBM Plex via design tokens (tokens.css). `font-sans` / `font-mono`.
+        'sans': ['var(--font-sans)'],
+        'mono': ['var(--font-mono)'],
+      },
       colors: {
         // Theme-aware colors using CSS custom properties
         'theme': {
