@@ -76,6 +76,24 @@ def get_llm_completion_message():
     script_dir = Path(__file__).parent
     llm_dir = script_dir / "utils" / "llm"
 
+    if (
+        os.getenv("LLM_PROVIDER", "").strip().lower() == "minimax"
+        and os.getenv("MINIMAX_API_KEY")
+    ):
+        minimax_script = llm_dir / "minimax.py"
+        if minimax_script.exists():
+            try:
+                result = subprocess.run(
+                    ["uv", "run", str(minimax_script), "--completion"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip()
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+                pass
+
     # Try Anthropic second
     if os.getenv("ANTHROPIC_API_KEY"):
         anth_script = llm_dir / "anth.py"

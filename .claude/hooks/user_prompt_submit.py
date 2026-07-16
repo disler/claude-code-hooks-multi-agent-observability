@@ -46,6 +46,16 @@ def log_user_prompt(session_id, input_data):
         json.dump(log_data, f, indent=2)
 
 
+def get_agent_name_command():
+    """Return the configured provider command for agent name generation."""
+    if (
+        os.getenv("LLM_PROVIDER", "").strip().lower() == "minimax"
+        and os.getenv("MINIMAX_API_KEY")
+    ):
+        return ["uv", "run", ".claude/hooks/utils/llm/minimax.py", "--agent-name"]
+    return ["uv", "run", ".claude/hooks/utils/llm/anth.py", "--agent-name"]
+
+
 def manage_session_data(session_id, prompt, name_agent=False):
     """Manage session data in the new JSON structure."""
     import subprocess
@@ -74,7 +84,7 @@ def manage_session_data(session_id, prompt, name_agent=False):
         # Try Anthropic first (preferred)
         try:
             result = subprocess.run(
-                ["uv", "run", ".claude/hooks/utils/llm/anth.py", "--agent-name"],
+                get_agent_name_command(),
                 capture_output=True,
                 text=True,
                 timeout=10,

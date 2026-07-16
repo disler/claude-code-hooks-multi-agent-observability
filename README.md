@@ -402,8 +402,24 @@ Copy `.env.sample` to `.env` in the project root and fill in your API keys:
 - `ANTHROPIC_API_KEY` – Anthropic Claude API key (required)
 - `ENGINEER_NAME` – Your name (for logging/identification)
 - `OPENAI_API_KEY` – OpenAI API key (optional)
+- `LLM_PROVIDER` – Set to `minimax` to use the MiniMax provider for generated summaries and messages
+- `MINIMAX_API_KEY` – MiniMax API key (required when `LLM_PROVIDER=minimax`)
+- `MINIMAX_REGION` – `global_en` or `cn_zh` (default: `global_en`)
+- `MINIMAX_PROTOCOL` – `openai` or `anthropic` (default: `anthropic`)
+- `MINIMAX_MODEL` – `MiniMax-M3` or `MiniMax-M2.7` (default: `MiniMax-M3`)
 - `ELEVENLABS_API_KEY` – ElevenLabs API key (optional, for TTS)
 - `FIRECRAWL_API_KEY` – Firecrawl API key (optional, for web scraping)
+
+### MiniMax Provider
+
+Set `LLM_PROVIDER=minimax` and configure the MiniMax variables above to route hook-generated text through the selected model and endpoint. The provider keeps both regions and both compatible protocols available:
+
+| Region | OpenAI-compatible base URL | Anthropic-compatible base URL |
+| --- | --- | --- |
+| `global_en` | `https://api.minimax.io/v1` | `https://api.minimax.io/anthropic` |
+| `cn_zh` | `https://api.minimaxi.com/v1` | `https://api.minimaxi.com/anthropic` |
+
+The Anthropic-compatible base URL remains the configured `/anthropic` value; requests append `/v1/messages` at runtime.
 
 **Client** (`.env` file in `apps/client/.env`):
 - `VITE_MAX_EVENTS_TO_DISPLAY=100` – Maximum events to show (removes oldest when exceeded)
