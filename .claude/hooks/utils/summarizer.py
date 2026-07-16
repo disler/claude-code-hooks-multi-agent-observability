@@ -9,7 +9,7 @@
 
 import json
 from typing import Optional, Dict, Any
-from .llm.anth import prompt_llm
+from .llm.registry import prompt_llm
 
 
 def generate_event_summary(event_data: Dict[str, Any]) -> Optional[str]:
