@@ -27,6 +27,7 @@ Before getting started, ensure you have the following installed:
 - **Anthropic API Key** - Set as `ANTHROPIC_API_KEY` environment variable
 - **OpenAI API Key** (optional) - For multi-model support with just-prompt MCP tool
 - **ElevenLabs API Key** (optional) - For audio features
+- **MiniMax API Key** (optional) - For audio features
 - **Firecrawl API Key** (optional) - For web scraping features
 
 ### Configure .claude Directory
@@ -403,6 +404,7 @@ Copy `.env.sample` to `.env` in the project root and fill in your API keys:
 - `ENGINEER_NAME` – Your name (for logging/identification)
 - `OPENAI_API_KEY` – OpenAI API key (optional)
 - `ELEVENLABS_API_KEY` – ElevenLabs API key (optional, for TTS)
+- `MINIMAX_API_KEY` – MiniMax API key (optional, for TTS)
 - `FIRECRAWL_API_KEY` – Firecrawl API key (optional, for web scraping)
 
 **Client** (`.env` file in `apps/client/.env`):
@@ -478,7 +480,7 @@ This is what separates engineers from vibe coders: understanding what's happenin
 
 - **Server**: Bun, TypeScript, SQLite
 - **Client**: Vue 3, TypeScript, Vite, Tailwind CSS
-- **Hooks**: Python 3.11+, Astral uv, TTS (ElevenLabs or OpenAI), LLMs (Claude or OpenAI)
+- **Hooks**: Python 3.11+, Astral uv, TTS (multiple providers, including MiniMax), LLMs (Claude or OpenAI)
 - **Communication**: HTTP REST, WebSocket
 
 ## Master AI **Agentic Coding**
@@ -487,4 +489,3 @@ This is what separates engineers from vibe coders: understanding what's happenin
 Learn tactical agentic coding patterns with [Tactical Agentic Coding](https://agenticengineer.com/tactical-agentic-coding?y=opsorch)
 
 Follow the [IndyDevDan YouTube channel](https://www.youtube.com/@indydevdan) to improve your agentic coding advantage.
-

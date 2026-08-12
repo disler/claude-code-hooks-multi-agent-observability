@@ -26,7 +26,7 @@ except ImportError:
 def get_tts_script_path():
     """
     Determine which TTS script to use based on available API keys.
-    Priority order: ElevenLabs > OpenAI > pyttsx3
+    Provider priority follows the checks below.
     """
     # Get current script directory and construct utils/tts path
     script_dir = Path(__file__).parent
@@ -38,7 +38,13 @@ def get_tts_script_path():
         if elevenlabs_script.exists():
             return str(elevenlabs_script)
 
-    # Check for OpenAI API key (second priority)
+    # Check for MiniMax API key after the highest-priority provider
+    if os.getenv("MINIMAX_API_KEY"):
+        minimax_script = tts_dir / "minimax_tts.py"
+        if minimax_script.exists():
+            return str(minimax_script)
+
+    # Check the next API-backed provider
     if os.getenv("OPENAI_API_KEY"):
         openai_script = tts_dir / "openai_tts.py"
         if openai_script.exists():
