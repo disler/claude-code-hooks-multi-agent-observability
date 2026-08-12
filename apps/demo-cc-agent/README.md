@@ -55,7 +55,7 @@ Most hooks use the `--summarize` flag to include a brief summary of the event da
 The Stop event includes the full chat history with the `--add-chat` flag, allowing you to review complete conversations.
 
 ### Text-to-Speech
-The notification hook supports TTS via ElevenLabs or OpenAI when API keys are configured.
+The notification hook supports MiniMax TTS in addition to the existing providers when an API key is configured.
 
 ### Custom Commands
 The `.claude/commands/` directory contains helpful slash commands:
